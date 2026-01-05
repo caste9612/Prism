@@ -6,7 +6,7 @@
 use crate::AppState;
 use serde::Serialize;
 use tauri::State;
-use tracing::{debug, info};
+use tracing::info;
 
 /// Verification mode for comparing files
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -146,7 +146,7 @@ pub async fn verify_cross_disk(
     for (source_path, name, size, hash) in &source_files {
         let mut found = false;
         let mut found_on = Vec::new();
-        let mut matched_path = None;
+        let mut matched_path: Option<String> = None;
 
         // First try to match by hash if available
         if let Some(ref h) = hash {

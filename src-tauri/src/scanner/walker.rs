@@ -1191,6 +1191,21 @@ impl Scanner {
 
                     if let Some(handle) = app_handle {
                         let _ = handle.emit("incremental-progress", &incremental);
+
+                        // Also emit scan-progress for frontend compatibility
+                        let scan_progress = super::ScanProgress {
+                            scan_id: scan_id,
+                            files_scanned: incremental.files_checked,
+                            total_size: 0, // Not tracked in incremental
+                            current_path: format!("Incremental: {} checked, {} new, {} updated",
+                                incremental.files_checked, incremental.files_new, incremental.files_updated),
+                            files_per_second: 0.0,
+                            is_complete: false,
+                            error: None,
+                            drives: std::collections::HashMap::new(),
+                            indexing: None,
+                        };
+                        let _ = handle.emit("scan-progress", &scan_progress);
                     }
                 }
 
@@ -1274,6 +1289,23 @@ impl Scanner {
         if let Some(handle) = app_handle {
             let _ = handle.emit("incremental-progress", &incremental);
             let _ = handle.emit("incremental-complete", &incremental);
+
+            // Also emit scan-progress and scan-complete for frontend compatibility
+            let final_scan_progress = super::ScanProgress {
+                scan_id: scan_id,
+                files_scanned: incremental.files_checked,
+                total_size: 0,
+                current_path: format!("Complete: {} checked, {} unchanged, {} new, {} updated, {} deleted",
+                    incremental.files_checked, incremental.files_unchanged,
+                    incremental.files_new, incremental.files_updated, incremental.files_deleted),
+                files_per_second: 0.0,
+                is_complete: true,
+                error: None,
+                drives: std::collections::HashMap::new(),
+                indexing: None,
+            };
+            let _ = handle.emit("scan-progress", &final_scan_progress);
+            let _ = handle.emit("scan-complete", &final_scan_progress);
         }
 
         Ok(incremental)

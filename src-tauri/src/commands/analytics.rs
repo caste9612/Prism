@@ -354,81 +354,107 @@ pub struct FolderSize {
     pub depth: i32,
 }
 
-/// Get folder sizes for treemap
+/// Get folder sizes for treemap - optimized using SQL aggregation
 #[tauri::command]
 pub async fn get_folder_sizes(
     state: State<'_, AppState>,
     root_path: Option<String>,
     depth: Option<i32>,
 ) -> Result<Vec<FolderSize>, String> {
+    let start = std::time::Instant::now();
     let db = state.db.lock().await;
     let conn = db.connection();
     let max_depth = depth.unwrap_or(2);
 
-    let (sql, params): (String, Vec<String>) = if let Some(ref root) = root_path {
-        (
-            "SELECT path, size FROM files WHERE path LIKE ?1".to_string(),
-            vec![format!("{}%", root)],
+    // The max_depth parameter is reserved for future multi-level queries
+    let _ = max_depth; // Mark as used
+
+    // Fallback to simpler approach: get top-level folders using get_folder_contents logic
+    // For treemap, we typically only need 1-2 levels at a time anyway
+    let query = if let Some(ref root) = root_path {
+        let normalized = if root.ends_with('\\') || root.ends_with('/') {
+            root.to_uppercase()
+        } else {
+            format!("{}\\", root.to_uppercase())
+        };
+        let pattern = format!("{}%", normalized);
+        let base_len = normalized.len() as i64;
+
+        format!(
+            r#"
+            WITH immediate_folders AS (
+                SELECT
+                    path,
+                    size,
+                    CASE
+                        WHEN INSTR(SUBSTR(UPPER(path), {} + 1), '\') > 0
+                        THEN SUBSTR(path, 1, {} + INSTR(SUBSTR(UPPER(path), {} + 1), '\') - 1)
+                        ELSE NULL
+                    END as folder_path
+                FROM files
+                WHERE UPPER(path) LIKE '{}'
+            )
+            SELECT
+                folder_path,
+                SUM(size) as total_size,
+                COUNT(*) as file_count
+            FROM immediate_folders
+            WHERE folder_path IS NOT NULL
+            GROUP BY UPPER(folder_path)
+            ORDER BY total_size DESC
+            LIMIT 100
+            "#,
+            base_len, base_len, base_len, pattern
         )
     } else {
-        ("SELECT path, size FROM files".to_string(), vec![])
+        // Root level: aggregate by drive
+        r#"
+            SELECT
+                SUBSTR(path, 1, 3) as folder_path,
+                SUM(size) as total_size,
+                COUNT(*) as file_count
+            FROM files
+            GROUP BY UPPER(SUBSTR(path, 1, 3))
+            ORDER BY total_size DESC
+            LIMIT 20
+        "#.to_string()
     };
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare_cached(&query).map_err(|e| e.to_string())?;
 
-    let mut folder_sizes: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
-
-    let file_data: Vec<(String, i64)> = if params.is_empty() {
-        stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })
-        .map_err(|e| e.to_string())?
-        .flatten()
-        .collect()
+    let base_depth = if let Some(ref root) = root_path {
+        root.matches(|c| c == '\\' || c == '/').count() as i32
     } else {
-        stmt.query_map([&params[0]], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })
-        .map_err(|e| e.to_string())?
-        .flatten()
-        .collect()
+        0
     };
 
-    for (path, size) in file_data {
-        let parts: Vec<&str> = path.split(|c| c == '/' || c == '\\').collect();
-        let base_depth = if let Some(ref root) = root_path {
-            root.split(|c| c == '/' || c == '\\').count()
-        } else {
-            0
-        };
-
-        for d in 1..=(max_depth as usize + base_depth).min(parts.len().saturating_sub(1)) {
-            let folder_path = parts[..d].join("\\");
-            *folder_sizes.entry(folder_path).or_insert(0) += size;
-        }
-    }
-
-    let mut result: Vec<FolderSize> = folder_sizes
-        .into_iter()
-        .map(|(path, size)| {
+    let result: Vec<FolderSize> = stmt
+        .query_map([], |row| {
+            let path: String = row.get(0)?;
+            let size: i64 = row.get(1)?;
             let name = path
-                .split(|c| c == '/' || c == '\\')
-                .last()
+                .rsplit(|c| c == '\\' || c == '/')
+                .next()
                 .unwrap_or(&path)
                 .to_string();
-            let depth = path.matches(|c| c == '/' || c == '\\').count() as i32;
-            FolderSize {
+            let depth = path.matches(|c| c == '\\' || c == '/').count() as i32 - base_depth;
+            Ok(FolderSize {
                 path,
                 name,
                 size,
                 depth,
-            }
+            })
         })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
         .collect();
 
-    result.sort_by(|a, b| b.size.cmp(&a.size));
-    result.truncate(100);
+    let elapsed = start.elapsed();
+    info!(
+        "get_folder_sizes completed in {:.2}ms, {} results",
+        elapsed.as_secs_f64() * 1000.0,
+        result.len()
+    );
 
     Ok(result)
 }

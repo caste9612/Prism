@@ -149,7 +149,7 @@ export interface ExtensionCategory {
   total_size: number;
 }
 
-export type TabType = 'analytics' | 'duplicates' | 'settings';
+export type TabType = 'analytics' | 'duplicates' | 'verify' | 'settings';
 
 // ============================================================================
 // Search Types

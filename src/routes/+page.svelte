@@ -11,13 +11,12 @@
   import Modal from '$lib/components/common/Modal.svelte';
   import StatsCards from '$lib/components/analytics/StatsCards.svelte';
   import StorageExplorer from '$lib/components/analytics/StorageExplorer.svelte';
-  import TreeExplorer from '$lib/components/analytics/TreeExplorer.svelte';
   import FileCategories from '$lib/components/analytics/FileCategories.svelte';
   import SizeDistribution from '$lib/components/analytics/SizeDistribution.svelte';
   import DuplicateList from '$lib/components/duplicates/DuplicateList.svelte';
 
   // Types
-  import type { DriveStatus, DriveProgress, ScanProgress as ScanProgressType, DriveStats, TabType, PreScanOverlapResult } from '$lib/types';
+  import type { DriveStatus, DriveProgress, ScanProgress as ScanProgressType, DriveStats, TabType, PreScanOverlapResult, VerificationSummary } from '$lib/types';
 
   // Use the centralized notification store
   function notify(message: string, type: 'success' | 'error' | 'info' = 'info') {
@@ -298,11 +297,9 @@
   const tabs: { id: TabType; label: string }[] = [
     { id: 'analytics', label: 'Analytics' },
     { id: 'duplicates', label: 'Duplicates' },
+    { id: 'verify', label: 'Verify Backup' },
     { id: 'settings', label: 'Settings' }
   ];
-
-  // Analytics view mode (treemap or tree)
-  let analyticsViewMode: 'treemap' | 'tree' = 'tree';
 
   function switchTab(tab: TabType) {
     activeTab = tab;
@@ -357,6 +354,49 @@
   async function findDuplicates() {
     selectedDupFiles = new Set();
     await duplicatesStore.findDuplicates();
+  }
+
+  // Verification state
+  let verifySourceDrive = '';
+  let verifyTargetDrives = new Set<string>();
+  let verifyLoading = false;
+  let verifyResult: VerificationSummary | null = null;
+
+  function toggleVerifyTarget(path: string) {
+    if (verifyTargetDrives.has(path)) {
+      verifyTargetDrives.delete(path);
+    } else {
+      verifyTargetDrives.add(path);
+    }
+    verifyTargetDrives = verifyTargetDrives;
+  }
+
+  async function runVerification() {
+    if (!verifySourceDrive || verifyTargetDrives.size === 0) return;
+
+    verifyLoading = true;
+    verifyResult = null;
+
+    try {
+      const result = await invoke<VerificationSummary>('verify_cross_disk', {
+        sourceDrive: verifySourceDrive,
+        targetDrives: [...verifyTargetDrives],
+        maxMissingFiles: 100
+      });
+      verifyResult = result;
+
+      if (result.backupPercentage >= 100) {
+        notify('All files are backed up!', 'success');
+      } else if (result.backupPercentage >= 90) {
+        notify(`${result.backupPercentage.toFixed(1)}% of files backed up. ${result.filesMissing} files missing.`, 'info');
+      } else {
+        notify(`Warning: Only ${result.backupPercentage.toFixed(1)}% backed up. ${result.filesMissing} files missing.`, 'error');
+      }
+    } catch (e) {
+      notify(`Verification failed: ${e}`, 'error');
+    } finally {
+      verifyLoading = false;
+    }
   }
 
   function toggleDupGroup(id: number) {
@@ -883,39 +923,16 @@
             <!-- Stats Cards -->
             <StatsCards {totalFiles} {totalSize} driveCount={driveStats.length} />
 
-            <!-- View Mode Toggle -->
-            <div class="flex items-center gap-2 mb-4">
-              <span class="text-sm text-gray-400">View:</span>
-              <div class="flex bg-gray-800 rounded-lg p-1">
-                <button
-                  class="px-3 py-1.5 text-sm rounded-md transition-colors {analyticsViewMode === 'tree' ? 'bg-prism-600 text-white' : 'text-gray-400 hover:text-white'}"
-                  on:click={() => analyticsViewMode = 'tree'}
-                >
-                  Tree
-                </button>
-                <button
-                  class="px-3 py-1.5 text-sm rounded-md transition-colors {analyticsViewMode === 'treemap' ? 'bg-prism-600 text-white' : 'text-gray-400 hover:text-white'}"
-                  on:click={() => analyticsViewMode = 'treemap'}
-                >
-                  Treemap
-                </button>
-              </div>
-            </div>
-
-            <!-- Storage Explorer (Tree or Treemap based on view mode) -->
-            {#if analyticsViewMode === 'tree'}
-              <TreeExplorer maxDepth={4} />
-            {:else}
-              <StorageExplorer
-                {folderContents}
-                {driveStats}
-                {treemapPath}
-                loading={treemapLoading}
-                {isScanning}
-                on:navigate={(e) => navigateToLevel(e.detail.index)}
-                on:drillDown={(e) => drillDownFolder(e.detail)}
-              />
-            {/if}
+            <!-- Interactive Treemap / Storage Explorer -->
+            <StorageExplorer
+              {folderContents}
+              {driveStats}
+              {treemapPath}
+              loading={treemapLoading}
+              {isScanning}
+              on:navigate={(e) => navigateToLevel(e.detail.index)}
+              on:drillDown={(e) => drillDownFolder(e.detail)}
+            />
 
             <!-- File Categories with Donut Chart -->
             <FileCategories categories={fileTypeCategories} bind:expandedCategory />
@@ -941,6 +958,132 @@
           on:toggleFile={(e) => toggleDupFile(e.detail.id, e.detail.path)}
           on:openInExplorer={(e) => openInExplorer(e.detail.path)}
         />
+
+      <!-- VERIFY BACKUP TAB -->
+      {:else if activeTab === 'verify'}
+        <div class="max-w-4xl space-y-6">
+          <div class="bg-gray-800/50 rounded-lg p-6">
+            <h3 class="text-white font-medium mb-4">Cross-Disk Verification</h3>
+            <p class="text-gray-400 text-sm mb-6">
+              Verify if all files from a source drive exist on one or more backup drives.
+              This helps ensure your backups are complete.
+            </p>
+
+            <!-- Source Drive Selection -->
+            <div class="mb-4">
+              <label class="block text-gray-300 mb-2">Source Drive (to verify)</label>
+              <select
+                bind:value={verifySourceDrive}
+                class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-prism-500"
+              >
+                <option value="">Select source drive...</option>
+                {#each driveStats as drive}
+                  <option value={drive.path}>{drive.path} - {drive.name} ({formatNumber(drive.file_count)} files)</option>
+                {/each}
+              </select>
+            </div>
+
+            <!-- Target Drives Selection -->
+            <div class="mb-6">
+              <label class="block text-gray-300 mb-2">Target Drives (backup locations)</label>
+              <div class="space-y-2 max-h-48 overflow-y-auto">
+                {#each driveStats.filter(d => d.path !== verifySourceDrive) as drive}
+                  <label class="flex items-center gap-3 p-2 bg-gray-700/50 rounded hover:bg-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={verifyTargetDrives.has(drive.path)}
+                      on:change={() => toggleVerifyTarget(drive.path)}
+                      class="w-4 h-4 rounded bg-gray-600 border-gray-500 text-prism-500 focus:ring-prism-500"
+                    />
+                    <span class="text-white">{drive.path}</span>
+                    <span class="text-gray-400 text-sm">{drive.name}</span>
+                    <span class="text-gray-500 text-xs ml-auto">{formatNumber(drive.file_count)} files</span>
+                  </label>
+                {/each}
+              </div>
+            </div>
+
+            <!-- Verify Button -->
+            <button
+              on:click={runVerification}
+              disabled={!verifySourceDrive || verifyTargetDrives.size === 0 || verifyLoading}
+              class="w-full py-3 bg-prism-600 hover:bg-prism-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+            >
+              {#if verifyLoading}
+                <span class="inline-flex items-center gap-2">
+                  <span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  Verifying...
+                </span>
+              {:else}
+                Verify Backup
+              {/if}
+            </button>
+          </div>
+
+          <!-- Verification Results -->
+          {#if verifyResult}
+            <div class="bg-gray-800/50 rounded-lg p-6">
+              <h3 class="text-white font-medium mb-4">Verification Results</h3>
+
+              <!-- Summary Stats -->
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-700/50 rounded-lg p-4 text-center">
+                  <div class="text-2xl font-bold text-white">{verifyResult.backupPercentage.toFixed(1)}%</div>
+                  <div class="text-sm text-gray-400">Backed Up</div>
+                </div>
+                <div class="bg-gray-700/50 rounded-lg p-4 text-center">
+                  <div class="text-2xl font-bold text-green-400">{formatNumber(verifyResult.filesFound)}</div>
+                  <div class="text-sm text-gray-400">Files Found</div>
+                </div>
+                <div class="bg-gray-700/50 rounded-lg p-4 text-center">
+                  <div class="text-2xl font-bold text-red-400">{formatNumber(verifyResult.filesMissing)}</div>
+                  <div class="text-sm text-gray-400">Missing</div>
+                </div>
+                <div class="bg-gray-700/50 rounded-lg p-4 text-center">
+                  <div class="text-2xl font-bold text-gray-300">{formatBytes(verifyResult.sizeMissing)}</div>
+                  <div class="text-sm text-gray-400">Missing Size</div>
+                </div>
+              </div>
+
+              <!-- Progress Bar -->
+              <div class="mb-6">
+                <div class="h-4 bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    class="h-full transition-all duration-500 {verifyResult.backupPercentage >= 90 ? 'bg-green-500' : verifyResult.backupPercentage >= 70 ? 'bg-yellow-500' : 'bg-red-500'}"
+                    style="width: {verifyResult.backupPercentage}%"
+                  ></div>
+                </div>
+              </div>
+
+              <!-- Missing Files List -->
+              {#if verifyResult.missingFiles.length > 0}
+                <div>
+                  <h4 class="text-gray-300 font-medium mb-2">Missing Files (first {verifyResult.missingFiles.length})</h4>
+                  <div class="max-h-64 overflow-y-auto space-y-1">
+                    {#each verifyResult.missingFiles as file}
+                      <div class="flex items-center gap-2 p-2 bg-gray-700/30 rounded text-sm">
+                        <span class="text-red-400">✗</span>
+                        <span class="text-gray-300 truncate flex-1" title={file.sourcePath}>{file.name}</span>
+                        <span class="text-gray-500">{formatBytes(file.size)}</span>
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {:else if verifyResult.filesMissing === 0}
+                <div class="text-center py-8 text-green-400">
+                  <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p class="text-lg font-medium">All files are backed up!</p>
+                </div>
+              {/if}
+
+              <div class="mt-4 text-xs text-gray-500">
+                Verification completed in {verifyResult.verificationTimeMs}ms
+              </div>
+            </div>
+          {/if}
+        </div>
 
       <!-- SETTINGS TAB -->
       {:else if activeTab === 'settings'}

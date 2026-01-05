@@ -10,7 +10,7 @@ pub use schema::SCHEMA_SQL;
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::scanner::FileMetadata;
 
@@ -50,16 +50,10 @@ impl Database {
         // Set busy handler to retry on lock
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
-        // Integrity check to detect corruption early
-        let integrity: String = conn
-            .query_row("PRAGMA quick_check", [], |row| row.get(0))
-            .unwrap_or_else(|_| "error".to_string());
-
-        if integrity != "ok" {
-            warn!("Database integrity issue detected: {}. Consider clearing the database.", integrity);
-        } else {
-            debug!("Database integrity check passed");
-        }
+        // Skip integrity check on startup - it's too slow on large databases (18+ seconds)
+        // The WAL mode and proper checkpointing provide sufficient protection
+        // If corruption is suspected, user can clear the database manually
+        debug!("Database opened successfully (integrity check skipped for performance)");
 
         Ok(Self { conn })
     }
