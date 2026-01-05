@@ -280,11 +280,86 @@ pub async fn get_available_drives() -> Result<Vec<DriveInfo>, String> {
     Ok(drives)
 }
 
+/// Try to reconnect a remembered network drive
+#[cfg(target_os = "windows")]
+fn try_reconnect_network_drive(local_path: &str, remote_path: &str) -> bool {
+    use std::ptr;
+
+    #[repr(C)]
+    #[allow(non_snake_case)]
+    struct NETRESOURCEW {
+        dwScope: u32,
+        dwType: u32,
+        dwDisplayType: u32,
+        dwUsage: u32,
+        lpLocalName: *mut u16,
+        lpRemoteName: *mut u16,
+        lpComment: *mut u16,
+        lpProvider: *mut u16,
+    }
+
+    #[link(name = "mpr")]
+    extern "system" {
+        fn WNetAddConnection2W(
+            lpNetResource: *const NETRESOURCEW,
+            lpPassword: *const u16,
+            lpUserName: *const u16,
+            dwFlags: u32,
+        ) -> u32;
+    }
+
+    const RESOURCETYPE_DISK: u32 = 0x00000001;
+    const CONNECT_UPDATE_PROFILE: u32 = 0x00000001;
+    const NO_ERROR: u32 = 0;
+    const ERROR_ALREADY_ASSIGNED: u32 = 85;
+
+    // Prepare local name (e.g., "X:")
+    let local_name = local_path.trim_end_matches('\\');
+    let mut local_wide: Vec<u16> = local_name.encode_utf16().collect();
+    local_wide.push(0);
+
+    // Prepare remote name (e.g., "\\server\share")
+    let mut remote_wide: Vec<u16> = remote_path.encode_utf16().collect();
+    remote_wide.push(0);
+
+    let net_resource = NETRESOURCEW {
+        dwScope: 0,
+        dwType: RESOURCETYPE_DISK,
+        dwDisplayType: 0,
+        dwUsage: 0,
+        lpLocalName: local_wide.as_mut_ptr(),
+        lpRemoteName: remote_wide.as_mut_ptr(),
+        lpComment: ptr::null_mut(),
+        lpProvider: ptr::null_mut(),
+    };
+
+    let result = unsafe {
+        WNetAddConnection2W(
+            &net_resource,
+            ptr::null(),  // Use stored credentials
+            ptr::null(),  // Use current user
+            CONNECT_UPDATE_PROFILE,
+        )
+    };
+
+    if result == NO_ERROR || result == ERROR_ALREADY_ASSIGNED {
+        eprintln!("[NET] Successfully reconnected {} -> {} (result={})", local_path, remote_path, result);
+        true
+    } else {
+        eprintln!("[NET] WNetAddConnection2W failed for {} -> {} with error: {}", local_path, remote_path, result);
+        false
+    }
+}
+
 /// Check if a network drive is accessible (may trigger reconnection)
 #[cfg(target_os = "windows")]
 fn check_network_drive_accessible(path: &str) -> bool {
-    use std::time::Duration;
-    use std::thread;
+    check_network_drive_accessible_with_remote(path, None)
+}
+
+/// Check if a network drive is accessible, optionally trying to reconnect using remote path
+#[cfg(target_os = "windows")]
+fn check_network_drive_accessible_with_remote(path: &str, remote_path: Option<&str>) -> bool {
     use std::fs;
 
     eprintln!("[NET] Checking network drive: {}", path);
@@ -298,6 +373,7 @@ fn check_network_drive_accessible(path: &str) -> bool {
             total_free_bytes: *mut u64,
         ) -> i32;
         fn GetFileAttributesW(file_name: *const u16) -> u32;
+        fn GetLastError() -> u32;
     }
 
     const INVALID_FILE_ATTRIBUTES: u32 = 0xFFFFFFFF;
@@ -320,51 +396,67 @@ fn check_network_drive_accessible(path: &str) -> bool {
     } != 0;
 
     if disk_space_ok {
-        eprintln!("[NET] {} accessible via GetDiskFreeSpaceExW", path);
+        eprintln!("[NET] {} accessible via GetDiskFreeSpaceExW (space: {}/{})", path, free_bytes, total_bytes);
         debug!("Network drive {} accessible via GetDiskFreeSpaceExW", path);
         return true;
     }
-    eprintln!("[NET] {} GetDiskFreeSpaceExW failed, trying other methods...", path);
 
-    // Method 2: Try GetFileAttributesW (lighter check that may trigger reconnection)
+    let last_error = unsafe { GetLastError() };
+    eprintln!("[NET] {} GetDiskFreeSpaceExW failed with error code: {}", path, last_error);
+
+    // Method 2: Try GetFileAttributesW (lighter check)
     let attrs = unsafe { GetFileAttributesW(path_wide.as_ptr()) };
     if attrs != INVALID_FILE_ATTRIBUTES {
-        eprintln!("[NET] {} accessible via GetFileAttributesW", path);
+        eprintln!("[NET] {} accessible via GetFileAttributesW (attrs: 0x{:x})", path, attrs);
         debug!("Network drive {} accessible via GetFileAttributesW", path);
         return true;
     }
+    let last_error2 = unsafe { GetLastError() };
+    eprintln!("[NET] {} GetFileAttributesW failed with error code: {}", path, last_error2);
 
-    // Method 3: Wait and try std::fs::metadata (triggers reconnection)
-    thread::sleep(Duration::from_millis(200));
-    if fs::metadata(path).is_ok() {
-        eprintln!("[NET] {} accessible via fs::metadata after 200ms", path);
-        debug!("Network drive {} accessible via fs::metadata", path);
-        return true;
+    // Method 3: Try to explicitly reconnect the drive if we have the remote path
+    if let Some(remote) = remote_path {
+        if try_reconnect_network_drive(path, remote) {
+            // Retry after reconnection
+            let disk_space_ok = unsafe {
+                GetDiskFreeSpaceExW(
+                    path_wide.as_ptr(),
+                    &mut free_bytes,
+                    &mut total_bytes,
+                    &mut total_free,
+                )
+            } != 0;
+
+            if disk_space_ok {
+                eprintln!("[NET] {} accessible after reconnection (space: {}/{})", path, free_bytes, total_bytes);
+                debug!("Network drive {} accessible after WNetAddConnection2W", path);
+                return true;
+            }
+        }
     }
 
-    // Method 4: Wait more and try read_dir
-    thread::sleep(Duration::from_millis(300));
-    let drive_path = std::path::Path::new(path);
-    if drive_path.read_dir().is_ok() {
-        eprintln!("[NET] {} accessible via read_dir after 500ms total", path);
-        debug!("Network drive {} accessible via read_dir after wait", path);
-        return true;
-    }
-
-    // Method 5: Final attempt with longer wait
-    thread::sleep(Duration::from_millis(500));
-    if drive_path.read_dir().is_ok() {
-        eprintln!("[NET] {} accessible via read_dir after 1000ms total", path);
-        debug!("Network drive {} accessible via read_dir after longer wait", path);
-        return true;
-    }
-
-    // Method 6: Try listing the root directory contents
-    if let Ok(entries) = fs::read_dir(path) {
-        // Just try to get the first entry - this forces the connection
-        if entries.into_iter().next().is_some() {
-            eprintln!("[NET] {} accessible via read_dir iteration", path);
+    // Method 4: Try std::fs::metadata
+    match fs::metadata(path) {
+        Ok(meta) => {
+            eprintln!("[NET] {} accessible via fs::metadata (is_dir: {})", path, meta.is_dir());
+            debug!("Network drive {} accessible via fs::metadata", path);
             return true;
+        }
+        Err(e) => {
+            eprintln!("[NET] {} fs::metadata failed: {} (kind: {:?})", path, e, e.kind());
+        }
+    }
+
+    // Method 5: Try read_dir
+    let drive_path = std::path::Path::new(path);
+    match drive_path.read_dir() {
+        Ok(_entries) => {
+            eprintln!("[NET] {} accessible via read_dir", path);
+            debug!("Network drive {} accessible via read_dir", path);
+            return true;
+        }
+        Err(e) => {
+            eprintln!("[NET] {} read_dir failed: {} (kind: {:?})", path, e, e.kind());
         }
     }
 
@@ -517,10 +609,9 @@ fn enumerate_network_connections() -> Option<Vec<DriveInfo>> {
                     };
 
                     // Check if the network drive is actually accessible
-                    // REMEMBERED drives may need a reconnection attempt
-                    // Try GetDiskFreeSpaceExW first (triggers reconnection)
-                    // Then fall back to read_dir check
-                    let is_ready = check_network_drive_accessible(&path);
+                    // REMEMBERED drives may need a reconnection attempt using WNetAddConnection2W
+                    // Pass the remote UNC path so we can try to reconnect
+                    let is_ready = check_network_drive_accessible_with_remote(&path, Some(&remote_name));
 
                     debug!(
                         "Found network connection: {} -> {} (accessible={})",

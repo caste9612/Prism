@@ -28,6 +28,7 @@
   let selectedDrives = new Set<string>();
   let loadingDrives = true;
   let driveStats: DriveStats[] = [];
+  let driveRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
   // Per-drive scan progress tracking (from backend)
   let driveProgress: Record<string, DriveProgress> = {};
@@ -109,28 +110,55 @@
       notify('Starting automatic scan of all drives...', 'info');
       await startAutoScan();
     }
+
+    // Auto-refresh drives every 15 seconds to detect newly connected drives
+    driveRefreshInterval = setInterval(() => {
+      if (!isScanning) {
+        loadDrives(true); // silent refresh
+      }
+    }, 15000);
   });
 
   onDestroy(() => {
     unlistenProgress?.();
     unlistenComplete?.();
     unlistenStats?.();
+    if (driveRefreshInterval) {
+      clearInterval(driveRefreshInterval);
+      driveRefreshInterval = null;
+    }
   });
 
-  async function loadDrives() {
-    loadingDrives = true;
+  async function loadDrives(silent = false) {
+    if (!silent) loadingDrives = true;
     try {
+      const previousDrives = new Map(drives.map(d => [d.path, d.is_online]));
       drives = await invoke<DriveStatus[]>('get_drives_status');
-      // Auto-select online local disks that haven't been scanned yet
-      drives.forEach(d => {
-        if (d.is_online && d.drive_type === 'Local Disk' && d.is_ready) {
-          selectedDrives.add(d.path);
+
+      // Auto-select online local disks that haven't been scanned yet (only on initial load)
+      if (!silent) {
+        drives.forEach(d => {
+          if (d.is_online && d.drive_type === 'Local Disk' && d.is_ready) {
+            selectedDrives.add(d.path);
+          }
+        });
+        selectedDrives = selectedDrives;
+      }
+
+      // Notify about drives that came online or went offline
+      for (const drive of drives) {
+        const wasOnline = previousDrives.get(drive.path);
+        if (wasOnline !== undefined && wasOnline !== drive.is_online) {
+          if (drive.is_online) {
+            notify(`${drive.name} is now online`, 'info');
+          } else {
+            notify(`${drive.name} went offline`, 'info');
+          }
         }
-      });
-      selectedDrives = selectedDrives;
+      }
     } catch (e) {
       console.error('Failed to load drives:', e);
-      notify('Failed to detect drives', 'error');
+      if (!silent) notify('Failed to detect drives', 'error');
     } finally {
       loadingDrives = false;
     }
@@ -795,11 +823,6 @@
         </div>
 
         <div class="flex items-center gap-2">
-          <button on:click={loadDrives} disabled={isScanning} class="p-2 text-gray-400 hover:text-white transition-colors" title="Refresh drives">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          </button>
           <button on:click={startScan} disabled={selectedDrives.size === 0 || isScanning || checkingOverlaps}
             class="px-5 py-2.5 bg-prism-500 hover:bg-prism-600 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 flex items-center gap-2">
             {#if checkingOverlaps}

@@ -141,19 +141,23 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        // Ensure database is properly flushed before exit
+                        info!("Quit requested from tray menu");
+                        // Try to optimize database but don't block exit if it fails
                         if let Some(state) = app.try_state::<AppState>() {
-                            info!("Flushing database before exit...");
-                            // Use blocking task to ensure cleanup completes
-                            let db = state.db.blocking_lock();
-                            if let Err(e) = db.optimize() {
-                                info!("Database optimize on exit failed: {}", e);
+                            // Try non-blocking lock first
+                            if let Ok(db) = state.db.try_lock() {
+                                info!("Flushing database before exit...");
+                                if let Err(e) = db.optimize() {
+                                    info!("Database optimize on exit failed: {}", e);
+                                }
+                                drop(db);
+                                info!("Database flushed successfully");
+                            } else {
+                                info!("Database locked, skipping optimization on exit");
                             }
-                            // Drop the lock before exiting
-                            drop(db);
-                            info!("Database flushed successfully");
                         }
-                        app.exit(0);
+                        // Force exit
+                        std::process::exit(0);
                     }
                     _ => {}
                 })

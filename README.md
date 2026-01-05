@@ -18,6 +18,22 @@ Scan millions of files in seconds, find duplicates, and visualize your storage l
 
 ---
 
+## Screenshots
+
+<div align="center">
+
+### Dashboard & Analytics
+![Dashboard](docs/screenshots/dashboard.png)
+*Main dashboard with drive overview, storage treemap, and real-time scanning progress*
+
+### Quick Search
+![Quick Search](docs/screenshots/quick-search.png)
+*Global quick search (Ctrl+Space) with instant results across all indexed drives*
+
+</div>
+
+---
+
 ## Features
 
 ### Lightning Fast Scanning
@@ -44,9 +60,10 @@ Scan millions of files in seconds, find duplicates, and visualize your storage l
 - **Size distribution** charts by file type and extension
 - **Real-time progress** with per-drive tracking
 
-### Cross-Drive Verification *(Coming Soon)*
+### Cross-Drive Verification
 - Verify if all files from one drive exist on backup drives
 - Perfect for backup validation and migration
+- Shows backup percentage and missing files list
 
 ---
 
@@ -151,7 +168,7 @@ Prism/
 ├── src/                    # SvelteKit frontend
 │   ├── lib/
 │   │   ├── components/     # Svelte components
-│   │   │   ├── analytics/  # TreeExplorer, StorageExplorer, charts
+│   │   │   ├── analytics/  # StorageExplorer, FileCategories, charts
 │   │   │   ├── common/     # Modal, Toast, Skeleton
 │   │   │   └── dashboard/  # DriveCard, ScanProgress
 │   │   ├── stores/         # Svelte stores (state management)
@@ -220,7 +237,7 @@ npm run tauri build    # Production build
 - [x] Interactive tree view
 - [x] Smart incremental scanning
 - [x] Database corruption prevention
-- [ ] Cross-drive file verification
+- [x] Cross-drive file verification
 - [ ] Similar images comparison UI
 - [ ] Excel export
 - [ ] Theme toggle (dark/light)
