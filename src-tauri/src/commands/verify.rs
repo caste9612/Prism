@@ -5,7 +5,9 @@
 
 use crate::AppState;
 use serde::Serialize;
-use tauri::State;
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use tauri::{Emitter, State};
 use tracing::info;
 
 /// Verification mode for comparing files
@@ -35,6 +37,22 @@ pub struct FileVerificationResult {
     pub found_on: Vec<String>,
     /// Matched path on target (if found)
     pub matched_path: Option<String>,
+}
+
+/// Progress update for verification
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerificationProgress {
+    /// Current phase: "loading_source", "loading_targets", "comparing", "complete"
+    pub phase: String,
+    /// Files processed so far
+    pub files_processed: i64,
+    /// Total files to process
+    pub total_files: i64,
+    /// Progress percentage (0-100)
+    pub percentage: f64,
+    /// Current status message
+    pub message: String,
 }
 
 /// Summary of cross-disk verification
@@ -67,15 +85,21 @@ pub struct VerificationSummary {
 
 /// Verify if all files from source drive exist on target drives
 ///
-/// This command checks each file on the source drive and verifies
-/// if it exists on any of the target drives by comparing hashes.
+/// This optimized version loads all target files into memory for O(1) lookups
+/// instead of querying the database for each file.
 #[tauri::command]
 pub async fn verify_cross_disk(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     source_drive: String,
     target_drives: Vec<String>,
     max_missing_files: Option<i64>,
 ) -> Result<VerificationSummary, String> {
+    // Check if a scan is currently running
+    if state.is_scanning.load(Ordering::SeqCst) {
+        return Err("Cannot verify while a scan is in progress. Please wait for the scan to complete.".to_string());
+    }
+
     let start = std::time::Instant::now();
     let max_missing = max_missing_files.unwrap_or(100);
 
@@ -87,6 +111,15 @@ pub async fn verify_cross_disk(
     if target_drives.is_empty() {
         return Err("At least one target drive is required".to_string());
     }
+
+    // Emit initial progress
+    let _ = app.emit("verify-progress", VerificationProgress {
+        phase: "loading_source".to_string(),
+        files_processed: 0,
+        total_files: 0,
+        percentage: 0.0,
+        message: "Loading source files...".to_string(),
+    });
 
     let db = state.db.lock().await;
     let conn = db.connection();
@@ -126,6 +159,15 @@ pub async fn verify_cross_disk(
 
     info!("Found {} files on source drive ({} bytes)", total_files, total_size);
 
+    // Emit progress after loading source
+    let _ = app.emit("verify-progress", VerificationProgress {
+        phase: "loading_targets".to_string(),
+        files_processed: 0,
+        total_files,
+        percentage: 5.0,
+        message: format!("Loaded {} source files, loading target files...", total_files),
+    });
+
     // Build target drive patterns
     let target_patterns: Vec<String> = target_drives
         .iter()
@@ -138,88 +180,83 @@ pub async fn verify_cross_disk(
         })
         .collect();
 
-    // Prepare verification query - check if file exists on any target by hash or name+size
+    // OPTIMIZATION: Load ALL target files into memory for O(1) lookups
+    // HashMap by hash -> (drive_index, path)
+    let mut hash_map: HashMap<(i64, Vec<u8>), (usize, String)> = HashMap::new();
+    // HashMap by (name, size) -> (drive_index, path)
+    let mut name_size_map: HashMap<(String, i64), (usize, String)> = HashMap::new();
+
+    for (drive_idx, pattern) in target_patterns.iter().enumerate() {
+        let mut target_stmt = conn
+            .prepare(
+                "SELECT path, name, size, partial_hash
+                 FROM files
+                 WHERE UPPER(path) LIKE ?1",
+            )
+            .map_err(|e| format!("Failed to prepare target query: {}", e))?;
+
+        let target_files = target_stmt
+            .query_map([pattern], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<Vec<u8>>>(3)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query target files: {}", e))?;
+
+        for file in target_files.filter_map(|r| r.ok()) {
+            let (path, name, size, hash) = file;
+
+            // Index by hash if available
+            if let Some(h) = hash {
+                hash_map.entry((size, h)).or_insert((drive_idx, path.clone()));
+            }
+
+            // Index by name + size
+            name_size_map.entry((name.to_lowercase(), size)).or_insert((drive_idx, path));
+        }
+    }
+
+    info!(
+        "Loaded {} hash entries and {} name+size entries from target drives",
+        hash_map.len(),
+        name_size_map.len()
+    );
+
+    // Emit progress after loading targets
+    let _ = app.emit("verify-progress", VerificationProgress {
+        phase: "comparing".to_string(),
+        files_processed: 0,
+        total_files,
+        percentage: 20.0,
+        message: "Comparing files...".to_string(),
+    });
+
+    // Now compare source files against the in-memory indexes
     let mut files_found = 0i64;
     let mut size_found = 0i64;
     let mut missing_files = Vec::new();
+    let progress_interval = (total_files / 20).max(100); // Update every 5% or 100 files
 
-    for (source_path, name, size, hash) in &source_files {
+    for (idx, (source_path, name, size, hash)) in source_files.iter().enumerate() {
         let mut found = false;
         let mut found_on = Vec::new();
-        let mut matched_path: Option<String> = None;
 
-        // First try to match by hash if available
+        // First try to match by hash if available (most accurate)
         if let Some(ref h) = hash {
-            for (i, pattern) in target_patterns.iter().enumerate() {
-                let exists: bool = conn
-                    .query_row(
-                        "SELECT EXISTS(
-                            SELECT 1 FROM files
-                            WHERE UPPER(path) LIKE ?1
-                            AND size = ?2
-                            AND partial_hash = ?3
-                        )",
-                        rusqlite::params![pattern, size, h],
-                        |row| row.get(0),
-                    )
-                    .unwrap_or(false);
-
-                if exists {
-                    found = true;
-                    found_on.push(target_drives[i].clone());
-
-                    // Get the matched path
-                    if matched_path.is_none() {
-                        matched_path = conn
-                            .query_row(
-                                "SELECT path FROM files
-                                 WHERE UPPER(path) LIKE ?1
-                                 AND size = ?2
-                                 AND partial_hash = ?3
-                                 LIMIT 1",
-                                rusqlite::params![pattern, size, h],
-                                |row| row.get(0),
-                            )
-                            .ok();
-                    }
-                }
+            if let Some((drive_idx, _path)) = hash_map.get(&(*size, h.clone())) {
+                found = true;
+                found_on.push(target_drives[*drive_idx].clone());
             }
         }
 
         // If not found by hash, try by name + size
         if !found {
-            for (i, pattern) in target_patterns.iter().enumerate() {
-                let exists: bool = conn
-                    .query_row(
-                        "SELECT EXISTS(
-                            SELECT 1 FROM files
-                            WHERE UPPER(path) LIKE ?1
-                            AND name = ?2
-                            AND size = ?3
-                        )",
-                        rusqlite::params![pattern, name, size],
-                        |row| row.get(0),
-                    )
-                    .unwrap_or(false);
-
-                if exists {
-                    found = true;
-                    found_on.push(target_drives[i].clone());
-
-                    if matched_path.is_none() {
-                        matched_path = conn
-                            .query_row(
-                                "SELECT path FROM files
-                                 WHERE UPPER(path) LIKE ?1
-                                 AND name = ?2
-                                 AND size = ?3
-                                 LIMIT 1",
-                                rusqlite::params![pattern, name, size],
-                                |row| row.get(0),
-                            )
-                            .ok();
-                    }
-                }
+            if let Some((drive_idx, _path)) = name_size_map.get(&(name.to_lowercase(), *size)) {
+                found = true;
+                found_on.push(target_drives[*drive_idx].clone());
             }
         }
 
@@ -239,6 +276,18 @@ pub async fn verify_cross_disk(
                 });
             }
         }
+
+        // Emit progress periodically
+        if idx as i64 % progress_interval == 0 || idx == source_files.len() - 1 {
+            let percentage = 20.0 + (idx as f64 / total_files as f64) * 80.0;
+            let _ = app.emit("verify-progress", VerificationProgress {
+                phase: "comparing".to_string(),
+                files_processed: idx as i64 + 1,
+                total_files,
+                percentage,
+                message: format!("Comparing files... {}/{}", idx + 1, total_files),
+            });
+        }
     }
 
     let files_missing = total_files - files_found;
@@ -255,6 +304,18 @@ pub async fn verify_cross_disk(
         "Verification complete: {}/{} files found ({:.1}%), {} missing, took {}ms",
         files_found, total_files, backup_percentage, files_missing, verification_time_ms
     );
+
+    // Emit completion
+    let _ = app.emit("verify-progress", VerificationProgress {
+        phase: "complete".to_string(),
+        files_processed: total_files,
+        total_files,
+        percentage: 100.0,
+        message: format!(
+            "Complete: {:.1}% backed up ({} of {} files)",
+            backup_percentage, files_found, total_files
+        ),
+    });
 
     Ok(VerificationSummary {
         source_drive,
@@ -274,11 +335,12 @@ pub async fn verify_cross_disk(
 /// Quick check to see what percentage of a drive is backed up
 #[tauri::command]
 pub async fn quick_backup_check(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     source_drive: String,
     target_drives: Vec<String>,
 ) -> Result<f64, String> {
-    let result = verify_cross_disk(state, source_drive, target_drives, Some(0)).await?;
+    let result = verify_cross_disk(app, state, source_drive, target_drives, Some(0)).await?;
     Ok(result.backup_percentage)
 }
 

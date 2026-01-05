@@ -1067,6 +1067,7 @@ impl Scanner {
     }
 
     /// Incremental scan - only process changed/new/deleted files
+    /// PARALLEL VERSION: Scans all drives simultaneously for faster performance
     pub fn scan_incremental_with_events(
         &self,
         db: &Database,
@@ -1075,177 +1076,416 @@ impl Scanner {
     ) -> Result<super::IncrementalProgress> {
         use std::collections::HashSet;
 
-        info!("Starting incremental scan for {:?}", self.config.root_paths);
+        info!("Starting PARALLEL incremental scan for {:?}", self.config.root_paths);
         let start_time = Instant::now();
 
         // Phase 1: Load existing files from DB
-        let mut incremental = super::IncrementalProgress {
+        let initial_progress = super::IncrementalProgress {
             phase: "preparing".to_string(),
             ..Default::default()
         };
 
         if let Some(handle) = app_handle {
-            let _ = handle.emit("incremental-progress", &incremental);
+            let _ = handle.emit("incremental-progress", &initial_progress);
         }
 
-        // Get existing files for this drive
-        let drive = self.config.root_paths.first().cloned().unwrap_or_default();
-        let existing_files = db.get_drive_files_map(&drive)?;
-        incremental.total_files_in_db = existing_files.len() as u64;
+        // Get existing files for ALL drives being scanned (not just the first one)
+        // Normalize all paths for consistent comparison (replace / with \ and uppercase)
+        let mut existing_files: HashMap<String, Option<i64>> = HashMap::new();
+        for drive in &self.config.root_paths {
+            let drive_files = db.get_drive_files_map(drive)?;
+            // Re-normalize paths to ensure consistent format
+            for (path, mtime) in drive_files {
+                let normalized = path.replace('/', "\\").to_uppercase();
+                existing_files.insert(normalized, mtime);
+            }
+        }
+        let total_files_in_db = existing_files.len() as u64;
 
-        info!("Loaded {} existing files from database", existing_files.len());
+        info!("Loaded {} existing files from database for {} drives",
+              existing_files.len(), self.config.root_paths.len());
 
-        // Track which files we've seen
-        let mut seen_paths: HashSet<String> = HashSet::with_capacity(existing_files.len());
+        // Thread-safe shared state for parallel scanning
+        let existing_files = Arc::new(existing_files);
+        let seen_paths: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::with_capacity(existing_files.len())));
 
-        // Phase 2: Scanning
-        incremental.phase = "scanning".to_string();
+        // Atomic counters for real-time progress
+        let files_checked = Arc::new(AtomicU64::new(0));
+        let files_unchanged = Arc::new(AtomicU64::new(0));
+        let files_new_count = Arc::new(AtomicU64::new(0));
+        let files_updated_count = Arc::new(AtomicU64::new(0));
+
+        // Thread-safe drives status map
+        let drives_status: Arc<RwLock<HashMap<String, super::DriveProgress>>> = Arc::new(RwLock::new(
+            self.config.root_paths
+                .iter()
+                .map(|p| {
+                    let key = Self::get_drive_letter(p);
+                    (key.clone(), super::DriveProgress {
+                        drive: key,
+                        files_scanned: 0,
+                        total_size: 0,
+                        status: "waiting".to_string(),
+                        progress_percent: 0.0,
+                        estimated_total: 0,
+                    })
+                })
+                .collect()
+        ));
+
+        // Channel for collecting files to insert/update
+        // NOTE: We create sender as Option so we can take() and drop it properly
+        let (file_sender, file_receiver) = bounded::<(String, super::FileMetadata)>(100_000);
+        let file_sender = Some(file_sender); // Wrap in Option for explicit consumption
+
+        // Emit initial progress so UI shows all drives as waiting
         if let Some(handle) = app_handle {
-            let _ = handle.emit("incremental-progress", &incremental);
+            let drives_snapshot = drives_status.read().clone();
+            let scan_progress = super::ScanProgress {
+                scan_id,
+                files_scanned: 0,
+                total_size: 0,
+                current_path: "Starting parallel filesystem scan...".to_string(),
+                files_per_second: 0.0,
+                is_complete: false,
+                error: None,
+                drives: drives_snapshot,
+                indexing: None,
+            };
+            let _ = handle.emit("scan-progress", &scan_progress);
         }
+
+        // Helper to normalize paths for comparison (consistent separators + uppercase)
+        fn normalize_path(path: &str) -> String {
+            path.replace('/', "\\").to_uppercase()
+        }
+
+        // Spawn progress reporter thread
+        let progress_running = Arc::new(AtomicBool::new(true));
+        let progress_handle = if let Some(handle) = app_handle {
+            let handle = handle.clone();
+            let drives_status_clone = Arc::clone(&drives_status);
+            let files_checked_clone = Arc::clone(&files_checked);
+            let running = Arc::clone(&progress_running);
+
+            Some(thread::spawn(move || {
+                while running.load(Ordering::Relaxed) {
+                    let checked = files_checked_clone.load(Ordering::Relaxed);
+                    let elapsed = start_time.elapsed().as_secs_f64();
+                    let fps = if elapsed > 0.0 { checked as f64 / elapsed } else { 0.0 };
+
+                    let _percent = if total_files_in_db > 0 {
+                        ((checked as f64 / (total_files_in_db as f64 * 1.1)) * 100.0).min(99.0)
+                    } else {
+                        0.0
+                    };
+
+                    let drives_snapshot = drives_status_clone.read().clone();
+                    let scan_progress = super::ScanProgress {
+                        scan_id,
+                        files_scanned: checked,
+                        total_size: 0,
+                        current_path: format!("Scanning {} drives in parallel... ({:.0} files/sec)",
+                            drives_snapshot.values().filter(|d| d.status == "scanning").count(), fps),
+                        files_per_second: fps,
+                        is_complete: false,
+                        error: None,
+                        drives: drives_snapshot,
+                        indexing: None,
+                    };
+                    let _ = handle.emit("scan-progress", &scan_progress);
+
+                    thread::sleep(Duration::from_millis(250));
+                }
+            }))
+        } else {
+            None
+        };
+
+        // Problematic Windows directories to skip (cause hangs or are useless)
+        let skip_dirs: Arc<HashSet<&'static str>> = Arc::new([
+            "$RECYCLE.BIN",
+            "SYSTEM VOLUME INFORMATION",
+            "$WINDOWS.~BT",
+            "$WINDOWS.~WS",
+            "WINDOWS\\WINSXS",
+            "WINDOWS\\SERVICING",
+            "WINDOWS\\INSTALLER",
+            "WINDOWS\\ASSEMBLY",
+            "PROGRAMDATA\\MICROSOFT\\WINDOWS\\WINSXS",
+            "PROGRAMDATA\\PACKAGE CACHE",
+            "RECOVERY",
+            "DOCUMENTS AND SETTINGS",
+            "APPLICATION DATA",
+            "LOCAL SETTINGS",
+            "TEMPORARY INTERNET FILES",
+            "RECENT",
+            "SENDTO",
+            "PRINTHOOD",
+            "NETHOOD",
+            "TEMPLATES",
+            "START MENU",
+            "PROGRAMS",
+            "MY DOCUMENTS",
+            "COOKIES",
+        ].into_iter().collect());
+
+        let exclude_hidden = self.config.exclude_hidden;
+        let exclude_system = self.config.exclude_system;
+        let min_file_size = self.config.min_file_size;
+        let num_threads = self.config.num_threads;
+        let root_paths = self.config.root_paths.clone();
+
+        // Scan all drives in PARALLEL
+        // Use Mutex to allow taking the sender inside the scope
+        let file_sender = std::sync::Mutex::new(file_sender);
+
+        thread::scope(|s| {
+            // Take the sender out of the Option (consumes it)
+            let sender_for_cloning = file_sender.lock().unwrap().take()
+                .expect("Sender should exist");
+
+            // Spawn a thread for each drive
+            for root_path in &root_paths {
+                let root_path = root_path.clone();
+                let file_sender = sender_for_cloning.clone();
+                let existing_files = Arc::clone(&existing_files);
+                let seen_paths = Arc::clone(&seen_paths);
+                let files_checked = Arc::clone(&files_checked);
+                let files_unchanged = Arc::clone(&files_unchanged);
+                let files_new_count = Arc::clone(&files_new_count);
+                let files_updated_count = Arc::clone(&files_updated_count);
+                let drives_status = Arc::clone(&drives_status);
+                let skip_dirs = Arc::clone(&skip_dirs);
+
+                s.spawn(move || {
+                    let drive_key = Self::get_drive_letter(&root_path);
+
+                    // Mark this drive as scanning
+                    {
+                        let mut status = drives_status.write();
+                        if let Some(drive) = status.get_mut(&drive_key) {
+                            drive.status = "scanning".to_string();
+                        }
+                    }
+
+                    info!("=== [PARALLEL] Starting walk of drive: {} ===", root_path);
+                    let drive_start = Instant::now();
+
+                    let skip_dirs_clone = skip_dirs.clone();
+                    // IMPORTANT: Always enumerate ALL files including hidden ones!
+                    // We must see all files to correctly identify truly deleted files.
+                    // The hidden/system filtering happens AFTER adding to seen_paths.
+                    let walker = JWalkDir::new(&root_path)
+                        .skip_hidden(false) // Never skip - we filter later after adding to seen_paths
+                        .parallelism(jwalk::Parallelism::RayonNewPool(num_threads.max(2)))
+                        .process_read_dir(move |_depth, _path, _read_dir_state, children| {
+                            children.retain(|entry| {
+                                if let Ok(entry) = entry {
+                                    if entry.file_type().is_dir() {
+                                        let name = entry.file_name().to_string_lossy().to_uppercase();
+                                        let path_str = entry.path().to_string_lossy().to_uppercase();
+
+                                        if skip_dirs_clone.contains(name.as_str()) {
+                                            return false;
+                                        }
+                                        for skip in skip_dirs_clone.iter() {
+                                            if path_str.contains(*skip) {
+                                                return false;
+                                            }
+                                        }
+                                    }
+                                }
+                                true
+                            });
+                        });
+
+                    let mut drive_file_count = 0u64;
+
+                    for entry in walker
+                        .into_iter()
+                        .filter_map(|e| e.ok())
+                        .filter(|e| e.file_type().is_file())
+                    {
+                        let path = entry.path();
+                        let path_str = path.to_string_lossy().to_string();
+                        // Normalize path: replace / with \ and uppercase for consistent comparison
+                        let path_normalized = normalize_path(&path_str);
+
+                        let metadata = match fs::metadata(&path) {
+                            Ok(m) => m,
+                            Err(_) => continue,
+                        };
+
+                        if !metadata.is_file() {
+                            continue;
+                        }
+
+                        // IMPORTANT: Add to seen_paths FIRST, before any filtering!
+                        // This ensures files that exist but are filtered (hidden/system/size)
+                        // are NOT marked as "deleted" from the database.
+                        // Files that truly don't exist (metadata error above) are correctly excluded.
+                        {
+                            seen_paths.write().insert(path_normalized.clone());
+                        }
+
+                        #[cfg(windows)]
+                        {
+                            use std::os::windows::fs::MetadataExt;
+                            let attrs = metadata.file_attributes();
+                            const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+                            const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+
+                            if exclude_hidden && (attrs & FILE_ATTRIBUTE_HIDDEN) != 0 {
+                                continue;
+                            }
+                            if exclude_system && (attrs & FILE_ATTRIBUTE_SYSTEM) != 0 {
+                                continue;
+                            }
+                        }
+
+                        let size = metadata.len() as i64;
+                        if size < min_file_size as i64 {
+                            continue;
+                        }
+
+                        files_checked.fetch_add(1, Ordering::Relaxed);
+                        drive_file_count += 1;
+
+                        // Log progress every 50000 files
+                        if drive_file_count % 50000 == 0 {
+                            let elapsed = drive_start.elapsed().as_secs_f64();
+                            let fps = drive_file_count as f64 / elapsed.max(0.001);
+                            info!("[PARALLEL] Drive {} progress: {} files checked ({:.0} files/sec)",
+                                  root_path, drive_file_count, fps);
+
+                            // Update drive status
+                            let mut status = drives_status.write();
+                            if let Some(drive) = status.get_mut(&drive_key) {
+                                drive.files_scanned = drive_file_count;
+                            }
+                        }
+
+                        let modified_at = metadata
+                            .modified()
+                            .ok()
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs() as i64);
+
+                        // Check if file exists in DB (using normalized path)
+                        if let Some(&existing_mtime) = existing_files.get(&path_normalized) {
+                            if existing_mtime == modified_at {
+                                files_unchanged.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                files_updated_count.fetch_add(1, Ordering::Relaxed);
+                                let file_meta = Self::create_file_metadata_static(&path, &metadata);
+                                let _ = file_sender.send(("updated".to_string(), file_meta));
+                            }
+                        } else {
+                            files_new_count.fetch_add(1, Ordering::Relaxed);
+                            let file_meta = Self::create_file_metadata_static(&path, &metadata);
+                            let _ = file_sender.send(("new".to_string(), file_meta));
+                        }
+                    }
+
+                    // Mark drive as done
+                    let drive_elapsed = drive_start.elapsed();
+                    let fps = drive_file_count as f64 / drive_elapsed.as_secs_f64().max(0.001);
+
+                    {
+                        let mut status = drives_status.write();
+                        if let Some(drive) = status.get_mut(&drive_key) {
+                            drive.status = "done".to_string();
+                            drive.files_scanned = drive_file_count;
+                            drive.progress_percent = 100.0;
+                        }
+                    }
+
+                    info!("=== [PARALLEL] Drive {} complete: {} files in {:.2}s ({:.0} files/sec) ===",
+                          root_path, drive_file_count, drive_elapsed.as_secs_f64(), fps);
+                });
+            }
+
+            // Drop the original sender so the receiver knows when all drives are done
+            // (each thread has its own clone which will be dropped when the thread exits)
+            drop(sender_for_cloning);
+            info!("Original sender dropped, waiting for thread senders to drop...");
+        });
+
+        // Now all threads have finished (thread::scope waits for them)
+        // Process any received files from the channel
+        info!("All scan threads completed, processing received files...");
 
         let mut files_new: Vec<super::FileMetadata> = Vec::new();
         let mut files_updated: Vec<super::FileMetadata> = Vec::new();
         let batch_size = 1000;
 
-        // Walk the filesystem
-        for root_path in &self.config.root_paths {
-            let walker = JWalkDir::new(root_path)
-                .skip_hidden(self.config.exclude_hidden)
-                .parallelism(jwalk::Parallelism::RayonNewPool(self.config.num_threads));
-
-            let exclude_hidden = self.config.exclude_hidden;
-            let exclude_system = self.config.exclude_system;
-
-            for entry in walker
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().is_file())
-            {
-                let path = entry.path();
-                let path_str = path.to_string_lossy().to_string();
-                let path_upper = path_str.to_uppercase();
-
-                // Get file metadata
-                let metadata = match fs::metadata(&path) {
-                    Ok(m) => m,
-                    Err(_) => continue,
-                };
-
-                if !metadata.is_file() {
-                    continue;
-                }
-
-                // Check Windows file attributes
-                #[cfg(windows)]
-                {
-                    use std::os::windows::fs::MetadataExt;
-                    let attrs = metadata.file_attributes();
-                    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
-                    const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
-
-                    if exclude_hidden && (attrs & FILE_ATTRIBUTE_HIDDEN) != 0 {
-                        continue;
-                    }
-                    if exclude_system && (attrs & FILE_ATTRIBUTE_SYSTEM) != 0 {
-                        continue;
-                    }
-                }
-
-                let size = metadata.len() as i64;
-                if size < self.config.min_file_size as i64 {
-                    continue;
-                }
-
-                incremental.files_checked += 1;
-                seen_paths.insert(path_upper.clone());
-
-                let modified_at = metadata
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64);
-
-                // Check if file exists in DB
-                if let Some(&existing_mtime) = existing_files.get(&path_upper) {
-                    // File exists - check if mtime changed
-                    if existing_mtime == modified_at {
-                        // Unchanged - skip
-                        incremental.files_unchanged += 1;
-                    } else {
-                        // Changed - update
-                        incremental.files_updated += 1;
-                        files_updated.push(self.create_file_metadata(&path, &metadata));
-                    }
-                } else {
-                    // New file
-                    incremental.files_new += 1;
-                    files_new.push(self.create_file_metadata(&path, &metadata));
-                }
-
-                // Emit progress every 1000 files
-                if incremental.files_checked % 1000 == 0 {
-                    let total_estimate = (existing_files.len() as f64 * 1.1) as u64;
-                    incremental.percent = (incremental.files_checked as f64 / total_estimate.max(1) as f64) * 100.0;
-                    incremental.percent = incremental.percent.min(99.0);
-
-                    if let Some(handle) = app_handle {
-                        let _ = handle.emit("incremental-progress", &incremental);
-
-                        // Also emit scan-progress for frontend compatibility
-                        let scan_progress = super::ScanProgress {
-                            scan_id: scan_id,
-                            files_scanned: incremental.files_checked,
-                            total_size: 0, // Not tracked in incremental
-                            current_path: format!("Incremental: {} checked, {} new, {} updated",
-                                incremental.files_checked, incremental.files_new, incremental.files_updated),
-                            files_per_second: 0.0,
-                            is_complete: false,
-                            error: None,
-                            drives: std::collections::HashMap::new(),
-                            indexing: None,
-                        };
-                        let _ = handle.emit("scan-progress", &scan_progress);
-                    }
-                }
-
-                // Batch insert new files
+        // Use try_recv to drain the channel without blocking (threads are done)
+        while let Ok((file_type, file)) = file_receiver.try_recv() {
+            if file_type == "new" {
+                files_new.push(file);
                 if files_new.len() >= batch_size {
-                    db.insert_files_transaction(&files_new, scan_id)?;
+                    if let Err(e) = db.insert_files_transaction(&files_new, scan_id) {
+                        warn!("Batch insert error: {}", e);
+                    }
                     files_new.clear();
                 }
-
-                // Batch update changed files
+            } else {
+                files_updated.push(file);
                 if files_updated.len() >= batch_size {
-                    for file in &files_updated {
-                        let _ = db.update_file(file, scan_id);
+                    for f in &files_updated {
+                        let _ = db.update_file(f, scan_id);
                     }
                     files_updated.clear();
                 }
             }
         }
 
-        // Insert remaining new files
+        // Insert remaining files
         if !files_new.is_empty() {
-            db.insert_files_transaction(&files_new, scan_id)?;
+            info!("Inserting {} new files", files_new.len());
+            if let Err(e) = db.insert_files_transaction(&files_new, scan_id) {
+                warn!("Final batch insert error: {}", e);
+            }
+        }
+        if !files_updated.is_empty() {
+            info!("Updating {} modified files (batch mode)", files_updated.len());
+            if let Err(e) = db.update_files_batch(&files_updated, scan_id) {
+                warn!("Batch update error: {}", e);
+            }
         }
 
-        // Update remaining changed files
-        for file in &files_updated {
-            let _ = db.update_file(file, scan_id);
+        // Stop progress reporter
+        progress_running.store(false, Ordering::Relaxed);
+        if let Some(handle) = progress_handle {
+            let _ = handle.join();
         }
 
-        // Phase 3: Cleanup - find deleted files
-        incremental.phase = "cleaning".to_string();
+        // Build final incremental stats
+        let mut incremental = super::IncrementalProgress {
+            phase: "cleaning".to_string(),
+            total_files_in_db,
+            files_checked: files_checked.load(Ordering::Relaxed),
+            files_unchanged: files_unchanged.load(Ordering::Relaxed),
+            files_new: files_new_count.load(Ordering::Relaxed),
+            files_updated: files_updated_count.load(Ordering::Relaxed),
+            files_deleted: 0,
+            percent: 90.0,
+        };
+
         if let Some(handle) = app_handle {
             let _ = handle.emit("incremental-progress", &incremental);
         }
 
-        let deleted_paths: Vec<String> = existing_files
-            .keys()
-            .filter(|path| !seen_paths.contains(*path))
-            .cloned()
-            .collect();
+        // Phase 3: Cleanup - find deleted files
+        let deleted_paths: Vec<String> = {
+            let seen = seen_paths.read();
+            existing_files
+                .keys()
+                .filter(|path| !seen.contains(*path))
+                .cloned()
+                .collect()
+        };
 
         incremental.files_deleted = deleted_paths.len() as u64;
 
@@ -1277,7 +1517,7 @@ impl Scanner {
 
         let elapsed = start_time.elapsed();
         info!(
-            "Incremental scan completed in {:.2}s: {} checked, {} unchanged, {} new, {} updated, {} deleted",
+            "PARALLEL incremental scan completed in {:.2}s: {} checked, {} unchanged, {} new, {} updated, {} deleted",
             elapsed.as_secs_f64(),
             incremental.files_checked,
             incremental.files_unchanged,
@@ -1291,8 +1531,9 @@ impl Scanner {
             let _ = handle.emit("incremental-complete", &incremental);
 
             // Also emit scan-progress and scan-complete for frontend compatibility
+            let drives_snapshot = drives_status.read().clone();
             let final_scan_progress = super::ScanProgress {
-                scan_id: scan_id,
+                scan_id,
                 files_scanned: incremental.files_checked,
                 total_size: 0,
                 current_path: format!("Complete: {} checked, {} unchanged, {} new, {} updated, {} deleted",
@@ -1301,7 +1542,7 @@ impl Scanner {
                 files_per_second: 0.0,
                 is_complete: true,
                 error: None,
-                drives: std::collections::HashMap::new(),
+                drives: drives_snapshot,
                 indexing: None,
             };
             let _ = handle.emit("scan-progress", &final_scan_progress);
@@ -1309,6 +1550,54 @@ impl Scanner {
         }
 
         Ok(incremental)
+    }
+
+    /// Static version of create_file_metadata for use in parallel contexts
+    fn create_file_metadata_static(path: &Path, metadata: &fs::Metadata) -> super::FileMetadata {
+        let name = path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        let extension = path.extension()
+            .map(|e| e.to_string_lossy().to_string());
+
+        let size = metadata.len() as i64;
+
+        let created_at = metadata.created()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+
+        let modified_at = metadata.modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+
+        let accessed_at = metadata.accessed()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+
+        #[cfg(windows)]
+        let attributes = {
+            use std::os::windows::fs::MetadataExt;
+            Some(metadata.file_attributes())
+        };
+
+        #[cfg(not(windows))]
+        let attributes = None;
+
+        super::FileMetadata {
+            path: path.to_string_lossy().to_string(),
+            name,
+            extension,
+            size,
+            created_at,
+            modified_at,
+            accessed_at,
+            attributes,
+            partial_hash: None,
+        }
     }
 
     /// Create FileMetadata from path and fs::Metadata

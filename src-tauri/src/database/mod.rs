@@ -767,26 +767,59 @@ impl Database {
     }
 
     /// Delete files by paths (batch operation for incremental cleanup)
+    /// Optimized to use a temporary table for efficient bulk deletion
+    /// Paths should be normalized (uppercase with backslash separators)
     pub fn delete_files_by_paths(&self, paths: &[String]) -> Result<usize> {
+        use tracing::info;
+
         if paths.is_empty() {
             return Ok(0);
         }
 
-        let tx = self.conn.unchecked_transaction()?;
-        let mut deleted = 0;
+        info!("Starting deletion of {} files using temp table approach...", paths.len());
+        let start = std::time::Instant::now();
 
-        // Delete in batches of 500 to avoid SQLite limits
+        let tx = self.conn.unchecked_transaction()?;
+
+        // Create temporary table for paths to delete
+        tx.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS paths_to_delete (normalized_path TEXT PRIMARY KEY);"
+        )?;
+        tx.execute("DELETE FROM paths_to_delete;", [])?;
+
+        // Insert all normalized paths into temp table (batched)
+        let mut inserted = 0;
         for chunk in paths.chunks(500) {
-            for path in chunk {
-                deleted += tx.execute(
-                    "DELETE FROM files WHERE UPPER(path) = UPPER(?1)",
-                    params![path],
-                )?;
-            }
+            let placeholders: String = chunk.iter().map(|_| "(?)").collect::<Vec<_>>().join(",");
+            let query = format!("INSERT OR IGNORE INTO paths_to_delete (normalized_path) VALUES {}", placeholders);
+
+            let params: Vec<&dyn rusqlite::ToSql> = chunk
+                .iter()
+                .map(|s| s as &dyn rusqlite::ToSql)
+                .collect();
+
+            inserted += tx.execute(&query, params.as_slice())?;
         }
 
+        info!("Inserted {} paths to temp table in {:?}", inserted, start.elapsed());
+
+        // Delete using JOIN - much more efficient than IN with function calls
+        // This uses a single scan of the files table instead of one per batch
+        let deleted = tx.execute(
+            "DELETE FROM files WHERE id IN (
+                SELECT f.id FROM files f
+                INNER JOIN paths_to_delete p ON UPPER(REPLACE(f.path, '/', '\\')) = p.normalized_path
+            )",
+            [],
+        )?;
+
+        // Clean up temp table
+        tx.execute("DELETE FROM paths_to_delete;", [])?;
+
         tx.commit()?;
-        debug!("Deleted {} files by path", deleted);
+
+        info!("Deleted {} files in {:?} total", deleted, start.elapsed());
+        debug!("Deleted {} files by path using temp table", deleted);
         Ok(deleted)
     }
 
@@ -806,6 +839,81 @@ impl Database {
             ],
         )?;
         Ok(rows > 0)
+    }
+
+    /// Batch update files efficiently using a temp table approach
+    /// Much faster than individual updates when processing many files
+    pub fn update_files_batch(&self, files: &[FileMetadata], scan_id: i64) -> Result<usize> {
+        if files.is_empty() {
+            return Ok(0);
+        }
+
+        info!("Starting batch update of {} files using temp table approach...", files.len());
+        let start = std::time::Instant::now();
+
+        let tx = self.conn.unchecked_transaction()?;
+
+        // Create temporary table for updates
+        tx.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS files_to_update (
+                normalized_path TEXT PRIMARY KEY,
+                name TEXT,
+                extension TEXT,
+                size INTEGER,
+                modified_at INTEGER,
+                partial_hash TEXT
+            );"
+        )?;
+        tx.execute("DELETE FROM files_to_update;", [])?;
+
+        // Insert all files to update into temp table
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR REPLACE INTO files_to_update (normalized_path, name, extension, size, modified_at, partial_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+            )?;
+
+            for file in files {
+                // Normalize path for matching
+                let normalized = file.path.replace('/', "\\").to_uppercase();
+                stmt.execute(params![
+                    normalized,
+                    file.name,
+                    file.extension,
+                    file.size,
+                    file.modified_at,
+                    file.partial_hash
+                ])?;
+            }
+        }
+
+        info!("Inserted {} files to temp table in {:?}", files.len(), start.elapsed());
+
+        // Update using JOIN - single table scan instead of one per file
+        let updated = tx.execute(
+            &format!(
+                "UPDATE files SET
+                    name = (SELECT u.name FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path),
+                    extension = (SELECT u.extension FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path),
+                    size = (SELECT u.size FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path),
+                    modified_at = (SELECT u.modified_at FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path),
+                    partial_hash = (SELECT u.partial_hash FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path),
+                    scan_id = {}
+                WHERE EXISTS (
+                    SELECT 1 FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path
+                )",
+                scan_id
+            ),
+            [],
+        )?;
+
+        // Clean up temp table
+        tx.execute("DELETE FROM files_to_update;", [])?;
+
+        tx.commit()?;
+
+        info!("Updated {} files in {:?} total", updated, start.elapsed());
+        Ok(updated)
     }
 
     /// Insert a single file (for incremental new files)

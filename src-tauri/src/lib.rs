@@ -14,6 +14,7 @@ pub mod utils;
 pub use error::{PrismError, PrismResult};
 
 use database::Database;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -68,6 +69,8 @@ fn close_search_window(app: tauri::AppHandle) {
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub db_path: std::path::PathBuf,
+    /// Flag to indicate if a scan is currently running
+    pub is_scanning: Arc<AtomicBool>,
 }
 
 /// Initialize the Tauri application
@@ -114,6 +117,7 @@ pub fn run() {
             app.manage(AppState {
                 db: Arc::new(Mutex::new(db)),
                 db_path: db_path.clone(),
+                is_scanning: Arc::new(AtomicBool::new(false)),
             });
 
             // Set up system tray

@@ -4,6 +4,7 @@ use crate::scanner::{IncrementalProgress, ScanConfig, ScanProgress, Scanner};
 use crate::AppState;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, State};
 use tracing::{error, info};
 
@@ -72,6 +73,10 @@ pub async fn start_scan(
     // Clone for background task
     let db_clone = state.db.clone();
     let app_handle_clone = app_handle.clone();
+    let is_scanning = state.is_scanning.clone();
+
+    // Mark scan as starting
+    is_scanning.store(true, Ordering::SeqCst);
 
     // Get drive info for known_drives (volume names and types)
     let drive_info: HashMap<String, (String, String)> = match get_available_drives().await {
@@ -140,12 +145,15 @@ pub async fn start_scan(
                 let _ = app_handle_clone.emit("scan-error", e.to_string());
             }
         }
+
+        // Mark scan as complete
+        is_scanning.store(false, Ordering::SeqCst);
     });
 
     Ok(initial_progress)
 }
 
-/// Auto-scan all drives on startup (local and network)
+/// Auto-scan all drives on startup (local first, then network)
 /// Uses smart scan: incremental for previously scanned drives, full for new ones
 #[tauri::command]
 pub async fn auto_scan_drives(
@@ -154,32 +162,62 @@ pub async fn auto_scan_drives(
 ) -> Result<String, String> {
     info!("Starting auto-scan of all drives (smart mode)");
 
-    // Get all ready drives (local and network)
+    // Get all ready drives
     let drives = get_available_drives().await?;
-    let paths: Vec<String> = drives
-        .into_iter()
-        .filter(|d| d.is_ready && (d.drive_type == "Local Disk" || d.drive_type == "Network Drive"))
-        .map(|d| d.path)
+
+    // Separate local and network drives - scan local first to avoid network blocking
+    let local_paths: Vec<String> = drives
+        .iter()
+        .filter(|d| d.is_ready && d.drive_type == "Local Disk")
+        .map(|d| d.path.clone())
         .collect();
 
-    if paths.is_empty() {
+    let network_paths: Vec<String> = drives
+        .iter()
+        .filter(|d| d.is_ready && d.drive_type == "Network Drive")
+        .map(|d| d.path.clone())
+        .collect();
+
+    if local_paths.is_empty() && network_paths.is_empty() {
         info!("No drives to scan");
         return Ok("No drives to scan".to_string());
     }
 
-    info!("Auto-scanning {} drives: {:?}", paths.len(), paths);
+    let mut results = Vec::new();
 
-    // Create scan request
-    let request = ScanRequest {
-        paths,
-        exclude_hidden: Some(true),
-        exclude_system: Some(true),
-        exclude_patterns: None,
-        min_file_size: Some(0),
-    };
+    // Scan local drives first (fast)
+    if !local_paths.is_empty() {
+        info!("Auto-scanning {} local drives: {:?}", local_paths.len(), local_paths);
+        let local_request = ScanRequest {
+            paths: local_paths.clone(),
+            exclude_hidden: Some(true),
+            exclude_system: Some(true),
+            exclude_patterns: None,
+            min_file_size: Some(0),
+        };
+        match start_smart_scan(app_handle.clone(), state.clone(), local_request).await {
+            Ok(r) => results.push(format!("Local drives: {}", r)),
+            Err(e) => error!("Local drive scan error: {}", e),
+        }
+    }
 
-    // Use smart scan: incremental for known drives, full for new ones
-    start_smart_scan(app_handle, state, request).await
+    // Then scan network drives (may be slower)
+    if !network_paths.is_empty() {
+        info!("Auto-scanning {} network drives: {:?}", network_paths.len(), network_paths);
+        let network_request = ScanRequest {
+            paths: network_paths.clone(),
+            exclude_hidden: Some(true),
+            exclude_system: Some(true),
+            exclude_patterns: None,
+            min_file_size: Some(0),
+        };
+        match start_smart_scan(app_handle, state, network_request).await {
+            Ok(r) => results.push(format!("Network drives: {}", r)),
+            Err(e) => error!("Network drive scan error: {}", e),
+        }
+    }
+
+    Ok(results.join("; "))
 }
 
 /// Smart scan - automatically chooses between full scan and incremental scan
@@ -226,7 +264,7 @@ pub async fn start_smart_scan(
         results.push(format!("Full scan: {:?}", full_scan_paths));
     }
 
-    // Incremental scan for previously scanned drives
+    // Incremental scan for previously scanned drives (local and network)
     if !incremental_paths.is_empty() {
         info!("Incremental scan for known drives: {:?}", incremental_paths);
         let inc_request = ScanRequest {
@@ -265,6 +303,9 @@ pub async fn start_incremental_scan(
         return Err("No paths specified for incremental scan".to_string());
     }
 
+    // Mark scan as starting
+    state.is_scanning.store(true, Ordering::SeqCst);
+
     // Create scan configuration
     let config = ScanConfig {
         root_paths: request.paths.clone(),
@@ -278,13 +319,19 @@ pub async fn start_incremental_scan(
     let db = state.db.lock().await;
     let scan_id = db
         .create_scan(&request.paths)
-        .map_err(|e| format!("Failed to create scan: {}", e))?;
+        .map_err(|e| {
+            state.is_scanning.store(false, Ordering::SeqCst);
+            format!("Failed to create scan: {}", e)
+        })?;
 
     // Run incremental scan
     let scanner = Scanner::new(config);
     let result = scanner
         .scan_incremental_with_events(&db, scan_id, Some(&app_handle))
-        .map_err(|e| format!("Incremental scan failed: {}", e))?;
+        .map_err(|e| {
+            state.is_scanning.store(false, Ordering::SeqCst);
+            format!("Incremental scan failed: {}", e)
+        })?;
 
     // Optimize database if there were changes
     if result.files_new > 0 || result.files_updated > 0 || result.files_deleted > 0 {
@@ -295,6 +342,9 @@ pub async fn start_incremental_scan(
 
     // Emit stats update
     let _ = app_handle.emit("stats-updated", ());
+
+    // Mark scan as complete
+    state.is_scanning.store(false, Ordering::SeqCst);
 
     info!(
         "Incremental scan completed: {} new, {} updated, {} deleted, {} unchanged",

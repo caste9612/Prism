@@ -286,6 +286,14 @@ export interface VerificationSummary {
   verificationTimeMs: number;
 }
 
+export interface VerificationProgress {
+  phase: 'loading_source' | 'loading_targets' | 'comparing' | 'complete';
+  filesProcessed: number;
+  totalFiles: number;
+  percentage: number;
+  message: string;
+}
+
 // ============================================================================
 // Settings Types
 // ============================================================================

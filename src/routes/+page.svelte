@@ -16,7 +16,7 @@
   import DuplicateList from '$lib/components/duplicates/DuplicateList.svelte';
 
   // Types
-  import type { DriveStatus, DriveProgress, ScanProgress as ScanProgressType, DriveStats, TabType, PreScanOverlapResult, VerificationSummary } from '$lib/types';
+  import type { DriveStatus, DriveProgress, ScanProgress as ScanProgressType, DriveStats, TabType, PreScanOverlapResult, VerificationSummary, VerificationProgress, IncrementalProgress } from '$lib/types';
 
   // Use the centralized notification store
   function notify(message: string, type: 'success' | 'error' | 'info' = 'info') {
@@ -36,9 +36,11 @@
   // Scan state
   let isScanning = false;
   let scanProgress: ScanProgressType | null = null;
+  let incrementalProgress: IncrementalProgress | null = null;
   let unlistenProgress: (() => void) | null = null;
   let unlistenComplete: (() => void) | null = null;
   let unlistenStats: (() => void) | null = null;
+  let unlistenIncrementalProgress: (() => void) | null = null;
 
   // Settings
   $: settings = $settingsStore;
@@ -105,7 +107,7 @@
     await loadAnalytics();
     await loadDriveStats();
 
-    // ALWAYS auto-scan on startup
+    // Start auto-scan if there are ready local drives
     if (drives.some(d => d.is_ready && d.drive_type === 'Local Disk')) {
       notify('Starting automatic scan of all drives...', 'info');
       await startAutoScan();
@@ -117,12 +119,35 @@
         loadDrives(true); // silent refresh
       }
     }, 15000);
+
+    // Listen for verification progress
+    unlistenVerifyProgress = await listen<VerificationProgress>('verify-progress', (event) => {
+      verifyProgress = event.payload;
+    });
+
+    // Listen for incremental scan progress
+    unlistenIncrementalProgress = await listen<IncrementalProgress>('incremental-progress', (event) => {
+      incrementalProgress = event.payload;
+      console.log('Incremental progress:', incrementalProgress);
+
+      // When incremental scan completes, clear the progress and reload data
+      if (incrementalProgress?.phase === 'complete') {
+        setTimeout(() => {
+          incrementalProgress = null;
+          isScanning = false;
+          loadAnalytics();
+          loadDriveStats();
+        }, 1000); // Show completion for 1 second
+      }
+    });
   });
 
   onDestroy(() => {
     unlistenProgress?.();
     unlistenComplete?.();
     unlistenStats?.();
+    unlistenVerifyProgress?.();
+    unlistenIncrementalProgress?.();
     if (driveRefreshInterval) {
       clearInterval(driveRefreshInterval);
       driveRefreshInterval = null;
@@ -389,6 +414,8 @@
   let verifyTargetDrives = new Set<string>();
   let verifyLoading = false;
   let verifyResult: VerificationSummary | null = null;
+  let verifyProgress: VerificationProgress | null = null;
+  let unlistenVerifyProgress: (() => void) | null = null;
 
   function toggleVerifyTarget(path: string) {
     if (verifyTargetDrives.has(path)) {
@@ -404,6 +431,7 @@
 
     verifyLoading = true;
     verifyResult = null;
+    verifyProgress = null;
 
     try {
       const result = await invoke<VerificationSummary>('verify_cross_disk', {
@@ -701,21 +729,21 @@
       <div class="flex items-center gap-4">
         <div class="flex items-center gap-3 flex-1 overflow-x-auto pb-1">
           {#each drives as drive}
-            {@const scanStatus = getDriveScanStatus(drive.path)}
-            {@const indexedFiles = drive.indexed_files || getDriveIndexedCount(drive.path)}
-            {@const indexedSize = drive.indexed_size || getDriveIndexedSize(drive.path)}
-            {@const driveProgressInfo = driveProgress[drive.path.toUpperCase()]}
-            {@const isOffline = !drive.is_online}
-            <button
-              on:click={() => isOffline ? null : toggleDrive(drive.path)}
-              disabled={!drive.is_ready || isScanning || isOffline}
-              class="relative flex flex-col gap-1 px-4 py-3 rounded-xl border-2 transition-all min-w-[140px] overflow-hidden
-                {isOffline ? 'opacity-60 border-red-500/50 bg-red-900/10' :
-                  selectedDrives.has(drive.path) ? 'bg-prism-500/10 border-prism-500' : 'bg-gray-700/30 border-gray-600 hover:border-gray-500'}
-                {!drive.is_ready && !isOffline ? 'opacity-50 cursor-not-allowed' : ''}
-                {scanStatus === 'scanning' ? 'border-prism-400 ring-2 ring-prism-400/30' : ''}
-                {scanStatus === 'done' ? 'border-green-500/50' : ''}"
-            >
+                {@const scanStatus = getDriveScanStatus(drive.path)}
+                {@const indexedFiles = drive.indexed_files || getDriveIndexedCount(drive.path)}
+                {@const indexedSize = drive.indexed_size || getDriveIndexedSize(drive.path)}
+                {@const driveProgressInfo = driveProgress[drive.path.toUpperCase()]}
+                {@const isOffline = !drive.is_online}
+                <button
+                  on:click={() => isOffline ? null : toggleDrive(drive.path)}
+                  disabled={!drive.is_ready || isScanning || isOffline}
+                  class="relative flex flex-col gap-1 px-4 py-3 rounded-xl border-2 transition-all min-w-[140px] overflow-hidden
+                    {isOffline ? 'opacity-60 border-red-500/50 bg-red-900/10' :
+                      selectedDrives.has(drive.path) ? 'bg-prism-500/10 border-prism-500' : 'bg-gray-700/30 border-gray-600 hover:border-gray-500'}
+                    {!drive.is_ready && !isOffline ? 'opacity-50 cursor-not-allowed' : ''}
+                    {scanStatus === 'scanning' ? 'border-prism-400 ring-2 ring-prism-400/30' : ''}
+                    {scanStatus === 'done' ? 'border-green-500/50' : ''}"
+                >
               <!-- Progress bar fill - fills from bottom to top -->
               {#if (scanStatus === 'scanning' || scanStatus === 'done') && driveProgressInfo}
                 <div
@@ -841,17 +869,75 @@
         </div>
       </div>
 
-      <!-- Overall Scan Progress Bar -->
-      {#if isScanning && scanProgress}
+      <!-- Incremental Scan Progress Bar -->
+      {#if isScanning && incrementalProgress}
+        {@const phase = incrementalProgress.phase}
+        {@const percent = incrementalProgress.percent}
+        {@const phaseLabels = {
+          'preparing': 'Preparing...',
+          'scanning': 'Scanning files...',
+          'cleaning': 'Cleaning deleted files...',
+          'indexing': 'Rebuilding search index...',
+          'complete': 'Complete!'
+        }}
+        <div class="mt-4 bg-gray-900/50 rounded-lg p-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-3">
+              {#if phase !== 'complete'}
+                <div class="w-4 h-4 border-2 border-prism-400 border-t-transparent rounded-full animate-spin"></div>
+              {:else}
+                <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+              {/if}
+              <span class="text-sm text-white font-medium">
+                Incremental Scan: {phaseLabels[phase] || phase}
+              </span>
+            </div>
+            <span class="text-sm text-prism-400 font-medium">{percent.toFixed(0)}%</span>
+          </div>
+
+          <!-- Progress bar -->
+          <div class="w-full bg-gray-700 rounded-full h-2 mb-2">
+            <div
+              class="bg-gradient-to-r from-prism-500 to-prism-400 h-2 rounded-full transition-all duration-300"
+              style="width: {Math.min(percent, 100)}%"
+            ></div>
+          </div>
+
+          <!-- Stats -->
+          <div class="flex flex-wrap gap-4 text-xs text-gray-400">
+            <span>Checked: {formatNumber(incrementalProgress.files_checked)}</span>
+            {#if incrementalProgress.files_unchanged > 0}
+              <span class="text-gray-500">Unchanged: {formatNumber(incrementalProgress.files_unchanged)}</span>
+            {/if}
+            {#if incrementalProgress.files_new > 0}
+              <span class="text-green-400">New: {formatNumber(incrementalProgress.files_new)}</span>
+            {/if}
+            {#if incrementalProgress.files_updated > 0}
+              <span class="text-yellow-400">Updated: {formatNumber(incrementalProgress.files_updated)}</span>
+            {/if}
+            {#if incrementalProgress.files_deleted > 0}
+              <span class="text-red-400">Deleted: {formatNumber(incrementalProgress.files_deleted)}</span>
+            {/if}
+          </div>
+        </div>
+      <!-- Overall Scan Progress Bar (Full Scan) -->
+      {:else if isScanning && scanProgress}
         {@const isIndexing = scanProgress.indexing != null}
         {@const indexingPercent = scanProgress.indexing?.percent ?? 0}
         {@const indexingRate = scanProgress.indexing?.files_per_second ?? 0}
+        {@const totalFilesEstimate = $stats?.total_files || 0}
+        {@const estimatedPercent = totalFilesEstimate > 0 ? Math.min((scanProgress.files_scanned / totalFilesEstimate) * 100, 100) : 0}
         <div class="mt-4 bg-gray-900/50 rounded-lg p-3">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-3">
               <div class="w-4 h-4 border-2 border-prism-400 border-t-transparent rounded-full animate-spin"></div>
               <span class="text-sm text-white font-medium">
                 {formatNumber(scanProgress.files_scanned)} files scanned
+                {#if totalFilesEstimate > 0}
+                  <span class="text-gray-400">/ ~{formatNumber(totalFilesEstimate)}</span>
+                {/if}
               </span>
               {#if !isIndexing && scanProgress.files_per_second > 0}
                 <span class="text-sm text-gray-400">
@@ -859,8 +945,23 @@
                 </span>
               {/if}
             </div>
-            <span class="text-sm text-prism-400 font-medium">{formatBytes(scanProgress.total_size)}</span>
+            <div class="flex items-center gap-2">
+              {#if estimatedPercent > 0}
+                <span class="text-sm text-prism-400 font-medium">{estimatedPercent.toFixed(0)}%</span>
+              {/if}
+              <span class="text-sm text-gray-400">{formatBytes(scanProgress.total_size)}</span>
+            </div>
           </div>
+
+          <!-- Estimated progress bar (when not indexing) -->
+          {#if !isIndexing && estimatedPercent > 0}
+            <div class="w-full bg-gray-700 rounded-full h-2 mb-2">
+              <div
+                class="bg-gradient-to-r from-prism-500 to-prism-400 h-2 rounded-full transition-all duration-300"
+                style="width: {estimatedPercent}%"
+              ></div>
+            </div>
+          {/if}
 
           {#if isIndexing}
             <!-- Indexing progress bar -->
@@ -1035,12 +1136,33 @@
               {#if verifyLoading}
                 <span class="inline-flex items-center gap-2">
                   <span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  Verifying...
+                  {verifyProgress?.message || 'Starting...'}
                 </span>
               {:else}
                 Verify Backup
               {/if}
             </button>
+
+            <!-- Progress Bar (during verification) -->
+            {#if verifyLoading && verifyProgress}
+              <div class="mt-4 space-y-2">
+                <div class="flex justify-between text-sm text-gray-400">
+                  <span>{verifyProgress.message}</span>
+                  <span>{verifyProgress.percentage.toFixed(1)}%</span>
+                </div>
+                <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    class="h-full bg-prism-500 transition-all duration-300"
+                    style="width: {verifyProgress.percentage}%"
+                  ></div>
+                </div>
+                {#if verifyProgress.totalFiles > 0}
+                  <div class="text-xs text-gray-500 text-center">
+                    {formatNumber(verifyProgress.filesProcessed)} / {formatNumber(verifyProgress.totalFiles)} files
+                  </div>
+                {/if}
+              </div>
+            {/if}
           </div>
 
           <!-- Verification Results -->
