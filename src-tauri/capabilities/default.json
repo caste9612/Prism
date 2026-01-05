@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capabilities",
+  "identifier": "default",
+  "description": "Default capabilities for Prism",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$APPDATA/**",
+        "$HOME/**",
+        "**"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1061 @@
+//! Database module for Prism
+//!
+//! Handles all SQLite operations including schema management,
+//! file indexing, and query execution.
+
+mod schema;
+
+pub use schema::SCHEMA_SQL;
+
+use anyhow::{Context, Result};
+use rusqlite::{params, Connection, OptionalExtension};
+use std::path::Path;
+use tracing::{debug, info, warn};
+
+use crate::scanner::FileMetadata;
+
+/// Database wrapper for SQLite operations
+pub struct Database {
+    conn: Connection,
+}
+
+/// Ensure WAL checkpoint on drop to prevent corruption
+impl Drop for Database {
+    fn drop(&mut self) {
+        // Checkpoint WAL to ensure all changes are written to main database file
+        // This prevents corruption if the app crashes after this point
+        if let Err(e) = self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);") {
+            // Can't use tracing here as it may be shut down
+            eprintln!("[Database] WAL checkpoint on drop failed: {}", e);
+        }
+    }
+}
+
+impl Database {
+    /// Create a new database connection
+    pub fn new(path: &Path) -> Result<Self> {
+        info!("Opening database at {:?}", path);
+        let conn = Connection::open(path)?;
+
+        // Enable WAL mode for better concurrency (allows reads during writes)
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA cache_size = -64000;
+             PRAGMA temp_store = MEMORY;
+             PRAGMA mmap_size = 268435456;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        // Set busy handler to retry on lock
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+
+        // Integrity check to detect corruption early
+        let integrity: String = conn
+            .query_row("PRAGMA quick_check", [], |row| row.get(0))
+            .unwrap_or_else(|_| "error".to_string());
+
+        if integrity != "ok" {
+            warn!("Database integrity issue detected: {}. Consider clearing the database.", integrity);
+        } else {
+            debug!("Database integrity check passed");
+        }
+
+        Ok(Self { conn })
+    }
+
+    /// Get a reference to the underlying connection (for advanced queries)
+    pub fn connection(&self) -> &Connection {
+        &self.conn
+    }
+
+    /// Initialize the database schema
+    pub fn initialize_schema(&self) -> Result<()> {
+        info!("Initializing database schema");
+        self.conn
+            .execute_batch(SCHEMA_SQL)
+            .context("Failed to initialize schema")?;
+        info!("Schema initialized successfully");
+        Ok(())
+    }
+
+    /// Create a new scan session
+    pub fn create_scan(&self, root_paths: &[String]) -> Result<i64> {
+        let root_paths_json = serde_json::to_string(root_paths)?;
+        let now = chrono::Utc::now().timestamp();
+
+        self.conn.execute(
+            "INSERT INTO scans (started_at, root_paths, status) VALUES (?1, ?2, 'running')",
+            params![now, root_paths_json],
+        )?;
+
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Update scan status
+    pub fn update_scan_status(
+        &self,
+        scan_id: i64,
+        status: &str,
+        total_files: Option<i64>,
+        total_size: Option<i64>,
+    ) -> Result<()> {
+        let now = if status == "completed" || status == "failed" {
+            Some(chrono::Utc::now().timestamp())
+        } else {
+            None
+        };
+
+        self.conn.execute(
+            "UPDATE scans SET status = ?1, completed_at = ?2, total_files = ?3, total_size = ?4 WHERE id = ?5",
+            params![status, now, total_files, total_size, scan_id],
+        )?;
+
+        Ok(())
+    }
+
+    /// Insert a batch of files efficiently
+    pub fn insert_files_batch(&self, files: &[FileMetadata], scan_id: i64) -> Result<usize> {
+        let mut stmt = self.conn.prepare_cached(
+            "INSERT OR REPLACE INTO files (path, name, extension, size, created_at, modified_at, accessed_at, attributes, partial_hash, scan_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        )?;
+
+        let mut count = 0;
+        for file in files {
+            stmt.execute(params![
+                file.path,
+                file.name,
+                file.extension,
+                file.size,
+                file.created_at,
+                file.modified_at,
+                file.accessed_at,
+                file.attributes,
+                file.partial_hash,
+                scan_id,
+            ])?;
+            count += 1;
+        }
+
+        debug!("Inserted {} files", count);
+        Ok(count)
+    }
+
+    /// Get total file count
+    pub fn get_file_count(&self) -> Result<i64> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))?;
+        Ok(count)
+    }
+
+    /// Get total size of all indexed files
+    pub fn get_total_size(&self) -> Result<i64> {
+        let size: i64 = self
+            .conn
+            .query_row("SELECT COALESCE(SUM(size), 0) FROM files", [], |row| {
+                row.get(0)
+            })?;
+        Ok(size)
+    }
+
+    /// Get count of potential duplicates (files with same size and partial hash)
+    pub fn get_duplicate_count(&self) -> Result<i64> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM (
+                SELECT partial_hash FROM files
+                WHERE partial_hash IS NOT NULL
+                GROUP BY size, partial_hash
+                HAVING COUNT(*) > 1
+            )",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Search files by name (simple substring search)
+    pub fn search_files(&self, query: &str, limit: i64) -> Result<Vec<FileSearchResult>> {
+        let pattern = format!("%{}%", query);
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, path, name, extension, size, modified_at
+             FROM files
+             WHERE name LIKE ?1
+             ORDER BY modified_at DESC
+             LIMIT ?2",
+        )?;
+
+        let rows = stmt.query_map(params![pattern, limit], |row| {
+            Ok(FileSearchResult {
+                id: row.get(0)?,
+                path: row.get(1)?,
+                name: row.get(2)?,
+                extension: row.get(3)?,
+                size: row.get(4)?,
+                modified_at: row.get(5)?,
+            })
+        })?;
+
+        let results: Result<Vec<_>, _> = rows.collect();
+        Ok(results?)
+    }
+
+    /// Get recent scans
+    pub fn get_recent_scans(&self, limit: i64) -> Result<Vec<ScanInfo>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, started_at, completed_at, root_paths, total_files, total_size, status
+             FROM scans
+             ORDER BY started_at DESC
+             LIMIT ?1",
+        )?;
+
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(ScanInfo {
+                id: row.get(0)?,
+                started_at: row.get(1)?,
+                completed_at: row.get(2)?,
+                root_paths: row.get(3)?,
+                total_files: row.get(4)?,
+                total_size: row.get(5)?,
+                status: row.get(6)?,
+            })
+        })?;
+
+        let results: Result<Vec<_>, _> = rows.collect();
+        Ok(results?)
+    }
+
+    /// Get the last scan that is still running
+    pub fn get_running_scan(&self) -> Result<Option<ScanInfo>> {
+        let result = self
+            .conn
+            .query_row(
+                "SELECT id, started_at, completed_at, root_paths, total_files, total_size, status
+             FROM scans
+             WHERE status = 'running'
+             ORDER BY started_at DESC
+             LIMIT 1",
+                [],
+                |row| {
+                    Ok(ScanInfo {
+                        id: row.get(0)?,
+                        started_at: row.get(1)?,
+                        completed_at: row.get(2)?,
+                        root_paths: row.get(3)?,
+                        total_files: row.get(4)?,
+                        total_size: row.get(5)?,
+                        status: row.get(6)?,
+                    })
+                },
+            )
+            .optional()?;
+
+        Ok(result)
+    }
+
+    /// Get a reference to the connection for advanced queries
+    pub fn get_connection(&self) -> Result<&Connection> {
+        Ok(&self.conn)
+    }
+
+    /// Clear all data from the database
+    pub fn clear_all_data(&self) -> Result<()> {
+        info!("Clearing all data from database");
+        self.conn.execute_batch(
+            "DELETE FROM files;
+             DELETE FROM files_fts;
+             DELETE FROM scans;
+             VACUUM;"
+        )?;
+        info!("Database cleared successfully");
+        Ok(())
+    }
+
+    /// Delete files from specific drives before rescanning them
+    /// Takes a list of drive paths (e.g., ["C:\\", "Z:\\"])
+    pub fn clear_drives(&self, drive_paths: &[String]) -> Result<usize> {
+        let mut total_deleted = 0;
+
+        for drive_path in drive_paths {
+            // Normalize the drive path to match file paths
+            let pattern = if drive_path.ends_with('\\') || drive_path.ends_with('/') {
+                format!("{}%", drive_path)
+            } else {
+                format!("{}\\%", drive_path)
+            };
+
+            // Also try uppercase pattern for case-insensitive matching
+            let pattern_upper = pattern.to_uppercase();
+            let pattern_lower = pattern.to_lowercase();
+
+            let deleted = self.conn.execute(
+                "DELETE FROM files WHERE path LIKE ?1 OR path LIKE ?2 OR path LIKE ?3",
+                params![pattern, pattern_upper, pattern_lower],
+            )?;
+
+            info!("Cleared {} files from drive {}", deleted, drive_path);
+            total_deleted += deleted;
+        }
+
+        // Also clear from FTS index
+        if total_deleted > 0 {
+            // Rebuild FTS to remove orphaned entries
+            self.conn.execute("INSERT INTO files_fts(files_fts) VALUES('rebuild')", [])?;
+        }
+
+        info!("Total files cleared: {}", total_deleted);
+        Ok(total_deleted)
+    }
+
+    /// Run database optimization (should be called periodically)
+    pub fn optimize(&self) -> Result<()> {
+        info!("Running database optimization");
+        self.conn.execute_batch(
+            "PRAGMA optimize;
+             PRAGMA wal_checkpoint(TRUNCATE);
+             ANALYZE;"
+        )?;
+        info!("Database optimization complete");
+        Ok(())
+    }
+
+    /// Delete a file by ID with path validation
+    pub fn delete_file(&self, file_id: i64, expected_path: &str) -> Result<bool> {
+        // First verify the path matches what's in the database (security check)
+        let actual_path: Option<String> = self.conn.query_row(
+            "SELECT path FROM files WHERE id = ?1",
+            params![file_id],
+            |row| row.get(0),
+        ).optional()?;
+
+        match actual_path {
+            Some(path) if path == expected_path => {
+                self.conn.execute(
+                    "DELETE FROM files WHERE id = ?1",
+                    params![file_id],
+                )?;
+                Ok(true)
+            }
+            Some(_) => {
+                // Path mismatch - potential attack
+                Err(anyhow::anyhow!("Path mismatch for file ID {}", file_id))
+            }
+            None => Ok(false), // File not found
+        }
+    }
+
+    /// Delete multiple files in a transaction
+    pub fn delete_files_batch(&self, files: &[(i64, String)]) -> Result<usize> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut deleted = 0;
+
+        for (file_id, expected_path) in files {
+            let actual_path: Option<String> = tx.query_row(
+                "SELECT path FROM files WHERE id = ?1",
+                params![file_id],
+                |row| row.get(0),
+            ).optional()?;
+
+            if let Some(path) = actual_path {
+                if path == *expected_path {
+                    tx.execute("DELETE FROM files WHERE id = ?1", params![file_id])?;
+                    deleted += 1;
+                }
+            }
+        }
+
+        tx.commit()?;
+        Ok(deleted)
+    }
+
+    /// Insert files in a transaction for better performance and atomicity
+    /// FTS triggers are disabled - call rebuild_fts_index() after all inserts
+    pub fn insert_files_transaction(&self, files: &[FileMetadata], scan_id: i64) -> Result<usize> {
+        if files.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = self.conn.unchecked_transaction()?;
+
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR REPLACE INTO files (path, name, extension, size, created_at, modified_at, accessed_at, attributes, partial_hash, scan_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            )?;
+
+            for file in files {
+                stmt.execute(params![
+                    file.path,
+                    file.name,
+                    file.extension,
+                    file.size,
+                    file.created_at,
+                    file.modified_at,
+                    file.accessed_at,
+                    file.attributes,
+                    file.partial_hash,
+                    scan_id,
+                ])?;
+            }
+        }
+
+        tx.commit()?;
+        Ok(files.len())
+    }
+
+    /// Disable FTS triggers before bulk scanning (call once at start)
+    pub fn disable_fts_triggers(&self) -> Result<()> {
+        info!("Disabling FTS triggers for bulk insert");
+        self.conn.execute_batch(
+            "DROP TRIGGER IF EXISTS files_ai;
+             DROP TRIGGER IF EXISTS files_au;
+             DROP TRIGGER IF EXISTS files_ad;"
+        )?;
+        Ok(())
+    }
+
+    /// Rebuild FTS index and re-enable triggers (call once after all inserts)
+    /// This is the legacy method without progress reporting
+    pub fn rebuild_fts_index(&self) -> Result<()> {
+        self.rebuild_fts_index_with_progress(|_, _| {})
+    }
+
+    /// Rebuild FTS index with progress callback
+    /// The callback receives (files_indexed, total_files)
+    pub fn rebuild_fts_index_with_progress<F>(&self, mut progress_callback: F) -> Result<()>
+    where
+        F: FnMut(u64, u64),
+    {
+        eprintln!("[FTS] === REBUILD START ===");
+        info!("=== FTS REBUILD START ===");
+        let start = std::time::Instant::now();
+
+        // Get total file count for progress calculation
+        let total_files: u64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM files",
+            [],
+            |row| row.get(0),
+        )?;
+        eprintln!("[FTS] Total files in database: {}", total_files);
+
+        if total_files == 0 {
+            eprintln!("[FTS] No files to index - skipping");
+            info!("No files to index - skipping FTS rebuild");
+            self.recreate_fts_triggers()?;
+            return Ok(());
+        }
+
+        eprintln!("[FTS] Starting to index {} files...", total_files);
+        info!("FTS: Starting to index {} files", total_files);
+
+        // Store current journal mode to restore later
+        let original_journal_mode: String = self.conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap_or_else(|_| "wal".to_string());
+        debug!("Original journal_mode: {}", original_journal_mode);
+
+        // FTS indexing optimization: Use NORMAL synchronous (not OFF!)
+        // WAL mode provides good performance without corruption risk
+        // Note: We do NOT change journal_mode to MEMORY - this causes corruption on crash!
+
+        // Clear existing FTS data using proper FTS5 command
+        // (DELETE FROM corrupts content-table FTS5)
+        info!("Clearing existing FTS data...");
+        self.conn.execute("INSERT INTO files_fts(files_fts) VALUES('delete-all')", [])?;
+
+        // Large batch size = maximum indexing speed (benchmarked: 500k+ files/sec)
+        // Callback is now non-blocking (just atomic counter update), so call it every batch
+        const FTS_BATCH_SIZE: i64 = 10_000;
+
+        let mut indexed: u64 = 0;
+        let mut last_id: i64 = 0;
+        let log_interval = std::time::Instant::now();
+        let mut last_log = std::time::Instant::now();
+        let mut batch_count: u64 = 0;
+
+        // Report initial progress
+        info!("FTS: Calling initial progress callback (0/{})", total_files);
+        progress_callback(0, total_files);
+
+        loop {
+            batch_count += 1;
+            let batch_start = std::time::Instant::now();
+
+            // Simple batch query - get next batch_size IDs
+            let rows_affected = self.conn.execute(
+                "INSERT INTO files_fts(rowid, name, path, extension)
+                 SELECT id, name, path, extension FROM files
+                 WHERE id > ?1
+                 ORDER BY id
+                 LIMIT ?2",
+                params![last_id, FTS_BATCH_SIZE],
+            )?;
+
+            let batch_elapsed = batch_start.elapsed();
+
+            if rows_affected == 0 {
+                info!("FTS: Indexing complete after {} batches, last_id={}", batch_count, last_id);
+                break;
+            }
+
+            // Get the actual last ID we inserted (max of the batch, not all files!)
+            let new_last_id: i64 = self.conn.query_row(
+                "SELECT MAX(id) FROM (SELECT id FROM files WHERE id > ?1 ORDER BY id LIMIT ?2)",
+                params![last_id, FTS_BATCH_SIZE],
+                |row| row.get(0),
+            ).unwrap_or(last_id);
+
+            last_id = new_last_id;
+            indexed += rows_affected as u64;
+
+            // Update progress counter (non-blocking, read by separate thread)
+            progress_callback(indexed, total_files);
+
+            // Log every batch for first 5, then every 2 seconds
+            let should_log = batch_count <= 5 || last_log.elapsed().as_secs() >= 2;
+            if should_log {
+                let elapsed = log_interval.elapsed().as_secs_f64();
+                let rate = if elapsed > 0.0 { indexed as f64 / elapsed } else { 0.0 };
+                let batch_rate = if batch_elapsed.as_secs_f64() > 0.0 {
+                    rows_affected as f64 / batch_elapsed.as_secs_f64()
+                } else {
+                    0.0
+                };
+                let percent = (indexed as f64 / total_files as f64) * 100.0;
+                eprintln!(
+                    "[FTS] Batch #{}: {}/{} ({:.1}%) - {:.0} files/sec",
+                    batch_count, indexed, total_files, percent, rate
+                );
+                info!(
+                    "FTS batch #{}: {} rows in {:.3}s ({:.0}/s), total: {}/{} ({:.1}%) overall {:.0}/s",
+                    batch_count, rows_affected, batch_elapsed.as_secs_f64(), batch_rate,
+                    indexed, total_files, percent, rate
+                );
+                last_log = std::time::Instant::now();
+            }
+        }
+
+        // Final progress update
+        info!("FTS: Calling final progress callback ({}/{})", indexed, total_files);
+        progress_callback(indexed, total_files);
+
+        // No PRAGMA restore needed - we keep WAL mode throughout
+        // This ensures database integrity even if app crashes during indexing
+        info!("FTS: Indexing complete, running WAL checkpoint...");
+        if let Err(e) = self.conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE)") {
+            debug!("WAL checkpoint: {}", e);
+        }
+
+        let elapsed = start.elapsed().as_secs_f64();
+        let rate = if elapsed > 0.0 { indexed as f64 / elapsed } else { 0.0 };
+        eprintln!(
+            "[FTS] === COMPLETE: {} files in {:.2}s ({:.0} files/sec) ===",
+            indexed, elapsed, rate
+        );
+        info!(
+            "=== FTS REBUILD COMPLETE: {} files in {:.2}s ({:.0} files/sec) ===",
+            indexed, elapsed, rate
+        );
+
+        // Recreate triggers for future single-row operations
+        self.recreate_fts_triggers()?;
+
+        Ok(())
+    }
+
+    /// Recreate FTS triggers after bulk operations
+    fn recreate_fts_triggers(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
+                INSERT INTO files_fts(rowid, name, path, extension)
+                VALUES (new.id, new.name, new.path, new.extension);
+             END;
+             CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
+                INSERT INTO files_fts(files_fts, rowid, name, path, extension)
+                VALUES ('delete', old.id, old.name, old.path, old.extension);
+             END;
+             CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
+                INSERT INTO files_fts(files_fts, rowid, name, path, extension)
+                VALUES ('delete', old.id, old.name, old.path, old.extension);
+                INSERT INTO files_fts(rowid, name, path, extension)
+                VALUES (new.id, new.name, new.path, new.extension);
+             END;"
+        )?;
+        info!("FTS triggers re-enabled");
+        Ok(())
+    }
+
+    /// Get statistics grouped by drive (first path component)
+    pub fn get_drive_stats(&self) -> Result<Vec<DriveStatsResult>> {
+        // Get file counts and sizes per drive (Windows paths start with drive letter like C:\)
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                SUBSTR(path, 1, 3) as drive,
+                COUNT(*) as file_count,
+                SUM(size) as total_size
+             FROM files
+             GROUP BY SUBSTR(path, 1, 3)
+             ORDER BY total_size DESC"
+        )?;
+
+        let drives: Vec<(String, i64, i64)> = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get(1)?, row.get(2)?))
+        })?.filter_map(|r| r.ok()).collect();
+
+        let mut results = Vec::new();
+        for (drive_path, file_count, total_size) in drives {
+            // Get top extensions for this drive
+            let mut ext_stmt = self.conn.prepare(
+                "SELECT
+                    COALESCE(LOWER(extension), 'no extension') as ext,
+                    COUNT(*) as count,
+                    SUM(size) as size
+                 FROM files
+                 WHERE SUBSTR(path, 1, 3) = ?1
+                 GROUP BY ext
+                 ORDER BY size DESC
+                 LIMIT 10"
+            )?;
+
+            let extensions: Vec<ExtensionStats> = ext_stmt.query_map(params![&drive_path], |row| {
+                Ok(ExtensionStats {
+                    extension: row.get(0)?,
+                    count: row.get(1)?,
+                    size: row.get(2)?,
+                })
+            })?.filter_map(|r| r.ok()).collect();
+
+            results.push(DriveStatsResult {
+                path: drive_path.clone(),
+                name: drive_path,
+                file_count,
+                total_size,
+                extensions,
+            });
+        }
+
+        Ok(results)
+    }
+
+    // ========== Known Drives (Offline Detection) ==========
+
+    /// Save or update a known drive after scanning
+    pub fn upsert_known_drive(
+        &self,
+        path: &str,
+        volume_name: Option<&str>,
+        drive_type: &str,
+        total_files: i64,
+        total_size: i64,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO known_drives (path, volume_name, drive_type, last_scan_at, total_files, total_size)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![path, volume_name, drive_type, now, total_files, total_size],
+        )?;
+        debug!("Upserted known drive: {} ({} files, {} bytes)", path, total_files, total_size);
+        Ok(())
+    }
+
+    /// Get all known drives from database
+    pub fn get_known_drives(&self) -> Result<Vec<KnownDrive>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT path, volume_name, drive_type, last_scan_at, total_files, total_size
+             FROM known_drives"
+        )?;
+
+        let drives = stmt.query_map([], |row| {
+            Ok(KnownDrive {
+                path: row.get(0)?,
+                volume_name: row.get(1)?,
+                drive_type: row.get(2)?,
+                last_scan_at: row.get(3)?,
+                total_files: row.get(4)?,
+                total_size: row.get(5)?,
+            })
+        })?.filter_map(|r| r.ok()).collect();
+
+        Ok(drives)
+    }
+
+    /// Remove a known drive and all its files from database
+    pub fn remove_known_drive(&self, path: &str) -> Result<(i64, i64)> {
+        // Start transaction
+        let tx = self.conn.unchecked_transaction()?;
+
+        // Delete from known_drives
+        tx.execute("DELETE FROM known_drives WHERE path = ?1", params![path])?;
+
+        // Delete all files from this drive (case-insensitive for Windows)
+        let pattern = format!("{}%", path.to_uppercase());
+        let deleted_files: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM files WHERE UPPER(path) LIKE ?1",
+            params![pattern],
+            |row| row.get(0),
+        )?;
+
+        let deleted_size: i64 = tx.query_row(
+            "SELECT COALESCE(SUM(size), 0) FROM files WHERE UPPER(path) LIKE ?1",
+            params![pattern],
+            |row| row.get(0),
+        )?;
+
+        tx.execute("DELETE FROM files WHERE UPPER(path) LIKE ?1", params![pattern])?;
+
+        tx.commit()?;
+
+        info!("Removed known drive {}: {} files, {} bytes", path, deleted_files, deleted_size);
+        Ok((deleted_files, deleted_size))
+    }
+
+    /// Check if a drive has been scanned before
+    pub fn is_drive_known(&self, path: &str) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM known_drives WHERE UPPER(path) = UPPER(?1)",
+            params![path],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// Get known drive info by path
+    pub fn get_known_drive(&self, path: &str) -> Result<Option<KnownDrive>> {
+        self.conn.query_row(
+            "SELECT path, volume_name, drive_type, last_scan_at, total_files, total_size
+             FROM known_drives WHERE UPPER(path) = UPPER(?1)",
+            params![path],
+            |row| {
+                Ok(KnownDrive {
+                    path: row.get(0)?,
+                    volume_name: row.get(1)?,
+                    drive_type: row.get(2)?,
+                    last_scan_at: row.get(3)?,
+                    total_files: row.get(4)?,
+                    total_size: row.get(5)?,
+                })
+            },
+        ).optional().map_err(Into::into)
+    }
+
+    // ========== Incremental Scan Support ==========
+
+    /// Get all file paths and mtimes for a drive (for incremental scan)
+    pub fn get_drive_files_map(&self, drive_path: &str) -> Result<std::collections::HashMap<String, Option<i64>>> {
+        let pattern = format!("{}%", drive_path.to_uppercase());
+        let mut stmt = self.conn.prepare(
+            "SELECT path, modified_at FROM files WHERE UPPER(path) LIKE ?1"
+        )?;
+
+        let mut map = std::collections::HashMap::new();
+        let rows = stmt.query_map(params![pattern], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?;
+
+        for row in rows {
+            if let Ok((path, mtime)) = row {
+                map.insert(path.to_uppercase(), mtime);
+            }
+        }
+
+        Ok(map)
+    }
+
+    /// Get file count for a specific drive
+    pub fn get_drive_file_count(&self, drive_path: &str) -> Result<i64> {
+        let pattern = format!("{}%", drive_path.to_uppercase());
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM files WHERE UPPER(path) LIKE ?1",
+            params![pattern],
+            |row| row.get(0),
+        ).map_err(Into::into)
+    }
+
+    /// Delete files by paths (batch operation for incremental cleanup)
+    pub fn delete_files_by_paths(&self, paths: &[String]) -> Result<usize> {
+        if paths.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = self.conn.unchecked_transaction()?;
+        let mut deleted = 0;
+
+        // Delete in batches of 500 to avoid SQLite limits
+        for chunk in paths.chunks(500) {
+            for path in chunk {
+                deleted += tx.execute(
+                    "DELETE FROM files WHERE UPPER(path) = UPPER(?1)",
+                    params![path],
+                )?;
+            }
+        }
+
+        tx.commit()?;
+        debug!("Deleted {} files by path", deleted);
+        Ok(deleted)
+    }
+
+    /// Update a single file's metadata (for incremental updates)
+    pub fn update_file(&self, file: &FileMetadata, scan_id: i64) -> Result<bool> {
+        let rows = self.conn.execute(
+            "UPDATE files SET name = ?2, extension = ?3, size = ?4, modified_at = ?5,
+             partial_hash = ?6, scan_id = ?7 WHERE UPPER(path) = UPPER(?1)",
+            params![
+                file.path,
+                file.name,
+                file.extension,
+                file.size,
+                file.modified_at,
+                file.partial_hash,
+                scan_id
+            ],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// Insert a single file (for incremental new files)
+    pub fn insert_file(&self, file: &FileMetadata, scan_id: i64) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO files (path, name, extension, size, created_at, modified_at, accessed_at, attributes, partial_hash, scan_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                file.path,
+                file.name,
+                file.extension,
+                file.size,
+                file.created_at,
+                file.modified_at,
+                file.accessed_at,
+                file.attributes,
+                file.partial_hash,
+                scan_id
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    // ========== Overlapping Drive Detection ==========
+
+    /// Sample random file relative paths from a drive (for overlap detection)
+    /// Returns paths relative to the drive root (e.g., "Users\foo\bar.txt")
+    pub fn sample_drive_relative_paths(&self, drive_path: &str, sample_size: usize) -> Result<Vec<String>> {
+        let pattern = format!("{}%", drive_path.to_uppercase());
+        let drive_len = drive_path.len();
+
+        // Sample random files using RANDOM() - efficient for large tables
+        let mut stmt = self.conn.prepare(
+            "SELECT SUBSTR(path, ?1) FROM files
+             WHERE UPPER(path) LIKE ?2
+             ORDER BY RANDOM()
+             LIMIT ?3"
+        )?;
+
+        let paths: Vec<String> = stmt.query_map(
+            params![drive_len + 1, pattern, sample_size as i64],
+            |row| row.get(0)
+        )?.filter_map(|r| r.ok()).collect();
+
+        Ok(paths)
+    }
+
+    /// Check how many of the given relative paths exist on a different drive
+    /// Returns the count of matching paths
+    pub fn count_matching_paths(&self, drive_path: &str, relative_paths: &[String]) -> Result<usize> {
+        if relative_paths.is_empty() {
+            return Ok(0);
+        }
+
+        let mut matches = 0;
+        for rel_path in relative_paths {
+            let full_path = format!("{}{}", drive_path, rel_path).to_uppercase();
+            let exists: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM files WHERE UPPER(path) = ?1",
+                params![full_path],
+                |row| row.get(0),
+            )?;
+            if exists > 0 {
+                matches += 1;
+            }
+        }
+
+        Ok(matches)
+    }
+
+    /// Detect overlapping drives by sampling and comparing file paths
+    /// Returns pairs of (drive_a, drive_b, overlap_percentage)
+    /// where drive_a's files are also found on drive_b
+    pub fn detect_overlapping_drives(&self, sample_size: usize, threshold_percent: f64) -> Result<Vec<DriveOverlap>> {
+        // Get all known drives from database (handles both local and network drives correctly)
+        let known_drives = self.get_known_drives()?;
+
+        if known_drives.len() < 2 {
+            info!("Need at least 2 scanned drives to detect overlaps, found {}", known_drives.len());
+            return Ok(Vec::new());
+        }
+
+        let drives: Vec<String> = known_drives.iter().map(|k| k.path.clone()).collect();
+        info!("Checking {} drives for overlaps: {:?}", drives.len(), drives);
+
+        let mut overlaps = Vec::new();
+
+        for i in 0..drives.len() {
+            let drive_a = &drives[i];
+
+            // Sample files from drive A
+            let samples = self.sample_drive_relative_paths(drive_a, sample_size)?;
+            if samples.is_empty() {
+                debug!("No samples found for drive {}", drive_a);
+                continue;
+            }
+
+            debug!("Sampled {} paths from {}", samples.len(), drive_a);
+
+            // Check against all other drives
+            for j in 0..drives.len() {
+                if i == j {
+                    continue;
+                }
+
+                let drive_b = &drives[j];
+                let matches = self.count_matching_paths(drive_b, &samples)?;
+                let overlap_percent = (matches as f64 / samples.len() as f64) * 100.0;
+
+                debug!(
+                    "Overlap check: {} -> {} = {}/{} ({:.1}%)",
+                    drive_a, drive_b, matches, samples.len(), overlap_percent
+                );
+
+                if overlap_percent >= threshold_percent {
+                    overlaps.push(DriveOverlap {
+                        source_drive: drive_a.clone(),
+                        target_drive: drive_b.clone(),
+                        overlap_percent,
+                        sample_size: samples.len(),
+                        matches_found: matches,
+                    });
+                }
+            }
+        }
+
+        Ok(overlaps)
+    }
+
+    /// Extract drive root from a path (handles both local and UNC paths)
+    /// C:\Users\foo -> C:\
+    /// \\server\share\foo -> \\server\share\
+    pub fn extract_drive_root(path: &str) -> String {
+        if path.len() >= 2 && path.chars().nth(1) == Some(':') {
+            // Local path: C:\...
+            let drive_letter = path.chars().next().unwrap().to_uppercase().next().unwrap();
+            format!("{}:\\", drive_letter)
+        } else if path.starts_with("\\\\") {
+            // UNC path: \\server\share\...
+            let without_prefix = path.trim_start_matches("\\\\");
+            let parts: Vec<&str> = without_prefix.splitn(3, '\\').collect();
+            if parts.len() >= 2 {
+                format!("\\\\{}\\{}\\", parts[0], parts[1])
+            } else {
+                path.to_string()
+            }
+        } else {
+            path.to_string()
+        }
+    }
+}
+
+/// Known drive information (for offline detection)
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct KnownDrive {
+    pub path: String,
+    pub volume_name: Option<String>,
+    pub drive_type: String,
+    pub last_scan_at: i64,
+    pub total_files: i64,
+    pub total_size: i64,
+}
+
+/// Drive overlap detection result
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DriveOverlap {
+    /// The drive whose files were sampled
+    pub source_drive: String,
+    /// The drive where matching files were found
+    pub target_drive: String,
+    /// Percentage of sampled files that exist on target
+    pub overlap_percent: f64,
+    /// Number of files sampled from source
+    pub sample_size: usize,
+    /// Number of matches found on target
+    pub matches_found: usize,
+}
+
+/// Drive statistics result
+#[derive(Debug, serde::Serialize)]
+pub struct DriveStatsResult {
+    pub path: String,
+    pub name: String,
+    pub file_count: i64,
+    pub total_size: i64,
+    pub extensions: Vec<ExtensionStats>,
+}
+
+/// Extension statistics
+#[derive(Debug, serde::Serialize)]
+pub struct ExtensionStats {
+    pub extension: String,
+    pub count: i64,
+    pub size: i64,
+}
+
+/// File search result
+#[derive(Debug, serde::Serialize)]
+pub struct FileSearchResult {
+    pub id: i64,
+    pub path: String,
+    pub name: String,
+    pub extension: Option<String>,
+    pub size: i64,
+    pub modified_at: Option<i64>,
+}
+
+/// Scan information
+#[derive(Debug, serde::Serialize)]
+pub struct ScanInfo {
+    pub id: i64,
+    pub started_at: i64,
+    pub completed_at: Option<i64>,
+    pub root_paths: String,
+    pub total_files: Option<i64>,
+    pub total_size: Option<i64>,
+    pub status: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_database_creation() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db = Database::new(temp_file.path()).unwrap();
+        db.initialize_schema().unwrap();
+
+        assert_eq!(db.get_file_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_scan_creation() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db = Database::new(temp_file.path()).unwrap();
+        db.initialize_schema().unwrap();
+
+        let scan_id = db.create_scan(&["C:\\".to_string()]).unwrap();
+        assert!(scan_id > 0);
+
+        let scans = db.get_recent_scans(10).unwrap();
+        assert_eq!(scans.len(), 1);
+        assert_eq!(scans[0].status, "running");
+    }
+}

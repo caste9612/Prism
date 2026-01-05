@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+build/
+dist/
+.svelte-kit/
+
+# Rust
+target/
+Cargo.lock
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Database (development)
+*.db
+*.db-journal
+*.db-wal
+
+# Tauri
+src-tauri/target/
+
+# Windows reserved names
+nul
+NUL

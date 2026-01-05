@@ -1,0 +1,97 @@
+[package]
+name = "prism"
+version = "0.1.0"
+description = "High-performance disk analyzer and deduplicator for Windows"
+authors = ["Prism Team"]
+edition = "2021"
+rust-version = "1.70"
+default-run = "prism"
+
+[lib]
+name = "prism_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "scan_bench"
+path = "src/bin/scan_bench.rs"
+
+[[bin]]
+name = "fts_bench"
+path = "src/bin/fts_bench.rs"
+
+[[bin]]
+name = "diag"
+path = "src/bin/diag.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-global-shortcut = "2"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Async utilities
+futures = "0.3"
+
+# Filesystem
+walkdir = "2"
+jwalk = "0.8"  # Parallelized directory walker
+ignore = "0.4"
+
+# Hashing
+blake3 = "1"
+hex = "0.4"
+
+# Image processing for perceptual hashing
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Parallelism
+rayon = "1"
+crossbeam-channel = "0.5"
+parking_lot = "0.12"
+
+# Random sampling
+rand = "0.8"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Windows-specific
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "z"
+strip = true
