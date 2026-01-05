@@ -237,6 +237,9 @@ pub fn run() {
             // Utils
             commands::utils::clear_database,
             commands::utils::open_in_explorer,
+            // Verification
+            commands::verify::verify_cross_disk,
+            commands::verify::quick_backup_check,
             close_search_window,
         ])
         .run(tauri::generate_context!())

@@ -20,6 +20,7 @@ pub mod search;
 pub mod stats;
 pub mod tree;
 pub mod utils;
+pub mod verify;
 
 // Re-export all commands and types for backward compatibility
 pub use analytics::{
@@ -52,3 +53,7 @@ pub use stats::{get_recent_scans, get_stats, AppStats};
 pub use tree::{get_directory_tree, get_tree_children, NodeType, TreeNode};
 
 pub use utils::{clear_database, open_in_explorer};
+
+pub use verify::{
+    quick_backup_check, verify_cross_disk, FileVerificationResult, VerificationSummary,
+};

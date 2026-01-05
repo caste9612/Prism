@@ -260,6 +260,33 @@ export interface TreeNode {
 }
 
 // ============================================================================
+// Cross-Disk Verification Types
+// ============================================================================
+
+export interface FileVerificationResult {
+  sourcePath: string;
+  name: string;
+  size: number;
+  found: boolean;
+  foundOn: string[];
+  matchedPath: string | null;
+}
+
+export interface VerificationSummary {
+  sourceDrive: string;
+  targetDrives: string[];
+  totalFiles: number;
+  filesFound: number;
+  filesMissing: number;
+  backupPercentage: number;
+  totalSize: number;
+  sizeFound: number;
+  sizeMissing: number;
+  missingFiles: FileVerificationResult[];
+  verificationTimeMs: number;
+}
+
+// ============================================================================
 // Settings Types
 // ============================================================================
 
