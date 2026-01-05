@@ -1,103 +1,253 @@
-# Prism - High-Performance Disk Analyzer
+<div align="center">
 
-Prism is a fast, modern disk analyzer and duplicate file detector for Windows, built with Rust and Tauri.
+# Prism
 
-![Prism Screenshot](docs/screenshot.png)
+### High-Performance Disk Analyzer & Deduplicator
+
+[![Tauri](https://img.shields.io/badge/Tauri-2.0-blue?logo=tauri)](https://tauri.app)
+[![Rust](https://img.shields.io/badge/Rust-1.75+-orange?logo=rust)](https://rust-lang.org)
+[![SvelteKit](https://img.shields.io/badge/SvelteKit-2.0-red?logo=svelte)](https://kit.svelte.dev)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
+**Prism** is a blazingly fast disk analyzer built with Rust and modern web technologies.
+Scan millions of files in seconds, find duplicates, and visualize your storage like never before.
+
+[Features](#-features) | [Installation](#-installation) | [Usage](#-usage) | [Development](#-development)
+
+</div>
+
+---
 
 ## Features
 
-- **Fast Multi-Drive Scanning**: Parallel filesystem traversal with real-time progress per drive
-- **Full-Text Search**: SQLite FTS5-powered instant file search with advanced filters
-- **Duplicate Detection**: Two-phase BLAKE3 hashing (partial + full) for accurate duplicate finding
-- **Similar Image Detection**: Perceptual hashing (dHash) to find visually similar images
-- **Interactive Analytics**: Storage explorer with drill-down treemap and file category visualization
-- **Quick Search**: Global hotkey (Ctrl+Space) for instant file search overlay
-- **Export Results**: Export search results to CSV or JSON
-- **System Tray**: Runs in background with system tray integration
+### Lightning Fast Scanning
+- **Parallel file traversal** using jwalk + rayon
+- Scans **50,000+ files/second** on SSDs
+- **Incremental scanning** - only process changed files after first scan
+- **Smart scanning** - automatically chooses between full and incremental
+
+### Powerful Search
+- **Full-text search** with FTS5 and BM25 ranking
+- **Advanced filters**: `size:>100MB`, `ext:pdf`, `type:video`, `path:Documents`
+- **Real-time results** with debounced queries (<50ms latency)
+- **Global hotkey** (Ctrl+Space) for instant search anywhere
+
+### Duplicate Detection
+- **Hash-based detection** using BLAKE3 (partial + full)
+- **Perceptual hashing** for similar images
+- **Batch deletion** with safety confirmations
+- **Wasted space calculation** per duplicate group
+
+### Interactive Visualization
+- **Tree View** - Pre-expanded hierarchical view of your files
+- **Treemap** - Interactive D3.js visualization with drill-down
+- **Size distribution** charts by file type and extension
+- **Real-time progress** with per-drive tracking
+
+### Cross-Drive Verification *(Coming Soon)*
+- Verify if all files from one drive exist on backup drives
+- Perfect for backup validation and migration
+
+---
 
 ## Installation
 
-### Portable (Recommended)
+### Portable Version (Recommended)
 
-Download `prism.exe` from the [Releases](https://github.com/user/prism/releases) page and run it directly.
+Download the latest portable release from [Releases](https://github.com/caste9612/Prism/releases):
 
-Database location: `%APPDATA%\com.prism.diskanalyzer\prism.db`
+1. Download `Prism-Portable.zip`
+2. Extract to any folder
+3. Run `Prism.exe`
 
-### From Source
+No installation required. Database is stored in `%APPDATA%\com.prism.diskanalyzer\`.
+
+### Build from Source
+
+**Prerequisites:**
+- [Node.js](https://nodejs.org/) 18+
+- [Rust](https://rustup.rs/) 1.75+
+- [Tauri Prerequisites](https://tauri.app/v2/guides/getting-started/prerequisites)
 
 ```bash
-# Prerequisites: Node.js 18+, Rust 1.70+
+# Clone the repository
+git clone https://github.com/caste9612/Prism.git
+cd Prism
 
 # Install dependencies
 npm install
 
-# Development
+# Run in development mode
 npm run tauri dev
 
-# Production build
+# Build for production
 npm run tauri build
 ```
 
+---
+
 ## Usage
 
-### Scanning
-- Drives are detected automatically on startup
-- Click drive cards to select/deselect drives for scanning
-- Click **Scan** to begin indexing selected drives
-- Progress is shown per-drive with real-time file counts
+### Scanning Drives
 
-### Searching
-Use the search bar with optional filters:
-- `size:>1MB` - Files larger than 1MB
-- `ext:pdf,docx` - Specific extensions
-- `type:image` - File type (image, video, audio, document, archive)
-- `path:Documents` - Path contains text
+1. **Select drives** - Click on drive cards to select/deselect
+2. **Start scan** - Click "Scan Selected" or let auto-scan run
+3. **Monitor progress** - Real-time per-drive progress tracking
+4. After first scan, subsequent scans are **incremental** (only changed files)
 
-### Quick Search (Ctrl+Space)
-Press Ctrl+Space anywhere to open the quick search overlay.
+### Searching Files
 
-### Duplicate Detection
+Use the search bar with advanced filters:
+
+| Filter | Example | Description |
+|--------|---------|-------------|
+| `size:` | `size:>100MB` | Files larger than 100MB |
+| `ext:` | `ext:pdf,docx` | Specific extensions |
+| `type:` | `type:image` | Category (image, video, audio, document, archive) |
+| `path:` | `path:Documents` | Path contains text |
+
+**Quick Search:** Press `Ctrl+Space` anywhere for instant global search.
+
+### Finding Duplicates
+
 1. Go to **Duplicates** tab
-2. Click **Find Duplicates** to analyze
-3. Select files to delete (first file in each group is protected as "original")
-4. Confirm deletion
+2. Click **Find Duplicates**
+3. Review groups (first file is marked as "original")
+4. Select files to delete and confirm
 
-### Analytics
-- **Storage Explorer**: Click folders to drill down, breadcrumb to navigate up
-- **File Categories**: Donut chart with expandable category breakdowns
-- **Size Distribution**: See file size distribution across your drives
+### Visualization
 
-## Documentation
+Switch between views using the toggle:
+- **Tree View** - Hierarchical folder structure with sizes
+- **Treemap** - Visual representation of space usage
 
-- [Architecture](docs/ARCHITECTURE.md) - Technical architecture and design
-- [Development](docs/DEVELOPMENT.md) - Development setup and guidelines
-- [API Reference](docs/API.md) - Tauri command documentation
-- [Refactoring Plan](docs/REFACTORING-PLAN.md) - Future improvements roadmap
+---
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | SvelteKit 2.0, TypeScript, TailwindCSS |
-| Backend | Rust, Tauri 2.0 |
-| Database | SQLite with FTS5 |
-| Hashing | BLAKE3 (files), dHash (images) |
+| **Framework** | [Tauri 2.0](https://tauri.app) |
+| **Frontend** | [SvelteKit 2.0](https://kit.svelte.dev), [TailwindCSS](https://tailwindcss.com), [D3.js](https://d3js.org) |
+| **Backend** | [Rust](https://rust-lang.org) |
+| **Database** | SQLite with WAL mode, FTS5 |
+
+### Key Libraries
+
+| Library | Purpose |
+|---------|---------|
+| **jwalk** | Parallel directory traversal |
+| **rayon** | Data parallelism |
+| **blake3** | Fast cryptographic hashing |
+| **rusqlite** | SQLite bindings |
+| **image** | Perceptual hashing |
+
+---
+
+## Architecture
+
+```
+Prism/
+├── src/                    # SvelteKit frontend
+│   ├── lib/
+│   │   ├── components/     # Svelte components
+│   │   │   ├── analytics/  # TreeExplorer, StorageExplorer, charts
+│   │   │   ├── common/     # Modal, Toast, Skeleton
+│   │   │   └── dashboard/  # DriveCard, ScanProgress
+│   │   ├── stores/         # Svelte stores (state management)
+│   │   └── utils/          # Formatting utilities
+│   └── routes/             # SvelteKit pages
+├── src-tauri/              # Rust backend
+│   └── src/
+│       ├── commands/       # Tauri IPC commands
+│       ├── database/       # SQLite with FTS5
+│       ├── scanner/        # Parallel file walker
+│       ├── search/         # Search engine
+│       └── duplicates/     # Hash-based detection
+└── docs/                   # Documentation
+```
+
+---
 
 ## Performance
 
-- **Scanning**: ~50,000+ files/second on SSD, optimized for network drives
-- **Search**: <100ms for millions of files using FTS5
-- **Memory**: Efficient streaming with batched database inserts
+| Metric | Value |
+|--------|-------|
+| **Scan speed** | 50,000+ files/sec (SSD) |
+| **Search latency** | <50ms |
+| **FTS indexing** | ~100,000 files/sec |
+| **Memory usage** | ~100MB during scan |
+
+---
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+Space` | Open Quick Search (global) |
-| `Escape` | Close Quick Search |
+| `Escape` | Close Quick Search / Cancel |
 | `Enter` | Open selected file |
-| `Ctrl+C` | Copy file path |
+
+---
+
+## Development
+
+### Commands
+
+```bash
+npm run tauri dev      # Development with hot reload
+npm run check          # TypeScript type checking
+npm test               # Frontend tests (Vitest)
+cargo test             # Backend tests
+
+npm run tauri build    # Production build
+```
+
+### Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) - System design and patterns
+- [Development](docs/DEVELOPMENT.md) - Setup and guidelines
+- [API Reference](docs/API.md) - Tauri commands
+- [Refactoring Plan](docs/REFACTORING-PLAN.md) - Roadmap
+
+---
+
+## Roadmap
+
+- [x] High-performance parallel scanning
+- [x] FTS5 full-text search
+- [x] Duplicate detection (hash + perceptual)
+- [x] Interactive tree view
+- [x] Smart incremental scanning
+- [x] Database corruption prevention
+- [ ] Cross-drive file verification
+- [ ] Similar images comparison UI
+- [ ] Excel export
+- [ ] Theme toggle (dark/light)
+- [ ] Scheduled scans
+
+---
+
+## Contributing
+
+Contributions are welcome! Please read [DEVELOPMENT.md](docs/DEVELOPMENT.md) first.
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing`)
+5. Open a Pull Request
+
+---
 
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+**Built with Rust and love**
+
+</div>

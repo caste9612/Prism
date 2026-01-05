@@ -1,8 +1,8 @@
-ob# Prism Refactoring Plan
+# Prism Refactoring Plan
 
 This document outlines a comprehensive plan for code cleanup, performance improvements, and architectural enhancements.
 
-**Last Updated**: January 2026
+**Last Updated**: January 2026 (Session 2)
 
 ---
 
@@ -10,14 +10,14 @@ This document outlines a comprehensive plan for code cleanup, performance improv
 
 | Phase | Status | Completion |
 |-------|--------|------------|
-| 1.1 Split Frontend Components | Partial | 70% |
+| 1.1 Split Frontend Components | Partial | 80% |
 | 1.2 Split Backend Commands | Complete | 100% |
 | 2. State Management | Partial | 60% |
-| 3. Performance Optimizations | Partial | 40% |
-| 4. Feature Completions | Not Started | 0% |
+| 3. Performance Optimizations | Complete | 100% |
+| 4. Feature Completions | Partial | 20% |
 | 5. Testing | Partial | 30% |
 | 6. Error Handling | Complete | 100% |
-| 7. Code Quality | Not Started | 0% |
+| 7. Code Quality | Partial | 20% |
 
 ---
 
@@ -52,6 +52,8 @@ This document outlines a comprehensive plan for code cleanup, performance improv
 - `Skeleton.svelte` - Loading skeleton
 - `StatsCards.svelte` - Summary statistics
 - `StorageExplorer.svelte` - Interactive treemap
+- `TreeExplorer.svelte` - Hierarchical tree view (NEW)
+- `TreeNodeItem.svelte` - Recursive tree node component (NEW)
 - `FileCategories.svelte` - File type distribution
 - `SizeDistribution.svelte` - Size chart
 - `DuplicateList.svelte` - Duplicate file listing
@@ -98,13 +100,14 @@ src/lib/components/
 
 **Completed**:
 - `mod.rs` - Re-exports only
-- `scan.rs` - start_scan, auto_scan_drives
+- `scan.rs` - start_scan, auto_scan_drives, start_smart_scan, start_incremental_scan
 - `search.rs` - search_files, search_files_advanced, quick_search
 - `duplicates.rs` - find_duplicates, delete_duplicate, find_similar_images
-- `analytics.rs` - get_size_distribution, get_folder_contents, etc.
+- `analytics.rs` - get_size_distribution, get_folder_contents (optimized with SQL aggregation)
 - `drives.rs` - get_available_drives, get_drive_stats
 - `export.rs` - export_to_csv, export_to_json
 - `stats.rs` - get_stats, get_recent_scans
+- `tree.rs` - get_directory_tree, get_tree_children (NEW)
 - `utils.rs` - clear_database, open_in_explorer
 
 ---
@@ -170,16 +173,20 @@ export function setupEventListeners() {
 - FTS5 triggers disabled during bulk inserts
 - `db.optimize()` called after scans (ANALYZE + WAL checkpoint)
 - Batch insert transactions
+- **Database corruption prevention** (NEW):
+  - Removed dangerous `PRAGMA synchronous=OFF` and `journal_mode=MEMORY`
+  - Added `Drop` implementation with WAL checkpoint
+  - Added integrity check on database open (`PRAGMA quick_check`)
+  - Added shutdown handler for proper cleanup
+- **New indexes for path-based queries** (NEW):
+  - `idx_files_path_prefix` - For LIKE prefix matching
+  - `idx_files_path_size` - For folder size aggregation
+- **SQL aggregation** for `get_folder_contents` (instead of in-memory processing)
 
 **TODO** 🔲:
 - [ ] Implement connection pooling with r2d2 (for true concurrency)
 - [ ] Add query result caching for analytics (LRU cache)
-- [ ] Consider partial indexes for common queries
-- [ ] Split `database/mod.rs` (549 lines) into:
-  - `database/connection.rs` - Connection and initialization
-  - `database/files.rs` - File operations
-  - `database/scans.rs` - Scan operations
-  - `database/queries.rs` - Analytics queries
+- [ ] Split `database/mod.rs` (549 lines) into submodules
 
 ### 3.2 Scanner Optimizations
 
@@ -188,12 +195,14 @@ export function setupEventListeners() {
 - BLAKE3 hashing (partial + full)
 - Producer-consumer pattern
 - Batched database inserts
+- **Incremental scanning** - only process changed files (NEW)
+- **Smart scanning** - auto-chooses between full/incremental (NEW)
+- `auto_scan_drives` now uses smart scan by default
 
 **TODO** 🔲:
 - [ ] Implement adaptive batch sizing
 - [ ] Use memory-mapped files for large file hashing (memmap2)
 - [ ] Add early termination for cancelled scans
-- [ ] Implement incremental scanning (only changed files since last scan)
 
 ### 3.3 Frontend Performance
 
@@ -504,7 +513,29 @@ src-tauri/src/database/
 
 ## Changelog
 
-### January 2026
+### January 2026 - Session 2
+- ✅ **Database corruption prevention**:
+  - Removed dangerous PRAGMA settings during FTS indexing
+  - Added `Drop` implementation with WAL checkpoint
+  - Added integrity check on database open
+  - Added shutdown handler for proper cleanup
+- ✅ **Auto-incremental scanning**:
+  - `auto_scan_drives` now uses smart scan
+  - Automatically chooses incremental for known drives
+- ✅ **Tree View**:
+  - New `tree.rs` backend with `get_directory_tree` command
+  - New `TreeExplorer.svelte` and `TreeNodeItem.svelte` components
+  - Pre-expanded tree view up to configurable depth
+  - View toggle between Tree and Treemap in analytics
+- ✅ **Database query optimization**:
+  - New indexes for path-based queries
+  - `get_folder_contents` rewritten with SQL aggregation
+- ✅ **GitHub repository setup**:
+  - Initialized repo and pushed to develop branch
+  - Created polished README with badges
+  - Added LICENSE file
+
+### January 2026 - Session 1
 - ✅ Completed Phase 1.2 (Backend command split)
 - ✅ Completed Phase 6 (Error handling)
 - ✅ Partial Phase 1.1 (10 components extracted)
