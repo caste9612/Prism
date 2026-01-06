@@ -35,12 +35,17 @@
 
   // Scan state
   let isScanning = false;
+  let isAutoScan = false; // Track if we're in auto-scan mode
   let scanProgress: ScanProgressType | null = null;
   let incrementalProgress: IncrementalProgress | null = null;
+  let autoScanPhase: 'local' | 'network' | null = null; // Track auto-scan phase
+  let autoScanHasNetwork = false; // Track if network drives are pending
   let unlistenProgress: (() => void) | null = null;
   let unlistenComplete: (() => void) | null = null;
   let unlistenStats: (() => void) | null = null;
   let unlistenIncrementalProgress: (() => void) | null = null;
+  let unlistenAutoScanPhase: (() => void) | null = null;
+  let unlistenAutoScanComplete: (() => void) | null = null;
 
   // Settings
   $: settings = $settingsStore;
@@ -74,10 +79,24 @@
       // Update per-drive progress from backend
       if (scanProgress?.drives) {
         driveProgress = scanProgress.drives;
+        // Log drives progress every few updates
+        const driveKeys = Object.keys(scanProgress.drives);
+        if (driveKeys.length > 0) {
+          const summary = driveKeys.map(k => `${k}:${Math.round(scanProgress.drives[k]?.progress_percent ?? 0)}%`).join(', ');
+          console.log('[driveProgress]', summary);
+        }
       }
 
       if (scanProgress?.is_complete) {
-        isScanning = false;
+        // DON'T set isScanning = false if we're in auto-scan mode with pending network phase
+        // The auto-scan-phase event will handle the transition
+        if (!isAutoScan || !autoScanHasNetwork || autoScanPhase === 'network') {
+          console.log('[UI] Scan complete, setting isScanning=false (isAutoScan=%s, hasNetwork=%s, phase=%s)',
+                      isAutoScan, autoScanHasNetwork, autoScanPhase);
+          isScanning = false;
+        } else {
+          console.log('[UI] Scan complete but auto-scan has network phase pending, keeping isScanning=true');
+        }
 
         if (scanProgress.error) {
           notify(`Scan failed: ${scanProgress.error}`, 'error');
@@ -90,6 +109,13 @@
     });
 
     unlistenComplete = await listen('scan-complete', async () => {
+      // DON'T reset isScanning if we're in auto-scan mode with network phase pending
+      // The auto-scan-phase and auto-scan-complete events handle the transitions
+      if (isAutoScan && autoScanHasNetwork && autoScanPhase !== 'network') {
+        console.log('[UI] Ignoring scan-complete: auto-scan with network phase pending');
+        return;
+      }
+      console.log('[UI] scan-complete received, setting isScanning=false');
       isScanning = false;
       await stats.load();
       loadAnalytics();
@@ -128,17 +154,60 @@
     // Listen for incremental scan progress
     unlistenIncrementalProgress = await listen<IncrementalProgress>('incremental-progress', (event) => {
       incrementalProgress = event.payload;
-      console.log('Incremental progress:', incrementalProgress);
+      console.log('Incremental progress:', incrementalProgress, 'autoScanPhase:', autoScanPhase, 'hasNetwork:', autoScanHasNetwork);
 
-      // When incremental scan completes, clear the progress and reload data
+      // When incremental scan completes
       if (incrementalProgress?.phase === 'complete') {
-        setTimeout(() => {
-          incrementalProgress = null;
-          isScanning = false;
-          loadAnalytics();
-          loadDriveStats();
-        }, 1000); // Show completion for 1 second
+        // If we're in auto-scan mode, let auto-scan-complete handle the final reset
+        if (isAutoScan) {
+          console.log('Auto-scan phase complete, waiting for next phase or completion...');
+          setTimeout(() => {
+            incrementalProgress = null;
+          }, 500);
+        } else {
+          // Manual scan completion - reset everything
+          console.log('Manual scan complete, resetting...');
+          setTimeout(() => {
+            incrementalProgress = null;
+            isScanning = false;
+            loadAnalytics();
+            loadDriveStats();
+          }, 1000);
+        }
       }
+    });
+
+    // Listen for auto-scan phase changes
+    unlistenAutoScanPhase = await listen<{ phase: string; has_network: boolean; paths: string[] }>('auto-scan-phase', (event) => {
+      console.log('[UI] Auto-scan phase received:', event.payload.phase, 'isScanning was:', isScanning);
+      autoScanPhase = event.payload.phase as 'local' | 'network';
+      autoScanHasNetwork = event.payload.has_network;
+
+      // IMPORTANT: Set isScanning = true when a new phase starts
+      // This ensures the UI shows scanning state even after local phase completes
+      isScanning = true;
+      console.log('[UI] After phase change: isScanning=%s, autoScanPhase=%s', isScanning, autoScanPhase);
+
+      // Reset drive progress for new phase to avoid stale data
+      driveProgress = {};
+      incrementalProgress = null;
+
+      // Show notification for network phase
+      if (autoScanPhase === 'network') {
+        notify(`Scanning ${event.payload.paths.length} network drives...`, 'info');
+      }
+    });
+
+    // Listen for auto-scan complete
+    unlistenAutoScanComplete = await listen<{ results: string }>('auto-scan-complete', (event) => {
+      console.log('Auto-scan complete:', event.payload);
+      autoScanPhase = null;
+      autoScanHasNetwork = false;
+      isAutoScan = false;
+      isScanning = false;
+      incrementalProgress = null;
+      loadAnalytics();
+      loadDriveStats();
     });
   });
 
@@ -148,6 +217,8 @@
     unlistenStats?.();
     unlistenVerifyProgress?.();
     unlistenIncrementalProgress?.();
+    unlistenAutoScanPhase?.();
+    unlistenAutoScanComplete?.();
     if (driveRefreshInterval) {
       clearInterval(driveRefreshInterval);
       driveRefreshInterval = null;
@@ -226,6 +297,7 @@
 
   async function startAutoScan() {
     isScanning = true;
+    isAutoScan = true; // Mark as auto-scan mode
     driveProgress = {};
     scanProgress = { scan_id: 0, files_scanned: 0, total_size: 0, current_path: 'Initializing...', files_per_second: 0, is_complete: false, error: null, drives: {} };
 
@@ -234,6 +306,7 @@
     } catch (e) {
       notify(`Auto-scan failed: ${e}`, 'error');
       isScanning = false;
+      isAutoScan = false;
     }
   }
 
@@ -319,15 +392,19 @@
     }
   }
 
-  // Get scan status for a drive
-  function getDriveScanStatus(drivePath: string): 'idle' | 'waiting' | 'scanning' | 'done' {
+  // Get scan status for a drive - same treatment for all drives
+  function getDriveScanStatus(drivePath: string): 'idle' | 'scanning' | 'done' {
     if (!isScanning) return 'idle';
     const normalizedPath = drivePath.toUpperCase();
+
+    // Check per-drive progress (from full scan)
     const progress = driveProgress[normalizedPath];
-    if (progress) {
-      return progress.status as 'waiting' | 'scanning' | 'done';
+    if (progress?.status === 'done') {
+      return 'done';
     }
-    return 'waiting';
+
+    // If scanning, all drives show scanning status
+    return 'scanning';
   }
 
   // Get indexed file count for a drive
@@ -739,17 +816,19 @@
                   disabled={!drive.is_ready || isScanning || isOffline}
                   class="relative flex flex-col gap-1 px-4 py-3 rounded-xl border-2 transition-all min-w-[140px] overflow-hidden
                     {isOffline ? 'opacity-60 border-red-500/50 bg-red-900/10' :
+                      scanStatus === 'scanning' ? 'bg-prism-500/10 border-prism-400 ring-2 ring-prism-400/30' :
+                      scanStatus === 'done' ? 'bg-green-500/10 border-green-500/50' :
                       selectedDrives.has(drive.path) ? 'bg-prism-500/10 border-prism-500' : 'bg-gray-700/30 border-gray-600 hover:border-gray-500'}
-                    {!drive.is_ready && !isOffline ? 'opacity-50 cursor-not-allowed' : ''}
-                    {scanStatus === 'scanning' ? 'border-prism-400 ring-2 ring-prism-400/30' : ''}
-                    {scanStatus === 'done' ? 'border-green-500/50' : ''}"
+                    {!drive.is_ready && !isOffline ? 'opacity-50 cursor-not-allowed' : ''}"
                 >
-              <!-- Progress bar fill - fills from bottom to top -->
-              {#if (scanStatus === 'scanning' || scanStatus === 'done') && driveProgressInfo}
+              <!-- Progress bar fill - same for all drives -->
+              {#if scanStatus === 'scanning' || scanStatus === 'done'}
+                {@const rawPercent = driveProgressInfo?.progress_percent ?? (incrementalProgress?.percent ?? 0)}
+                {@const progressPercent = rawPercent >= 0 ? rawPercent : 0}
                 <div
                   class="absolute bottom-0 left-0 right-0 transition-all duration-300 ease-out
                     {scanStatus === 'done' ? 'bg-green-500/20' : 'bg-prism-500/30'}"
-                  style="height: {driveProgressInfo.progress_percent}%"
+                  style="height: {progressPercent}%"
                 ></div>
                 <!-- Animated shimmer overlay while scanning -->
                 {#if scanStatus === 'scanning'}
@@ -757,8 +836,6 @@
                     <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer"></div>
                   </div>
                 {/if}
-              {:else if scanStatus === 'waiting'}
-                <div class="absolute inset-0 bg-yellow-500/10"></div>
               {/if}
 
               <div class="relative flex items-center gap-2">
@@ -771,8 +848,6 @@
                     <div class="absolute -top-1 -right-1 w-3 h-3 bg-prism-500 rounded-full animate-pulse"></div>
                   {:else if scanStatus === 'done' || indexedFiles > 0}
                     <div class="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
-                  {:else if scanStatus === 'waiting'}
-                    <div class="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full"></div>
                   {/if}
                 </div>
 
@@ -799,27 +874,25 @@
                 {/if}
               </div>
 
-              <!-- Progress/Stats display -->
+              <!-- Progress/Stats display - same for all drives -->
               <div class="relative text-left">
-                {#if scanStatus === 'scanning' && driveProgressInfo}
+                {#if scanStatus === 'scanning'}
+                  {@const percent = driveProgressInfo?.progress_percent ?? incrementalProgress?.percent ?? 0}
+                  {@const filesCount = driveProgressInfo?.files_scanned ?? incrementalProgress?.files_checked ?? 0}
                   <div class="text-xs text-prism-400 font-bold">
-                    Scanning {Math.round(driveProgressInfo.progress_percent)}%
+                    {#if percent >= 0}
+                      Scanning {Math.round(percent)}%
+                    {:else}
+                      Scanning...
+                    {/if}
                   </div>
                   <div class="text-xs text-gray-400">
-                    {formatNumber(driveProgressInfo.files_scanned)} files
+                    {formatNumber(filesCount)} files
                   </div>
-                  <div class="text-xs text-gray-500">
-                    {formatBytes(driveProgressInfo.total_size)}
-                  </div>
-                {:else if scanStatus === 'done' && driveProgressInfo}
-                  <div class="text-xs text-green-400 font-bold">
-                    Scanned 100%
-                  </div>
+                {:else if scanStatus === 'done'}
+                  <div class="text-xs text-green-400 font-bold">Done</div>
                   <div class="text-xs text-gray-400">
-                    {formatNumber(driveProgressInfo.files_scanned)} files
-                  </div>
-                  <div class="text-xs text-gray-500">
-                    {formatBytes(driveProgressInfo.total_size)}
+                    {formatNumber(driveProgressInfo?.files_scanned ?? indexedFiles)} files
                   </div>
                 {:else if isOffline && indexedFiles > 0}
                   <div class="text-xs text-red-400 font-medium">
@@ -835,8 +908,6 @@
                   <div class="text-xs text-gray-500">
                     {formatBytes(indexedSize)}
                   </div>
-                {:else if scanStatus === 'waiting'}
-                  <div class="text-xs text-yellow-400">Waiting...</div>
                 {:else if drive.is_ready && drive.total_space > 0}
                   <div class="text-xs text-gray-500">{formatBytes(drive.free_space)} free</div>
                   <div class="text-xs text-gray-600">{formatBytes(drive.total_space)} total</div>
@@ -869,6 +940,19 @@
         </div>
       </div>
 
+      <!-- Auto-scan Phase Indicator (Network Drives) -->
+      {#if isAutoScan && autoScanPhase === 'network' && !incrementalProgress}
+        <div class="mt-4 bg-blue-900/30 border border-blue-500/30 rounded-lg p-3">
+          <div class="flex items-center gap-3">
+            <div class="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+            <div>
+              <span class="text-sm text-blue-300 font-medium">Scanning network drives...</span>
+              <span class="text-xs text-blue-400/70 ml-2">This may take longer due to network latency</span>
+            </div>
+          </div>
+        </div>
+      {/if}
+
       <!-- Incremental Scan Progress Bar -->
       {#if isScanning && incrementalProgress}
         {@const phase = incrementalProgress.phase}
@@ -881,10 +965,17 @@
           { id: 'complete', label: 'Done', icon: '✓' }
         ]}
         {@const phaseIndex = phases.findIndex(p => p.id === phase)}
-        <div class="mt-4 bg-gray-900/50 rounded-lg p-3">
+        <div class="mt-4 bg-gray-900/50 rounded-lg p-3 {isAutoScan && autoScanPhase === 'network' ? 'ring-1 ring-blue-500/30' : ''}">
           <!-- Phase Indicators -->
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-1">
+              <!-- Drive Type Badge -->
+              {#if isAutoScan && autoScanPhase}
+                <span class="mr-2 px-2 py-0.5 rounded text-xs font-medium
+                  {autoScanPhase === 'network' ? 'bg-blue-500/20 text-blue-300' : 'bg-green-500/20 text-green-300'}">
+                  {autoScanPhase === 'network' ? '🌐 Network' : '💾 Local'}
+                </span>
+              {/if}
               {#each phases as p, i}
                 {@const isActive = p.id === phase}
                 {@const isPast = i < phaseIndex}
@@ -937,11 +1028,18 @@
         {@const isIndexing = scanProgress.indexing != null}
         {@const indexingPercent = scanProgress.indexing?.percent ?? 0}
         {@const indexingRate = scanProgress.indexing?.files_per_second ?? 0}
-        {@const totalFilesEstimate = $stats?.total_files || 0}
+        {@const totalFilesEstimate = $stats?.totalFiles || 0}
         {@const estimatedPercent = totalFilesEstimate > 0 ? Math.min((scanProgress.files_scanned / totalFilesEstimate) * 100, 100) : 0}
-        <div class="mt-4 bg-gray-900/50 rounded-lg p-3">
+        <div class="mt-4 bg-gray-900/50 rounded-lg p-3 {isAutoScan && autoScanPhase === 'network' ? 'ring-1 ring-blue-500/30' : ''}">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-3">
+              <!-- Drive Type Badge for Full Scan -->
+              {#if isAutoScan && autoScanPhase}
+                <span class="px-2 py-0.5 rounded text-xs font-medium
+                  {autoScanPhase === 'network' ? 'bg-blue-500/20 text-blue-300' : 'bg-green-500/20 text-green-300'}">
+                  {autoScanPhase === 'network' ? '🌐 Network' : '💾 Local'}
+                </span>
+              {/if}
               <div class="w-4 h-4 border-2 border-prism-400 border-t-transparent rounded-full animate-spin"></div>
               <span class="text-sm text-white font-medium">
                 {formatNumber(scanProgress.files_scanned)} files scanned

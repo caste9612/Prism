@@ -6,7 +6,7 @@
 use super::{DriveProgress, FileMetadata, ScanProgress};
 use crate::database::Database;
 use anyhow::Result;
-use crossbeam_channel::{bounded, Sender};
+use crossbeam_channel::{bounded, unbounded, Sender};
 use jwalk::WalkDir as JWalkDir;
 use parking_lot::RwLock;
 use rayon::prelude::*;
@@ -1102,8 +1102,22 @@ impl Scanner {
         }
         let total_files_in_db = existing_files.len() as u64;
 
+        // Pre-calculate per-drive file estimates for progress calculation
+        // Use same key format as get_drive_letter() which returns "C:\" format
+        let mut files_per_drive: HashMap<String, u64> = HashMap::new();
+        for path in existing_files.keys() {
+            // Extract drive letter and normalize to "X:\" format (matches get_drive_letter)
+            if path.len() >= 2 && path.chars().nth(1) == Some(':') {
+                let drive_letter = path.chars().next().unwrap().to_uppercase().next().unwrap();
+                let key = format!("{}:\\", drive_letter);
+                *files_per_drive.entry(key).or_insert(0) += 1;
+            }
+        }
+        let files_per_drive = Arc::new(files_per_drive);
+
         info!("Loaded {} existing files from database for {} drives",
               existing_files.len(), self.config.root_paths.len());
+        info!("Files per drive estimate: {:?}", files_per_drive);
 
         // Thread-safe shared state for parallel scanning
         let existing_files = Arc::new(existing_files);
@@ -1115,27 +1129,31 @@ impl Scanner {
         let files_new_count = Arc::new(AtomicU64::new(0));
         let files_updated_count = Arc::new(AtomicU64::new(0));
 
-        // Thread-safe drives status map
+        // Thread-safe drives status map - include estimated_total from files_per_drive
         let drives_status: Arc<RwLock<HashMap<String, super::DriveProgress>>> = Arc::new(RwLock::new(
             self.config.root_paths
                 .iter()
                 .map(|p| {
                     let key = Self::get_drive_letter(p);
+                    let estimated = files_per_drive.get(&key).copied().unwrap_or(0);
                     (key.clone(), super::DriveProgress {
                         drive: key,
                         files_scanned: 0,
                         total_size: 0,
                         status: "waiting".to_string(),
                         progress_percent: 0.0,
-                        estimated_total: 0,
+                        estimated_total: estimated,
                     })
                 })
                 .collect()
         ));
 
+        info!("Drives status initialized: {:?}", drives_status.read().iter().map(|(k, v)| format!("{}={}", k, v.estimated_total)).collect::<Vec<_>>());
+
         // Channel for collecting files to insert/update
-        // NOTE: We create sender as Option so we can take() and drop it properly
-        let (file_sender, file_receiver) = bounded::<(String, super::FileMetadata)>(100_000);
+        // NOTE: Using unbounded channel to prevent deadlock - bounded channel would block
+        // senders when full, but receiver only runs after all senders finish = deadlock!
+        let (file_sender, file_receiver) = unbounded::<(String, super::FileMetadata)>();
         let file_sender = Some(file_sender); // Wrap in Option for explicit consumption
 
         // Emit initial progress so UI shows all drives as waiting
@@ -1166,21 +1184,53 @@ impl Scanner {
             let handle = handle.clone();
             let drives_status_clone = Arc::clone(&drives_status);
             let files_checked_clone = Arc::clone(&files_checked);
+            let files_unchanged_clone = Arc::clone(&files_unchanged);
+            let files_new_clone = Arc::clone(&files_new_count);
+            let files_updated_clone = Arc::clone(&files_updated_count);
             let running = Arc::clone(&progress_running);
 
             Some(thread::spawn(move || {
                 while running.load(Ordering::Relaxed) {
                     let checked = files_checked_clone.load(Ordering::Relaxed);
+                    let unchanged = files_unchanged_clone.load(Ordering::Relaxed);
+                    let new_count = files_new_clone.load(Ordering::Relaxed);
+                    let updated = files_updated_clone.load(Ordering::Relaxed);
                     let elapsed = start_time.elapsed().as_secs_f64();
                     let fps = if elapsed > 0.0 { checked as f64 / elapsed } else { 0.0 };
 
-                    let _percent = if total_files_in_db > 0 {
-                        ((checked as f64 / (total_files_in_db as f64 * 1.1)) * 100.0).min(99.0)
+                    // Calculate global progress: 0-80% for scanning phase
+                    // (cleanup phase will be 80-90%, indexing 90-100%)
+                    let percent = if total_files_in_db > 0 {
+                        (checked as f64 / total_files_in_db as f64 * 80.0).min(80.0)
                     } else {
                         0.0
                     };
 
+                    // Emit incremental-progress for the UI
+                    let incremental_progress = super::IncrementalProgress {
+                        phase: "scanning".to_string(),
+                        files_checked: checked,
+                        files_unchanged: unchanged,
+                        files_new: new_count,
+                        files_updated: updated,
+                        files_deleted: 0,
+                        total_files_in_db,
+                        percent,
+                    };
+                    let _ = handle.emit("incremental-progress", &incremental_progress);
+
                     let drives_snapshot = drives_status_clone.read().clone();
+
+                    // Log drives status every ~5 seconds (20 iterations * 250ms)
+                    static EMIT_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                    let count = EMIT_COUNT.fetch_add(1, Ordering::Relaxed);
+                    if count % 20 == 0 {
+                        let drives_info: Vec<String> = drives_snapshot.iter()
+                            .map(|(k, v)| format!("{}:{}%/{}", k, v.progress_percent as i32, v.files_scanned))
+                            .collect();
+                        info!("[PROGRESS EMIT #{}] percent={:.1}%, drives={:?}", count, percent, drives_info);
+                    }
+
                     let scan_progress = super::ScanProgress {
                         scan_id,
                         files_scanned: checked,
@@ -1257,6 +1307,7 @@ impl Scanner {
                 let files_updated_count = Arc::clone(&files_updated_count);
                 let drives_status = Arc::clone(&drives_status);
                 let skip_dirs = Arc::clone(&skip_dirs);
+                let files_per_drive = Arc::clone(&files_per_drive);
 
                 s.spawn(move || {
                     let drive_key = Self::get_drive_letter(&root_path);
@@ -1269,122 +1320,266 @@ impl Scanner {
                         }
                     }
 
-                    info!("=== [PARALLEL] Starting walk of drive: {} ===", root_path);
+                    // Check if this is a network drive - use different scanning strategy
+                    let is_network = Self::is_network_path(&root_path);
+                    let drive_type_str = if is_network { "NETWORK" } else { "LOCAL" };
+                    info!("=== [{}] Starting walk of drive: {} ===", drive_type_str, root_path);
                     let drive_start = Instant::now();
-
-                    let skip_dirs_clone = skip_dirs.clone();
-                    // IMPORTANT: Always enumerate ALL files including hidden ones!
-                    // We must see all files to correctly identify truly deleted files.
-                    // The hidden/system filtering happens AFTER adding to seen_paths.
-                    let walker = JWalkDir::new(&root_path)
-                        .skip_hidden(false) // Never skip - we filter later after adding to seen_paths
-                        .parallelism(jwalk::Parallelism::RayonNewPool(num_threads.max(2)))
-                        .process_read_dir(move |_depth, _path, _read_dir_state, children| {
-                            children.retain(|entry| {
-                                if let Ok(entry) = entry {
-                                    if entry.file_type().is_dir() {
-                                        let name = entry.file_name().to_string_lossy().to_uppercase();
-                                        let path_str = entry.path().to_string_lossy().to_uppercase();
-
-                                        if skip_dirs_clone.contains(name.as_str()) {
-                                            return false;
-                                        }
-                                        for skip in skip_dirs_clone.iter() {
-                                            if path_str.contains(*skip) {
-                                                return false;
-                                            }
-                                        }
-                                    }
-                                }
-                                true
-                            });
-                        });
 
                     let mut drive_file_count = 0u64;
 
-                    for entry in walker
-                        .into_iter()
-                        .filter_map(|e| e.ok())
-                        .filter(|e| e.file_type().is_file())
-                    {
-                        let path = entry.path();
-                        let path_str = path.to_string_lossy().to_string();
-                        // Normalize path: replace / with \ and uppercase for consistent comparison
-                        let path_normalized = normalize_path(&path_str);
-
-                        let metadata = match fs::metadata(&path) {
-                            Ok(m) => m,
-                            Err(_) => continue,
-                        };
-
-                        if !metadata.is_file() {
-                            continue;
+                    // Helper closure to check if a directory should be skipped
+                    let should_skip_dir = |name: &str, path_str: &str| -> bool {
+                        let name_upper = name.to_uppercase();
+                        let path_upper = path_str.to_uppercase();
+                        if skip_dirs.contains(name_upper.as_str()) {
+                            return true;
                         }
-
-                        // IMPORTANT: Add to seen_paths FIRST, before any filtering!
-                        // This ensures files that exist but are filtered (hidden/system/size)
-                        // are NOT marked as "deleted" from the database.
-                        // Files that truly don't exist (metadata error above) are correctly excluded.
-                        {
-                            seen_paths.write().insert(path_normalized.clone());
-                        }
-
-                        #[cfg(windows)]
-                        {
-                            use std::os::windows::fs::MetadataExt;
-                            let attrs = metadata.file_attributes();
-                            const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
-                            const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
-
-                            if exclude_hidden && (attrs & FILE_ATTRIBUTE_HIDDEN) != 0 {
-                                continue;
-                            }
-                            if exclude_system && (attrs & FILE_ATTRIBUTE_SYSTEM) != 0 {
-                                continue;
+                        for skip in skip_dirs.iter() {
+                            if path_upper.contains(*skip) {
+                                return true;
                             }
                         }
+                        false
+                    };
 
-                        let size = metadata.len() as i64;
-                        if size < min_file_size as i64 {
-                            continue;
+                    // Use different walker based on drive type:
+                    // - Network drives: walkdir (sequential) - 9x faster due to no parallelism overhead
+                    // - Local drives: jwalk (parallel) - faster with local I/O parallelism
+                    if is_network {
+                        // NETWORK DRIVE: Use walkdir (sequential, much faster for network I/O)
+                        let walker = WalkDir::new(&root_path)
+                            .follow_links(false)
+                            .into_iter()
+                            .filter_entry(|e| {
+                                if e.file_type().is_dir() {
+                                    let name = e.file_name().to_string_lossy();
+                                    let path_str = e.path().to_string_lossy();
+                                    !should_skip_dir(&name, &path_str)
+                                } else {
+                                    true
+                                }
+                            });
+
+                        // Macro to process a single file entry - avoids code duplication
+                        macro_rules! process_file {
+                            ($path:expr) => {{
+                                let path_str = $path.to_string_lossy().to_string();
+                                let path_normalized = normalize_path(&path_str);
+
+                                let metadata = match fs::metadata(&$path) {
+                                    Ok(m) => m,
+                                    Err(_) => continue,
+                                };
+
+                                if !metadata.is_file() {
+                                    continue;
+                                }
+
+                                // Add to seen_paths FIRST, before any filtering
+                                {
+                                    seen_paths.write().insert(path_normalized.clone());
+                                }
+
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::fs::MetadataExt;
+                                    let attrs = metadata.file_attributes();
+                                    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+                                    const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+
+                                    if exclude_hidden && (attrs & FILE_ATTRIBUTE_HIDDEN) != 0 {
+                                        continue;
+                                    }
+                                    if exclude_system && (attrs & FILE_ATTRIBUTE_SYSTEM) != 0 {
+                                        continue;
+                                    }
+                                }
+
+                                let size = metadata.len() as i64;
+                                if size < min_file_size as i64 {
+                                    continue;
+                                }
+
+                                files_checked.fetch_add(1, Ordering::Relaxed);
+                                drive_file_count += 1;
+
+                                // Update drive progress every 5000 files
+                                if drive_file_count % 5000 == 0 {
+                                    let elapsed = drive_start.elapsed().as_secs_f64();
+                                    let fps = drive_file_count as f64 / elapsed.max(0.001);
+
+                                    let estimated = files_per_drive.get(&drive_key).copied().unwrap_or(0);
+                                    let progress = if estimated > 0 {
+                                        ((drive_file_count as f64 / estimated as f64) * 100.0).min(99.0)
+                                    } else {
+                                        -1.0
+                                    };
+
+                                    if drive_file_count % 50000 == 0 {
+                                        if progress >= 0.0 {
+                                            info!("[{}] Drive {} progress: {} files ({:.1}%), {:.0} files/sec",
+                                                  drive_type_str, root_path, drive_file_count, progress, fps);
+                                        } else {
+                                            info!("[{}] Drive {} progress: {} files (new drive), {:.0} files/sec",
+                                                  drive_type_str, root_path, drive_file_count, fps);
+                                        }
+                                    }
+
+                                    let mut status = drives_status.write();
+                                    if let Some(drive) = status.get_mut(&drive_key) {
+                                        drive.files_scanned = drive_file_count;
+                                        drive.progress_percent = progress;
+                                    }
+                                }
+
+                                let modified_at = metadata
+                                    .modified()
+                                    .ok()
+                                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                    .map(|d| d.as_secs() as i64);
+
+                                if let Some(&existing_mtime) = existing_files.get(&path_normalized) {
+                                    if existing_mtime == modified_at {
+                                        files_unchanged.fetch_add(1, Ordering::Relaxed);
+                                    } else {
+                                        files_updated_count.fetch_add(1, Ordering::Relaxed);
+                                        let file_meta = Self::create_file_metadata_static(&$path, &metadata);
+                                        let _ = file_sender.send(("updated".to_string(), file_meta));
+                                    }
+                                } else {
+                                    files_new_count.fetch_add(1, Ordering::Relaxed);
+                                    let file_meta = Self::create_file_metadata_static(&$path, &metadata);
+                                    let _ = file_sender.send(("new".to_string(), file_meta));
+                                }
+                            }};
                         }
 
-                        files_checked.fetch_add(1, Ordering::Relaxed);
-                        drive_file_count += 1;
+                        for entry in walker.filter_map(|e| e.ok()).filter(|e| e.file_type().is_file()) {
+                            let path = entry.path();
+                            process_file!(path);
+                        }
+                    } else {
+                        // LOCAL DRIVE: Use jwalk (parallel, faster for local I/O)
+                        let skip_dirs_clone = skip_dirs.clone();
+                        let walker = JWalkDir::new(&root_path)
+                            .skip_hidden(false)
+                            .parallelism(jwalk::Parallelism::RayonNewPool(num_threads.max(2)))
+                            .process_read_dir(move |_depth, _path, _read_dir_state, children| {
+                                children.retain(|entry| {
+                                    if let Ok(entry) = entry {
+                                        if entry.file_type().is_dir() {
+                                            let name = entry.file_name().to_string_lossy().to_uppercase();
+                                            let path_str = entry.path().to_string_lossy().to_uppercase();
+                                            if skip_dirs_clone.contains(name.as_str()) {
+                                                return false;
+                                            }
+                                            for skip in skip_dirs_clone.iter() {
+                                                if path_str.contains(*skip) {
+                                                    return false;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    true
+                                });
+                            });
 
-                        // Log progress every 50000 files
-                        if drive_file_count % 50000 == 0 {
-                            let elapsed = drive_start.elapsed().as_secs_f64();
-                            let fps = drive_file_count as f64 / elapsed.max(0.001);
-                            info!("[PARALLEL] Drive {} progress: {} files checked ({:.0} files/sec)",
-                                  root_path, drive_file_count, fps);
+                        // Macro to process a single file entry (same logic, but defined in else scope)
+                        macro_rules! process_file {
+                            ($path:expr) => {{
+                                let path_str = $path.to_string_lossy().to_string();
+                                let path_normalized = normalize_path(&path_str);
 
-                            // Update drive status
-                            let mut status = drives_status.write();
-                            if let Some(drive) = status.get_mut(&drive_key) {
-                                drive.files_scanned = drive_file_count;
-                            }
+                                let metadata = match fs::metadata(&$path) {
+                                    Ok(m) => m,
+                                    Err(_) => continue,
+                                };
+
+                                if !metadata.is_file() {
+                                    continue;
+                                }
+
+                                {
+                                    seen_paths.write().insert(path_normalized.clone());
+                                }
+
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::fs::MetadataExt;
+                                    let attrs = metadata.file_attributes();
+                                    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+                                    const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+
+                                    if exclude_hidden && (attrs & FILE_ATTRIBUTE_HIDDEN) != 0 {
+                                        continue;
+                                    }
+                                    if exclude_system && (attrs & FILE_ATTRIBUTE_SYSTEM) != 0 {
+                                        continue;
+                                    }
+                                }
+
+                                let size = metadata.len() as i64;
+                                if size < min_file_size as i64 {
+                                    continue;
+                                }
+
+                                files_checked.fetch_add(1, Ordering::Relaxed);
+                                drive_file_count += 1;
+
+                                if drive_file_count % 5000 == 0 {
+                                    let elapsed = drive_start.elapsed().as_secs_f64();
+                                    let fps = drive_file_count as f64 / elapsed.max(0.001);
+
+                                    let estimated = files_per_drive.get(&drive_key).copied().unwrap_or(0);
+                                    let progress = if estimated > 0 {
+                                        ((drive_file_count as f64 / estimated as f64) * 100.0).min(99.0)
+                                    } else {
+                                        -1.0
+                                    };
+
+                                    if drive_file_count % 50000 == 0 {
+                                        if progress >= 0.0 {
+                                            info!("[{}] Drive {} progress: {} files ({:.1}%), {:.0} files/sec",
+                                                  drive_type_str, root_path, drive_file_count, progress, fps);
+                                        } else {
+                                            info!("[{}] Drive {} progress: {} files (new drive), {:.0} files/sec",
+                                                  drive_type_str, root_path, drive_file_count, fps);
+                                        }
+                                    }
+
+                                    let mut status = drives_status.write();
+                                    if let Some(drive) = status.get_mut(&drive_key) {
+                                        drive.files_scanned = drive_file_count;
+                                        drive.progress_percent = progress;
+                                    }
+                                }
+
+                                let modified_at = metadata
+                                    .modified()
+                                    .ok()
+                                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                    .map(|d| d.as_secs() as i64);
+
+                                if let Some(&existing_mtime) = existing_files.get(&path_normalized) {
+                                    if existing_mtime == modified_at {
+                                        files_unchanged.fetch_add(1, Ordering::Relaxed);
+                                    } else {
+                                        files_updated_count.fetch_add(1, Ordering::Relaxed);
+                                        let file_meta = Self::create_file_metadata_static(&$path, &metadata);
+                                        let _ = file_sender.send(("updated".to_string(), file_meta));
+                                    }
+                                } else {
+                                    files_new_count.fetch_add(1, Ordering::Relaxed);
+                                    let file_meta = Self::create_file_metadata_static(&$path, &metadata);
+                                    let _ = file_sender.send(("new".to_string(), file_meta));
+                                }
+                            }};
                         }
 
-                        let modified_at = metadata
-                            .modified()
-                            .ok()
-                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs() as i64);
-
-                        // Check if file exists in DB (using normalized path)
-                        if let Some(&existing_mtime) = existing_files.get(&path_normalized) {
-                            if existing_mtime == modified_at {
-                                files_unchanged.fetch_add(1, Ordering::Relaxed);
-                            } else {
-                                files_updated_count.fetch_add(1, Ordering::Relaxed);
-                                let file_meta = Self::create_file_metadata_static(&path, &metadata);
-                                let _ = file_sender.send(("updated".to_string(), file_meta));
-                            }
-                        } else {
-                            files_new_count.fetch_add(1, Ordering::Relaxed);
-                            let file_meta = Self::create_file_metadata_static(&path, &metadata);
-                            let _ = file_sender.send(("new".to_string(), file_meta));
+                        for entry in walker.into_iter().filter_map(|e| e.ok()).filter(|e| e.file_type().is_file()) {
+                            let path = entry.path();
+                            process_file!(path);
                         }
                     }
 
@@ -1401,8 +1596,8 @@ impl Scanner {
                         }
                     }
 
-                    info!("=== [PARALLEL] Drive {} complete: {} files in {:.2}s ({:.0} files/sec) ===",
-                          root_path, drive_file_count, drive_elapsed.as_secs_f64(), fps);
+                    info!("=== [{}] Drive {} complete: {} files in {:.2}s ({:.0} files/sec) ===",
+                          drive_type_str, root_path, drive_file_count, drive_elapsed.as_secs_f64(), fps);
                 });
             }
 
@@ -1463,6 +1658,7 @@ impl Scanner {
         }
 
         // Build final incremental stats
+        // Progress phases: scanning 0-80%, cleaning 80-90%, indexing 90-100%
         let mut incremental = super::IncrementalProgress {
             phase: "cleaning".to_string(),
             total_files_in_db,
@@ -1471,7 +1667,7 @@ impl Scanner {
             files_new: files_new_count.load(Ordering::Relaxed),
             files_updated: files_updated_count.load(Ordering::Relaxed),
             files_deleted: 0,
-            percent: 90.0,
+            percent: 85.0, // cleaning phase: 80-90%
         };
 
         if let Some(handle) = app_handle {
@@ -1503,6 +1699,7 @@ impl Scanner {
 
         if total_changes > 0 {
             incremental.phase = "indexing".to_string();
+            incremental.percent = 95.0; // indexing phase: 90-100%
             if let Some(handle) = app_handle {
                 let _ = handle.emit("incremental-progress", &incremental);
             }

@@ -187,6 +187,17 @@ pub async fn auto_scan_drives(
     }
 
     let mut results = Vec::new();
+    let has_network = !network_paths.is_empty();
+
+    // Emit auto-scan phase: starting local drives
+    if !local_paths.is_empty() {
+        info!("Emitting auto-scan-phase: local (has_network: {})", has_network);
+        let _ = app_handle.emit("auto-scan-phase", serde_json::json!({
+            "phase": "local",
+            "has_network": has_network,
+            "paths": local_paths
+        }));
+    }
 
     // Scan local drives first (fast)
     if !local_paths.is_empty() {
@@ -204,8 +215,15 @@ pub async fn auto_scan_drives(
         }
     }
 
-    // Then scan network drives (may be slower)
+    // Emit auto-scan phase: starting network drives
     if !network_paths.is_empty() {
+        info!("Emitting auto-scan-phase: network");
+        let _ = app_handle.emit("auto-scan-phase", serde_json::json!({
+            "phase": "network",
+            "has_network": true,
+            "paths": network_paths
+        }));
+
         info!("Auto-scanning {} network drives: {:?}", network_paths.len(), network_paths);
         let network_request = ScanRequest {
             paths: network_paths.clone(),
@@ -214,11 +232,16 @@ pub async fn auto_scan_drives(
             exclude_patterns: None,
             min_file_size: Some(0),
         };
-        match start_smart_scan(app_handle, state, network_request).await {
+        match start_smart_scan(app_handle.clone(), state, network_request).await {
             Ok(r) => results.push(format!("Network drives: {}", r)),
             Err(e) => error!("Network drive scan error: {}", e),
         }
     }
+
+    // Emit auto-scan complete
+    let _ = app_handle.emit("auto-scan-complete", serde_json::json!({
+        "results": results.join("; ")
+    }));
 
     Ok(results.join("; "))
 }
