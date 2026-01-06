@@ -1433,8 +1433,9 @@ impl Scanner {
             } else {
                 files_updated.push(file);
                 if files_updated.len() >= batch_size {
-                    for f in &files_updated {
-                        let _ = db.update_file(f, scan_id);
+                    // Use batch update for performance (temp table approach)
+                    if let Err(e) = db.update_files_batch(&files_updated, scan_id) {
+                        warn!("Intermediate batch update error: {}", e);
                     }
                     files_updated.clear();
                 }
@@ -1554,54 +1555,6 @@ impl Scanner {
 
     /// Static version of create_file_metadata for use in parallel contexts
     fn create_file_metadata_static(path: &Path, metadata: &fs::Metadata) -> super::FileMetadata {
-        let name = path.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        let extension = path.extension()
-            .map(|e| e.to_string_lossy().to_string());
-
-        let size = metadata.len() as i64;
-
-        let created_at = metadata.created()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64);
-
-        let modified_at = metadata.modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64);
-
-        let accessed_at = metadata.accessed()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64);
-
-        #[cfg(windows)]
-        let attributes = {
-            use std::os::windows::fs::MetadataExt;
-            Some(metadata.file_attributes())
-        };
-
-        #[cfg(not(windows))]
-        let attributes = None;
-
-        super::FileMetadata {
-            path: path.to_string_lossy().to_string(),
-            name,
-            extension,
-            size,
-            created_at,
-            modified_at,
-            accessed_at,
-            attributes,
-            partial_hash: None,
-        }
-    }
-
-    /// Create FileMetadata from path and fs::Metadata
-    fn create_file_metadata(&self, path: &Path, metadata: &fs::Metadata) -> super::FileMetadata {
         let name = path.file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
