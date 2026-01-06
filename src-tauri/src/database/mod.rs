@@ -310,7 +310,91 @@ impl Database {
              PRAGMA wal_checkpoint(TRUNCATE);
              ANALYZE;"
         )?;
+        // Track when optimization was run
+        self.set_setting("last_optimize_time", &chrono::Utc::now().timestamp().to_string())?;
+        self.set_setting("scans_since_optimize", "0")?;
         info!("Database optimization complete");
+        Ok(())
+    }
+
+    /// Check if optimization should run based on frequency settings
+    /// Optimizes: every 10 scans OR every 24 hours OR if >50k total changes
+    pub fn should_optimize(&self, total_changes: u64) -> bool {
+        const MAX_SCANS_BETWEEN_OPTIMIZE: i64 = 10;
+        const MAX_HOURS_BETWEEN_OPTIMIZE: i64 = 24;
+        const LARGE_CHANGE_THRESHOLD: u64 = 50_000;
+
+        // Large changes always trigger optimization
+        if total_changes >= LARGE_CHANGE_THRESHOLD {
+            info!("Optimization triggered: {} changes exceeds {} threshold",
+                total_changes, LARGE_CHANGE_THRESHOLD);
+            return true;
+        }
+
+        // Check scans since last optimize
+        let scans_since: i64 = self.get_setting("scans_since_optimize")
+            .unwrap_or_default()
+            .parse()
+            .unwrap_or(0);
+        if scans_since >= MAX_SCANS_BETWEEN_OPTIMIZE {
+            info!("Optimization triggered: {} scans since last optimize", scans_since);
+            return true;
+        }
+
+        // Check time since last optimize
+        if let Ok(last_optimize_str) = self.get_setting("last_optimize_time") {
+            if let Ok(last_optimize) = last_optimize_str.parse::<i64>() {
+                let now = chrono::Utc::now().timestamp();
+                let hours_since = (now - last_optimize) / 3600;
+                if hours_since >= MAX_HOURS_BETWEEN_OPTIMIZE {
+                    info!("Optimization triggered: {} hours since last optimize", hours_since);
+                    return true;
+                }
+            }
+        } else {
+            // Never optimized before
+            info!("Optimization triggered: never optimized before");
+            return true;
+        }
+
+        false
+    }
+
+    /// Conditionally run optimization based on frequency settings
+    /// Increments scan counter even when skipping optimization
+    pub fn optimize_if_needed(&self, total_changes: u64) -> Result<bool> {
+        // Increment scans counter
+        let scans_since: i64 = self.get_setting("scans_since_optimize")
+            .unwrap_or_default()
+            .parse()
+            .unwrap_or(0);
+        self.set_setting("scans_since_optimize", &(scans_since + 1).to_string())?;
+
+        if self.should_optimize(total_changes) {
+            self.optimize()?;
+            Ok(true)
+        } else {
+            info!("Skipping database optimization (scan {}/{}, changes: {})",
+                scans_since + 1, 10, total_changes);
+            Ok(false)
+        }
+    }
+
+    /// Get a setting value from the settings table
+    fn get_setting(&self, key: &str) -> Result<String> {
+        self.conn.query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        ).map_err(Into::into)
+    }
+
+    /// Set a setting value in the settings table
+    fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
         Ok(())
     }
 
@@ -578,6 +662,13 @@ impl Database {
         )?;
         info!("FTS triggers re-enabled");
         Ok(())
+    }
+
+    /// Ensure FTS triggers are in place (idempotent, safe to call anytime)
+    /// Used for incremental scans where triggers should already exist
+    pub fn ensure_fts_triggers(&self) -> Result<()> {
+        // CREATE TRIGGER IF NOT EXISTS is idempotent - safe to call even if triggers exist
+        self.recreate_fts_triggers()
     }
 
     /// Get statistics grouped by drive (first path component)

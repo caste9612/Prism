@@ -873,26 +873,36 @@
       {#if isScanning && incrementalProgress}
         {@const phase = incrementalProgress.phase}
         {@const percent = incrementalProgress.percent}
-        {@const phaseLabels = {
-          'preparing': 'Preparing...',
-          'scanning': 'Scanning files...',
-          'cleaning': 'Cleaning deleted files...',
-          'indexing': 'Rebuilding search index...',
-          'complete': 'Complete!'
-        }}
+        {@const phases = [
+          { id: 'preparing', label: 'Prepare', icon: '⚙️' },
+          { id: 'scanning', label: 'Scan', icon: '🔍' },
+          { id: 'cleaning', label: 'Clean', icon: '🧹' },
+          { id: 'indexing', label: 'Index', icon: '📑' },
+          { id: 'complete', label: 'Done', icon: '✓' }
+        ]}
+        {@const phaseIndex = phases.findIndex(p => p.id === phase)}
         <div class="mt-4 bg-gray-900/50 rounded-lg p-3">
-          <div class="flex items-center justify-between mb-2">
-            <div class="flex items-center gap-3">
-              {#if phase !== 'complete'}
-                <div class="w-4 h-4 border-2 border-prism-400 border-t-transparent rounded-full animate-spin"></div>
-              {:else}
-                <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-              {/if}
-              <span class="text-sm text-white font-medium">
-                Incremental Scan: {phaseLabels[phase] || phase}
-              </span>
+          <!-- Phase Indicators -->
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-1">
+              {#each phases as p, i}
+                {@const isActive = p.id === phase}
+                {@const isPast = i < phaseIndex}
+                {@const isFuture = i > phaseIndex}
+                <div class="flex items-center">
+                  <div class="flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-all
+                    {isActive ? 'bg-prism-500/30 text-prism-300 ring-1 ring-prism-400' :
+                     isPast ? 'bg-green-500/20 text-green-400' :
+                     'bg-gray-700/50 text-gray-500'}">
+                    <span>{isPast ? '✓' : p.icon}</span>
+                    <span class="hidden sm:inline">{p.label}</span>
+                  </div>
+                  {#if i < phases.length - 1}
+                    <div class="w-2 h-0.5 mx-0.5
+                      {isPast ? 'bg-green-500/50' : 'bg-gray-600'}"></div>
+                  {/if}
+                </div>
+              {/each}
             </div>
             <span class="text-sm text-prism-400 font-medium">{percent.toFixed(0)}%</span>
           </div>

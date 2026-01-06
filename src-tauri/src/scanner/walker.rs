@@ -1495,20 +1495,37 @@ impl Scanner {
             db.delete_files_by_paths(&deleted_paths)?;
         }
 
-        // Phase 4: Rebuild FTS if any changes
-        let has_changes = incremental.files_new > 0
-            || incremental.files_updated > 0
-            || incremental.files_deleted > 0;
+        // Phase 4: Handle FTS index
+        // For small changes, FTS triggers handle updates automatically (much faster)
+        // For large changes, full rebuild is more efficient
+        const FTS_INCREMENTAL_THRESHOLD: u64 = 1000;
+        let total_changes = incremental.files_new + incremental.files_updated + incremental.files_deleted;
 
-        if has_changes {
+        if total_changes > 0 {
             incremental.phase = "indexing".to_string();
             if let Some(handle) = app_handle {
                 let _ = handle.emit("incremental-progress", &incremental);
             }
 
-            info!("Rebuilding FTS index after incremental changes...");
-            if let Err(e) = db.rebuild_fts_index() {
-                warn!("Failed to rebuild FTS index: {}", e);
+            if total_changes < FTS_INCREMENTAL_THRESHOLD {
+                // Small changes: FTS triggers already updated the index during insert/update/delete
+                // Just verify triggers are in place (idempotent operation)
+                info!(
+                    "FTS: {} changes handled by triggers (below {} threshold, skipping full rebuild)",
+                    total_changes, FTS_INCREMENTAL_THRESHOLD
+                );
+                if let Err(e) = db.ensure_fts_triggers() {
+                    warn!("Failed to verify FTS triggers: {}", e);
+                }
+            } else {
+                // Large changes: full rebuild is more efficient
+                info!(
+                    "FTS: {} changes exceeds {} threshold, performing full rebuild",
+                    total_changes, FTS_INCREMENTAL_THRESHOLD
+                );
+                if let Err(e) = db.rebuild_fts_index() {
+                    warn!("Failed to rebuild FTS index: {}", e);
+                }
             }
         }
 

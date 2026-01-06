@@ -120,8 +120,11 @@ pub async fn start_scan(
                     }
                 }
 
-                // Optimize database after scan for better query performance
-                if let Err(e) = db.optimize() {
+                // Optimize database after scan (full scan typically has many changes)
+                let total_files: u64 = progress.drives.values()
+                    .map(|d| d.files_scanned)
+                    .sum();
+                if let Err(e) = db.optimize_if_needed(total_files) {
                     error!("Failed to optimize database: {}", e);
                 }
 
@@ -333,9 +336,10 @@ pub async fn start_incremental_scan(
             format!("Incremental scan failed: {}", e)
         })?;
 
-    // Optimize database if there were changes
-    if result.files_new > 0 || result.files_updated > 0 || result.files_deleted > 0 {
-        if let Err(e) = db.optimize() {
+    // Conditionally optimize database based on frequency settings
+    let total_changes = result.files_new + result.files_updated + result.files_deleted;
+    if total_changes > 0 {
+        if let Err(e) = db.optimize_if_needed(total_changes) {
             error!("Failed to optimize database: {}", e);
         }
     }
