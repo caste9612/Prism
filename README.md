@@ -22,13 +22,17 @@ Scan millions of files in seconds, find duplicates, and visualize your storage l
 
 <div align="center">
 
-### Dashboard & Analytics
+### Dashboard
 ![Dashboard](docs/screenshots/dashboard.png)
-*Main dashboard with drive overview, storage treemap, and real-time scanning progress*
+*Main dashboard with drive cards, scan progress timer, and analytics*
+
+### Storage Explorer
+![Storage Explorer](docs/screenshots/storage-explorer.png)
+*Interactive treemap visualization with nested folders and disk usage overview*
 
 ### Quick Search
 ![Quick Search](docs/screenshots/quick-search.png)
-*Global quick search (Ctrl+Space) with instant results across all indexed drives*
+*Global quick search (Ctrl+Space) with file type filters and instant results*
 
 </div>
 
@@ -229,10 +233,11 @@ npm run tauri build    # Production build
 
 ### Documentation
 
+- [Features](docs/FEATURES.md) - Complete feature guide
 - [Architecture](docs/ARCHITECTURE.md) - System design and patterns
+- [API Reference](docs/API.md) - Tauri commands and events
+- [Changelog](docs/CHANGELOG.md) - Version history
 - [Development](docs/DEVELOPMENT.md) - Setup and guidelines
-- [API Reference](docs/API.md) - Tauri commands
-- [Refactoring Plan](docs/REFACTORING-PLAN.md) - Roadmap
 
 ---
 
@@ -248,6 +253,9 @@ npm run tauri build    # Production build
 - [x] Unified Quick Search experience
 - [x] File logging & export
 - [x] Quick Search file type filters
+- [x] Storage Explorer V2 with nested treemap
+- [x] Scan progress timer
+- [x] Right-click to open in Explorer
 - [ ] Similar images comparison UI
 - [ ] Excel export
 - [ ] Theme toggle (dark/light)
