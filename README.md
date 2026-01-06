@@ -43,10 +43,11 @@ Scan millions of files in seconds, find duplicates, and visualize your storage l
 - **Smart scanning** - automatically chooses between full and incremental
 
 ### Powerful Search
+- **Unified Quick Search** - Single search experience via search bar or `Ctrl+Space`
 - **Full-text search** with FTS5 and BM25 ranking
 - **Advanced filters**: `size:>100MB`, `ext:pdf`, `type:video`, `path:Documents`
+- **File type filtering** - Filter results by images, videos, documents, etc.
 - **Real-time results** with debounced queries (<50ms latency)
-- **Global hotkey** (Ctrl+Space) for instant search anywhere
 
 ### Duplicate Detection
 - **Hash-based detection** using BLAKE3 (partial + full)
@@ -62,8 +63,14 @@ Scan millions of files in seconds, find duplicates, and visualize your storage l
 
 ### Cross-Drive Verification
 - Verify if all files from one drive exist on backup drives
+- **Folder aggregation** - View missing files grouped by folder with sizes
+- **Search & filter** - Find specific missing files quickly
 - Perfect for backup validation and migration
-- Shows backup percentage and missing files list
+
+### Logging & Diagnostics
+- **Daily rolling logs** stored in `%LOCALAPPDATA%\Prism\logs`
+- **Export logs** for troubleshooting via Settings
+- **Open log folder** directly from the app
 
 ---
 
@@ -238,6 +245,9 @@ npm run tauri build    # Production build
 - [x] Smart incremental scanning
 - [x] Database corruption prevention
 - [x] Cross-drive file verification
+- [x] Unified Quick Search experience
+- [x] File logging & export
+- [x] Quick Search file type filters
 - [ ] Similar images comparison UI
 - [ ] Excel export
 - [ ] Theme toggle (dark/light)

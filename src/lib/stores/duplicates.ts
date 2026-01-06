@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import type { DuplicateFile, DuplicateGroup, DuplicateResponse } from '$lib/types';
 
@@ -12,8 +12,13 @@ interface DuplicatesState {
   selectedFiles: Set<number>;
 }
 
+interface BatchDeleteResponse {
+  deleted: number;
+  errors: string[];
+}
+
 function createDuplicatesStore() {
-  const { subscribe, set, update } = writable<DuplicatesState>({
+  const store = writable<DuplicatesState>({
     groups: [],
     totalGroups: 0,
     totalWastedSpace: 0,
@@ -22,6 +27,11 @@ function createDuplicatesStore() {
     error: null,
     selectedFiles: new Set(),
   });
+
+  const { subscribe, set, update } = store;
+
+  // Helper to get current state safely
+  const getState = () => get(store);
 
   return {
     subscribe,
@@ -91,12 +101,20 @@ function createDuplicatesStore() {
       try {
         await invoke('delete_duplicate', { fileId, filePath });
 
-        // Remove from state
+        // Remove from state - only update the affected group
         update(state => {
-          const newGroups = state.groups.map(group => ({
-            ...group,
-            files: group.files.filter(f => f.id !== fileId),
-          })).filter(group => group.files.length > 1); // Remove groups with less than 2 files
+          const newGroups = state.groups
+            .map(group => {
+              // Only create new object if this group contains the file
+              const hasFile = group.files.some(f => f.id === fileId);
+              if (!hasFile) return group;
+
+              return {
+                ...group,
+                files: group.files.filter(f => f.id !== fileId),
+              };
+            })
+            .filter(group => group.files.length > 1); // Remove groups with less than 2 files
 
           const newSelected = new Set(state.selectedFiles);
           newSelected.delete(fileId);
@@ -114,27 +132,40 @@ function createDuplicatesStore() {
       }
     },
 
-    deleteSelected: async () => {
-      let state: DuplicatesState;
-      const unsubscribe = subscribe(s => state = s);
-      unsubscribe();
+    deleteSelected: async (): Promise<{ deleted: number; errors: string[] }> => {
+      // Use getState() for safe state access
+      const currentState = getState();
 
-      if (state!.selectedFiles.size === 0) return 0;
+      if (currentState.selectedFiles.size === 0) {
+        return { deleted: 0, errors: [] };
+      }
 
-      // Build list of files to delete
+      // Build list of files to delete with validation
       const filesToDelete: [number, string][] = [];
-      for (const group of state!.groups) {
+      for (const group of currentState.groups) {
         for (const file of group.files) {
-          if (state!.selectedFiles.has(file.id)) {
-            filesToDelete.push([file.id, file.path]);
+          if (currentState.selectedFiles.has(file.id)) {
+            // Validate file data before adding
+            if (typeof file.id === 'number' && typeof file.path === 'string' && file.path.length > 0) {
+              filesToDelete.push([file.id, file.path]);
+            }
           }
         }
       }
 
+      if (filesToDelete.length === 0) {
+        return { deleted: 0, errors: ['No valid files to delete'] };
+      }
+
       try {
-        const deleted = await invoke<number>('delete_duplicates_batch', {
+        const result = await invoke<BatchDeleteResponse>('delete_duplicates_batch', {
           files: filesToDelete,
         });
+
+        // Check for partial failures
+        if (result.errors && result.errors.length > 0) {
+          console.warn('Some files failed to delete:', result.errors);
+        }
 
         // Refresh duplicates after batch delete
         const response = await invoke<DuplicateResponse>('find_duplicates', {
@@ -150,7 +181,7 @@ function createDuplicatesStore() {
           selectedFiles: new Set(),
         }));
 
-        return deleted;
+        return result;
       } catch (e) {
         console.error('Batch delete failed:', e);
         throw e;

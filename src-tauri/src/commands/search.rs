@@ -118,8 +118,9 @@ pub async fn quick_search(
     state: State<'_, AppState>,
     query: String,
     limit: Option<i64>,
+    extensions: Option<Vec<String>>,
 ) -> Result<QuickSearchResponse, String> {
-    use rusqlite::{params, Connection, OpenFlags};
+    use rusqlite::{Connection, OpenFlags};
 
     if query.is_empty() {
         return Ok(QuickSearchResponse {
@@ -131,6 +132,14 @@ pub async fn quick_search(
     // Use a separate read-only connection for searches (doesn't block during scans)
     let db_path = state.db_path.clone();
     let limit = limit.unwrap_or(100);
+
+    // Normalize extensions to lowercase
+    let extensions: Option<Vec<String>> = extensions.map(|exts| {
+        exts.into_iter()
+            .map(|e| e.to_lowercase().trim_start_matches('.').to_string())
+            .filter(|e| !e.is_empty())
+            .collect()
+    });
 
     // Run in blocking task to not block async runtime
     let result = tokio::task::spawn_blocking(move || {
@@ -148,35 +157,105 @@ pub async fn quick_search(
         ).map_err(|e| e.to_string())?;
 
         // Use FTS5 for blazing fast full-text search
+        // Escape special FTS5 characters to prevent query errors
         let fts_query = query
             .split_whitespace()
-            .map(|word| format!("{}*", word))
+            .map(|word| {
+                // Escape FTS5 special characters
+                let escaped = word
+                    .replace('"', "")
+                    .replace('*', "")
+                    .replace(':', "")
+                    .replace('(', "")
+                    .replace(')', "")
+                    .replace('^', "")
+                    .replace('-', " "); // Treat hyphen as space
+                if escaped.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!("{}*", escaped.trim())
+                }
+            })
+            .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
             .join(" ");
 
-        // First get total count
-        let total: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH ?1",
-                params![&fts_query],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
+        // If query is empty after escaping, return empty results
+        if fts_query.is_empty() {
+            return Ok(QuickSearchResponse {
+                results: vec![],
+                total: 0,
+            });
+        }
 
-        // Then get results
-        let mut stmt = conn
-            .prepare(
-                "SELECT f.id, f.path, f.name, f.extension, f.size, f.modified_at
-                 FROM files_fts
-                 JOIN files f ON f.id = files_fts.rowid
-                 WHERE files_fts MATCH ?1
-                 ORDER BY rank
-                 LIMIT ?2",
-            )
-            .map_err(|e| e.to_string())?;
+        // Build extension filter clause if extensions are provided
+        // Use numbered placeholders starting from ?2 for extensions
+        let (ext_filter, ext_count) = if let Some(ref exts) = extensions {
+            if exts.is_empty() {
+                (String::new(), 0)
+            } else {
+                let placeholders: Vec<String> = exts.iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("?{}", i + 2)) // Start from ?2
+                    .collect();
+                (format!(" AND LOWER(f.extension) IN ({})", placeholders.join(", ")), exts.len())
+            }
+        } else {
+            (String::new(), 0)
+        };
+
+        // Build count query - uses ?1 for FTS query, ?2..?N for extensions
+        let count_sql = format!(
+            "SELECT COUNT(*) FROM files_fts
+             JOIN files f ON f.id = files_fts.rowid
+             WHERE files_fts MATCH ?1{}",
+            ext_filter
+        );
+
+        // Build results query - LIMIT uses the next placeholder after extensions
+        let limit_placeholder = ext_count + 2; // ?1 is FTS, ?2..?N are extensions, next is limit
+        let results_sql = format!(
+            "SELECT f.id, f.path, f.name, f.extension, f.size, f.modified_at
+             FROM files_fts
+             JOIN files f ON f.id = files_fts.rowid
+             WHERE files_fts MATCH ?1{}
+             ORDER BY rank
+             LIMIT ?{}",
+            ext_filter,
+            limit_placeholder
+        );
+
+        // Debug: log the query and extension filter
+        if ext_count > 0 {
+            debug!("Quick search with {} extension filters: {:?}", ext_count, extensions);
+            debug!("SQL: {}", results_sql);
+        }
+
+        // Prepare parameters
+        let mut count_params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(fts_query.clone())];
+        let mut results_params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(fts_query.clone())];
+
+        if let Some(ref exts) = extensions {
+            for ext in exts {
+                count_params.push(Box::new(ext.clone()));
+                results_params.push(Box::new(ext.clone()));
+            }
+        }
+        results_params.push(Box::new(limit));
+
+        // Get total count
+        let total: i64 = {
+            let mut stmt = conn.prepare(&count_sql).map_err(|e| e.to_string())?;
+            let params_refs: Vec<&dyn rusqlite::ToSql> = count_params.iter().map(|p| p.as_ref()).collect();
+            stmt.query_row(params_refs.as_slice(), |row| row.get(0)).unwrap_or(0)
+        };
+
+        // Get results
+        let mut stmt = conn.prepare(&results_sql).map_err(|e| e.to_string())?;
+        let params_refs: Vec<&dyn rusqlite::ToSql> = results_params.iter().map(|p| p.as_ref()).collect();
 
         let results: Vec<QuickSearchResult> = stmt
-            .query_map(params![&fts_query, limit], |row| {
+            .query_map(params_refs.as_slice(), |row| {
                 Ok(QuickSearchResult {
                     id: row.get(0)?,
                     path: row.get(1)?,

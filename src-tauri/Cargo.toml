@@ -66,6 +66,7 @@ anyhow = "1"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 
 # Parallelism
 rayon = "1"
@@ -77,6 +78,9 @@ rand = "0.8"
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
+
+# Platform directories
+dirs = "5"
 
 # Windows-specific
 [target.'cfg(windows)'.dependencies]

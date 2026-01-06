@@ -54,6 +54,18 @@ pub async fn find_duplicates(
     })
 }
 
+/// Normalize path for comparison (handles case-insensitivity on Windows)
+fn normalize_path(path: &str) -> String {
+    #[cfg(windows)]
+    {
+        path.to_uppercase().replace('/', "\\")
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_string()
+    }
+}
+
 /// Delete a duplicate file with path validation
 #[tauri::command]
 pub async fn delete_duplicate(
@@ -66,6 +78,12 @@ pub async fn delete_duplicate(
 
     // Validate path exists and matches
     let path = std::path::Path::new(&file_path);
+
+    // Check for symlinks first
+    if path.is_symlink() {
+        return Err("Cannot delete symlinks for safety reasons".to_string());
+    }
+
     if !path.exists() {
         return Err("File does not exist".to_string());
     }
@@ -88,13 +106,20 @@ pub async fn delete_duplicate(
     Ok(())
 }
 
+/// Response for batch delete operation
+#[derive(Debug, Serialize)]
+pub struct BatchDeleteResponse {
+    pub deleted: usize,
+    pub errors: Vec<String>,
+}
+
 /// Delete multiple duplicate files with path validation
 #[tauri::command]
 pub async fn delete_duplicates_batch(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     files: Vec<(i64, String)>,
-) -> Result<usize, String> {
+) -> Result<BatchDeleteResponse, String> {
     info!("Batch deleting {} duplicate files", files.len());
 
     let mut deleted = 0;
@@ -104,6 +129,13 @@ pub async fn delete_duplicates_batch(
     // First, delete from filesystem
     for (file_id, file_path) in &files {
         let path = std::path::Path::new(file_path);
+
+        // Check for symlinks - don't delete symlinks pointing elsewhere
+        if path.is_symlink() {
+            errors.push(format!("{}: is a symlink, skipping", file_path));
+            continue;
+        }
+
         if !path.exists() || !path.is_file() {
             errors.push(format!("{}: file not found", file_path));
             continue;
@@ -122,7 +154,10 @@ pub async fn delete_duplicates_batch(
     if !db_files.is_empty() {
         let db = state.db.lock().await;
         if let Err(e) = db.delete_files_batch(&db_files) {
-            error!("Database delete failed: {}", e);
+            // Propagate database error instead of silently logging
+            let db_error = format!("Database sync failed after deleting {} files: {}", deleted, e);
+            error!("{}", db_error);
+            errors.push(db_error);
         }
     }
 
@@ -138,7 +173,8 @@ pub async fn delete_duplicates_batch(
         deleted,
         files.len()
     );
-    Ok(deleted)
+
+    Ok(BatchDeleteResponse { deleted, errors })
 }
 
 /// Similar image group

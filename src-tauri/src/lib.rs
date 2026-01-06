@@ -65,10 +65,55 @@ fn close_search_window(app: tauri::AppHandle) {
     }
 }
 
+/// Open the quick search window (callable from frontend)
+#[tauri::command]
+fn open_search_window(app: tauri::AppHandle) {
+    show_search_window(&app);
+}
+
+/// Get the log directory path
+#[tauri::command]
+fn get_log_dir(state: tauri::State<'_, AppState>) -> String {
+    state.log_dir.to_string_lossy().to_string()
+}
+
+/// Export logs to a specified path (copies all log files)
+#[tauri::command]
+fn export_logs(state: tauri::State<'_, AppState>, output_path: String) -> Result<usize, String> {
+    use std::fs;
+
+    let log_dir = &state.log_dir;
+    let output_dir = std::path::Path::new(&output_path);
+
+    // Create output directory if needed
+    fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+    let mut copied = 0;
+
+    // Copy all log files
+    if let Ok(entries) = fs::read_dir(log_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().map_or(false, |ext| ext == "log") {
+                let file_name = path.file_name().unwrap();
+                let dest = output_dir.join(file_name);
+                if fs::copy(&path, &dest).is_ok() {
+                    copied += 1;
+                }
+            }
+        }
+    }
+
+    info!("Exported {} log files to {:?}", copied, output_path);
+    Ok(copied)
+}
+
 /// Application state shared across all commands
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub db_path: std::path::PathBuf,
+    /// Path to log files directory
+    pub log_dir: std::path::PathBuf,
     /// Flag to indicate if a scan is currently running
     pub is_scanning: Arc<AtomicBool>,
 }
@@ -76,23 +121,38 @@ pub struct AppState {
 /// Initialize the Tauri application
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialize tracing
+    // Set up log directory early (before tracing init)
+    let log_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("Prism")
+        .join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    // Initialize tracing with file appender
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "prism.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "prism=debug,tauri=info".into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer()) // Console output
+        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false)) // File output
         .init();
 
+    // Keep _guard alive for the entire app lifetime
+    let log_dir_clone = log_dir.clone();
+
     info!("Starting Prism application");
+    info!("Log directory: {:?}", log_dir);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .setup(|app| {
+        .setup(move |app| {
             info!("Setting up application");
 
             // Get the app data directory for the database
@@ -103,6 +163,9 @@ pub fn run() {
 
             // Create the directory if it doesn't exist
             std::fs::create_dir_all(&app_data_dir)?;
+
+            // Store log_dir for later use
+            let log_dir = log_dir_clone.clone();
 
             let db_path = app_data_dir.join("prism.db");
             info!("Database path: {:?}", db_path);
@@ -117,6 +180,7 @@ pub fn run() {
             app.manage(AppState {
                 db: Arc::new(Mutex::new(db)),
                 db_path: db_path.clone(),
+                log_dir,
                 is_scanning: Arc::new(AtomicBool::new(false)),
             });
 
@@ -249,6 +313,9 @@ pub fn run() {
             commands::verify::verify_cross_disk,
             commands::verify::quick_backup_check,
             close_search_window,
+            open_search_window,
+            get_log_dir,
+            export_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

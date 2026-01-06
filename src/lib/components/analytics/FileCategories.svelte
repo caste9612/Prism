@@ -6,11 +6,16 @@
   export let expandedCategory: string | null = null;
 
   $: totalSize = categories.reduce((sum, c) => sum + c.total_size, 0);
-  $: categorySegments = categories.map((cat, i) => {
-    const percent = (cat.total_size / totalSize) * 100;
-    const prevSum = categories.slice(0, i).reduce((s, c) => s + (c.total_size / totalSize) * 100, 0);
-    return { ...cat, percent, offset: prevSum };
-  });
+  // O(n) calculation instead of O(n²) - accumulate offset as we iterate
+  $: categorySegments = (() => {
+    let offset = 0;
+    return categories.map(cat => {
+      const percent = totalSize > 0 ? (cat.total_size / totalSize) * 100 : 0;
+      const segment = { ...cat, percent, offset };
+      offset += percent;
+      return segment;
+    });
+  })();
 
   function toggleCategory(category: string) {
     expandedCategory = expandedCategory === category ? null : category;
@@ -53,7 +58,7 @@
       <!-- Category Breakdown -->
       <div class="flex-1 space-y-1 w-full">
         {#each categories as cat}
-          {@const catPercent = (cat.total_size / totalSize) * 100}
+          {@const catPercent = totalSize > 0 ? (cat.total_size / totalSize) * 100 : 0}
           <div>
             <button
               class="w-full flex items-center gap-3 p-2 rounded hover:bg-gray-700/50 transition-colors"

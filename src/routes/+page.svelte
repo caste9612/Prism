@@ -1,8 +1,8 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
-  import { save } from '@tauri-apps/plugin-dialog';
-  import { stats, searchStore, duplicatesStore, analyticsStore, settingsStore, notificationStore, notifications } from '$lib/stores';
+  import { open } from '@tauri-apps/plugin-dialog';
+  import { stats, duplicatesStore, analyticsStore, settingsStore, notificationStore, notifications } from '$lib/stores';
   import { formatBytes, formatNumber } from '$lib/utils/format';
   import { onMount, onDestroy } from 'svelte';
 
@@ -16,7 +16,7 @@
   import DuplicateList from '$lib/components/duplicates/DuplicateList.svelte';
 
   // Types
-  import type { DriveStatus, DriveProgress, ScanProgress as ScanProgressType, DriveStats, TabType, PreScanOverlapResult, VerificationSummary, VerificationProgress, IncrementalProgress } from '$lib/types';
+  import type { DriveStatus, DriveProgress, ScanProgress as ScanProgressType, DriveStats, TabType, PreScanOverlapResult, VerificationSummary, VerificationProgress, IncrementalProgress, FileVerificationResult } from '$lib/types';
 
   // Use the centralized notification store
   function notify(message: string, type: 'success' | 'error' | 'info' = 'info') {
@@ -79,11 +79,12 @@
       // Update per-drive progress from backend - MERGE with existing data
       // This preserves completed drives from previous phases
       if (scanProgress?.drives) {
-        driveProgress = { ...driveProgress, ...scanProgress.drives };
+        const drives = scanProgress.drives;
+        driveProgress = { ...driveProgress, ...drives };
         // Log drives progress every few updates
-        const driveKeys = Object.keys(scanProgress.drives);
+        const driveKeys = Object.keys(drives);
         if (driveKeys.length > 0) {
-          const summary = driveKeys.map(k => `${k}:${Math.round(scanProgress.drives[k]?.progress_percent ?? 0)}%`).join(', ');
+          const summary = driveKeys.map(k => `${k}:${Math.round(drives[k]?.progress_percent ?? 0)}%`).join(', ');
           console.log('[driveProgress]', summary);
         }
       }
@@ -128,26 +129,6 @@
     unlistenStats = await listen('stats-updated', async () => {
       await stats.load();
     });
-
-    // Load drives first
-    await loadDrives();
-
-    // Load existing analytics
-    await loadAnalytics();
-    await loadDriveStats();
-
-    // Start auto-scan if there are ready local drives
-    if (drives.some(d => d.is_ready && d.drive_type === 'Local Disk')) {
-      notify('Starting automatic scan of all drives...', 'info');
-      await startAutoScan();
-    }
-
-    // Auto-refresh drives every 15 seconds to detect newly connected drives
-    driveRefreshInterval = setInterval(() => {
-      if (!isScanning) {
-        loadDrives(true); // silent refresh
-      }
-    }, 15000);
 
     // Listen for verification progress
     unlistenVerifyProgress = await listen<VerificationProgress>('verify-progress', (event) => {
@@ -195,7 +176,7 @@
       driveProgress = {};
     });
 
-    // Listen for auto-scan complete
+    // Listen for auto-scan complete - MUST be set up BEFORE startAutoScan() is called
     unlistenAutoScanComplete = await listen<{ results: string }>('auto-scan-complete', async (event) => {
       console.log('[UI] Auto-scan complete:', event.payload);
       autoScanPhase = null;
@@ -212,6 +193,26 @@
       loadAnalytics();
       loadDriveStats();
     });
+
+    // Load drives first
+    await loadDrives();
+
+    // Load existing analytics
+    await loadAnalytics();
+    await loadDriveStats();
+
+    // Start auto-scan if there are ready local drives
+    if (drives.some(d => d.is_ready && d.drive_type === 'Local Disk')) {
+      notify('Starting automatic scan of all drives...', 'info');
+      await startAutoScan();
+    }
+
+    // Auto-refresh drives every 15 seconds to detect newly connected drives
+    driveRefreshInterval = setInterval(() => {
+      if (!isScanning) {
+        loadDrives(true); // silent refresh
+      }
+    }, 15000);
   });
 
   onDestroy(() => {
@@ -444,21 +445,13 @@
     if (tab === 'settings') tempSettings = { ...settings };
   }
 
-  // Search - Always visible
-  $: query = $searchStore.query;
-  $: searchResults = $searchStore.results;
-  $: searchTotal = $searchStore.totalCount;
-  $: searchLoading = $searchStore.loading;
-  let showSearchResults = false;
-
-  function handleSearch(e: Event) {
-    const target = e.target as HTMLInputElement;
-    searchStore.setQuery(target.value);
-    showSearchResults = target.value.length >= 2;
-  }
-
-  function closeSearchResults() {
-    showSearchResults = false;
+  // Quick Search - opens in separate window
+  async function openQuickSearch() {
+    try {
+      await invoke('open_search_window');
+    } catch (e) {
+      console.error('Failed to open quick search:', e);
+    }
   }
 
   async function openInExplorer(path: string) {
@@ -466,18 +459,6 @@
       await invoke('open_in_explorer', { path });
     } catch (e) {
       notify(`Failed to open: ${e}`, 'error');
-    }
-  }
-
-  async function exportCsv() {
-    const path = await save({ defaultPath: 'prism-export.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] });
-    if (path) {
-      try {
-        const count = await invoke<number>('export_to_csv', { outputPath: path, query: query.length >= 2 ? query : null });
-        notify(`Exported ${formatNumber(count)} files to CSV`, 'success');
-      } catch (e) {
-        notify(`Export failed: ${e}`, 'error');
-      }
     }
   }
 
@@ -501,6 +482,53 @@
   let verifyProgress: VerificationProgress | null = null;
   let unlistenVerifyProgress: (() => void) | null = null;
 
+  // Verify results view state
+  let verifyViewMode: 'folders' | 'files' = 'folders';
+  let verifySearchQuery = '';
+
+  // Computed: aggregate missing files by parent folder
+  interface MissingFolder {
+    path: string;
+    totalSize: number;
+    fileCount: number;
+    files: FileVerificationResult[];
+  }
+
+  $: missingFolders = (() => {
+    if (!verifyResult?.missingFiles.length) return [];
+
+    const folderMap = new Map<string, MissingFolder>();
+
+    for (const file of verifyResult.missingFiles) {
+      // Extract parent folder from sourcePath
+      const lastSep = Math.max(file.sourcePath.lastIndexOf('\\'), file.sourcePath.lastIndexOf('/'));
+      const folder = lastSep > 0 ? file.sourcePath.substring(0, lastSep) : file.sourcePath;
+
+      if (!folderMap.has(folder)) {
+        folderMap.set(folder, { path: folder, totalSize: 0, fileCount: 0, files: [] });
+      }
+      const entry = folderMap.get(folder)!;
+      entry.totalSize += file.size;
+      entry.fileCount += 1;
+      entry.files.push(file);
+    }
+
+    // Sort by total size descending
+    return Array.from(folderMap.values()).sort((a, b) => b.totalSize - a.totalSize);
+  })();
+
+  // Computed: filter missing files by search query
+  $: filteredMissingFiles = (() => {
+    if (!verifyResult?.missingFiles.length) return [];
+    if (!verifySearchQuery.trim()) return verifyResult.missingFiles;
+
+    const query = verifySearchQuery.toLowerCase();
+    return verifyResult.missingFiles.filter(f =>
+      f.name.toLowerCase().includes(query) ||
+      f.sourcePath.toLowerCase().includes(query)
+    );
+  })();
+
   function toggleVerifyTarget(path: string) {
     if (verifyTargetDrives.has(path)) {
       verifyTargetDrives.delete(path);
@@ -521,7 +549,7 @@
       const result = await invoke<VerificationSummary>('verify_cross_disk', {
         sourceDrive: verifySourceDrive,
         targetDrives: [...verifyTargetDrives],
-        maxMissingFiles: 100
+        maxMissingFiles: 1000
       });
       verifyResult = result;
 
@@ -573,8 +601,16 @@
     deleting = true;
     try {
       const filesToDelete = deleteConfirm.files.map(f => [f.id, f.path] as [number, string]);
-      const deleted = await invoke<number>('delete_duplicates_batch', { files: filesToDelete });
-      notify(`Deleted ${deleted} files`, 'success');
+      const result = await invoke<{ deleted: number; errors: string[] }>('delete_duplicates_batch', { files: filesToDelete });
+
+      if (result.errors && result.errors.length > 0) {
+        // Partial success - show warning with error count
+        notify(`Deleted ${result.deleted} files. ${result.errors.length} failed.`, result.deleted > 0 ? 'info' : 'error');
+        console.warn('Delete errors:', result.errors);
+      } else {
+        notify(`Deleted ${result.deleted} files`, 'success');
+      }
+
       selectedDupFiles = new Set();
       deleteConfirm = { files: [], show: false };
       await findDuplicates();
@@ -624,19 +660,25 @@
       // Rebuild path from segments
       const segments = treemapPath.slice(0, index + 1);
       treemapPath = segments;
-      // Reconstruct the full path
+      // Reconstruct the full Windows path
+      // First segment is drive (e.g., "C:") or UNC path (e.g., "\\server\share")
       if (segments.length > 0) {
-        const fullPath = segments[0] + '\\' + segments.slice(1).join('\\');
+        const fullPath = segments.join('\\');
         loadTreemapLevel(fullPath);
       }
     }
   }
 
   async function loadAnalytics() {
-    await analyticsStore.loadAll();
-    // Load new analytics data
-    await analyticsStore.loadFileTypeDistribution();
-    await analyticsStore.loadFolderContents();
+    try {
+      await analyticsStore.loadAll();
+      // Load new analytics data
+      await analyticsStore.loadFileTypeDistribution();
+      await analyticsStore.loadFolderContents();
+    } catch (e) {
+      console.error('Failed to load analytics:', e);
+      notify(`Failed to load analytics: ${e instanceof Error ? e.message : e}`, 'error');
+    }
   }
 
   // Clear database
@@ -669,17 +711,42 @@
     tempSettings.excludePatterns = tempSettings.excludePatterns.filter(p => p !== pattern);
   }
 
-  function getFileIcon(ext: string | null): string {
-    if (!ext) return 'text-gray-400';
-    const e = ext.toLowerCase();
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(e)) return 'text-pink-400';
-    if (['mp4', 'mkv', 'avi', 'mov'].includes(e)) return 'text-purple-400';
-    if (['mp3', 'wav', 'flac'].includes(e)) return 'text-green-400';
-    if (['pdf', 'doc', 'docx'].includes(e)) return 'text-blue-400';
-    if (['zip', 'rar', '7z'].includes(e)) return 'text-yellow-400';
-    return 'text-gray-400';
+  // Export logs
+  let exportingLogs = false;
+
+  async function exportLogs() {
+    exportingLogs = true;
+    try {
+      // Open folder picker
+      const folder = await open({
+        directory: true,
+        multiple: false,
+        title: 'Select folder to export logs',
+      });
+
+      if (folder && typeof folder === 'string') {
+        const count = await invoke<number>('export_logs', { outputPath: folder });
+        if (count > 0) {
+          notify(`Exported ${count} log file(s) to ${folder}`, 'success');
+        } else {
+          notify('No log files found to export', 'info');
+        }
+      }
+    } catch (e) {
+      notify(`Failed to export logs: ${e}`, 'error');
+    } finally {
+      exportingLogs = false;
+    }
   }
 
+  async function openLogFolder() {
+    try {
+      const logDir = await invoke<string>('get_log_dir');
+      await invoke('open_in_explorer', { path: logDir });
+    } catch (e) {
+      notify(`Failed to open log folder: ${e}`, 'error');
+    }
+  }
 </script>
 
 <!-- Toast Notifications -->
@@ -741,43 +808,6 @@
     </p>
   </div>
 </Modal>
-
-<!-- Search Results Overlay -->
-{#if showSearchResults && query.length >= 2}
-  <div class="fixed inset-0 bg-black/40 z-40" on:click={closeSearchResults} on:keydown={() => {}} role="button" tabindex="-1"></div>
-  <div class="fixed top-32 left-1/2 -translate-x-1/2 w-full max-w-3xl max-h-[60vh] bg-gray-800 rounded-xl shadow-2xl z-50 overflow-hidden border border-gray-700">
-    <div class="p-4 border-b border-gray-700 flex items-center justify-between">
-      <span class="text-gray-400 text-sm">{formatNumber(searchTotal)} results for "{query}"</span>
-      <div class="flex items-center gap-2">
-        <button on:click={exportCsv} disabled={searchTotal === 0} class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-sm text-white rounded-lg transition-colors disabled:opacity-50">Export CSV</button>
-        <button on:click={closeSearchResults} class="p-1 text-gray-400 hover:text-white">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-    </div>
-    <div class="overflow-y-auto max-h-[calc(60vh-60px)]">
-      {#each searchResults as file}
-        <div class="flex items-center gap-3 p-3 hover:bg-gray-700/50 group transition-colors border-b border-gray-700/50">
-          <div class="w-8 h-8 bg-gray-700 rounded flex items-center justify-center flex-shrink-0">
-            <svg class="w-4 h-4 {getFileIcon(file.extension)}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="text-white truncate">{file.name}</div>
-            <div class="text-xs text-gray-500 truncate">{file.path}</div>
-          </div>
-          <div class="text-sm text-gray-400">{formatBytes(file.size)}</div>
-          <button on:click={() => openInExplorer(file.path)} class="p-2 text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 transition-all" title="Open in Explorer">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-          </button>
-        </div>
-      {/each}
-    </div>
-  </div>
-{/if}
 
 <div class="flex flex-col h-screen">
   <!-- Header -->
@@ -1083,21 +1113,19 @@
     {/if}
   </div>
 
-  <!-- Search Bar (Always Visible) -->
+  <!-- Search Bar (Opens Quick Search) -->
   <div class="bg-gray-800/30 border-b border-gray-700 px-6 py-3">
-    <div class="relative max-w-2xl">
+    <button
+      on:click={openQuickSearch}
+      class="relative max-w-2xl w-full text-left"
+    >
       <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
       </svg>
-      <input type="text" value={query} on:input={handleSearch} on:focus={() => { if (query.length >= 2) showSearchResults = true; }}
-        placeholder="Search files... (size:>1MB ext:pdf type:image path:Documents)"
-        class="w-full pl-10 pr-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-prism-500" />
-      {#if searchLoading}
-        <div class="absolute right-3 top-1/2 -translate-y-1/2">
-          <div class="w-4 h-4 border-2 border-prism-500 border-t-transparent rounded-full animate-spin"></div>
-        </div>
-      {/if}
-    </div>
+      <div class="w-full pl-10 pr-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-500 hover:border-prism-500 hover:text-gray-400 transition-colors cursor-pointer">
+        Search files... <span class="text-gray-600 text-sm">(Ctrl+Space)</span>
+      </div>
+    </button>
   </div>
 
   <!-- Main Content -->
@@ -1288,19 +1316,79 @@
                 </div>
               </div>
 
-              <!-- Missing Files List -->
+              <!-- Missing Files/Folders List -->
               {#if verifyResult.missingFiles.length > 0}
                 <div>
-                  <h4 class="text-gray-300 font-medium mb-2">Missing Files (first {verifyResult.missingFiles.length})</h4>
-                  <div class="max-h-64 overflow-y-auto space-y-1">
-                    {#each verifyResult.missingFiles as file}
-                      <div class="flex items-center gap-2 p-2 bg-gray-700/30 rounded text-sm">
-                        <span class="text-red-400">✗</span>
-                        <span class="text-gray-300 truncate flex-1" title={file.sourcePath}>{file.name}</span>
-                        <span class="text-gray-500">{formatBytes(file.size)}</span>
-                      </div>
-                    {/each}
+                  <!-- View Toggle and Search -->
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                      <button
+                        on:click={() => verifyViewMode = 'folders'}
+                        class="px-3 py-1.5 text-sm rounded-lg transition-colors {verifyViewMode === 'folders' ? 'bg-prism-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}"
+                      >
+                        By Folder
+                      </button>
+                      <button
+                        on:click={() => verifyViewMode = 'files'}
+                        class="px-3 py-1.5 text-sm rounded-lg transition-colors {verifyViewMode === 'files' ? 'bg-prism-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}"
+                      >
+                        By File
+                      </button>
+                    </div>
+                    {#if verifyViewMode === 'files'}
+                      <input
+                        type="text"
+                        bind:value={verifySearchQuery}
+                        placeholder="Search missing files..."
+                        class="px-3 py-1.5 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-400 focus:outline-none focus:border-prism-500 w-64"
+                      />
+                    {/if}
                   </div>
+
+                  <!-- Folder View -->
+                  {#if verifyViewMode === 'folders'}
+                    <h4 class="text-gray-300 font-medium mb-2">
+                      Largest Missing Folders ({missingFolders.length} folders from {verifyResult.missingFiles.length} files)
+                    </h4>
+                    <div class="max-h-80 overflow-y-auto space-y-1">
+                      {#each missingFolders.slice(0, 50) as folder}
+                        <div class="flex items-center gap-2 p-2 bg-gray-700/30 rounded text-sm hover:bg-gray-700/50">
+                          <span class="text-yellow-400">📁</span>
+                          <span class="text-gray-300 truncate flex-1" title={folder.path}>{folder.path}</span>
+                          <span class="text-gray-400 text-xs">{folder.fileCount} files</span>
+                          <span class="text-red-400 font-medium">{formatBytes(folder.totalSize)}</span>
+                        </div>
+                      {/each}
+                      {#if missingFolders.length > 50}
+                        <div class="text-center text-gray-500 text-sm py-2">
+                          ... and {missingFolders.length - 50} more folders
+                        </div>
+                      {/if}
+                    </div>
+                  <!-- File View with Search -->
+                  {:else}
+                    <h4 class="text-gray-300 font-medium mb-2">
+                      {#if verifySearchQuery}
+                        Found {filteredMissingFiles.length} of {verifyResult.missingFiles.length} missing files
+                      {:else}
+                        Missing Files (first {verifyResult.missingFiles.length})
+                      {/if}
+                    </h4>
+                    <div class="max-h-80 overflow-y-auto space-y-1">
+                      {#each filteredMissingFiles as file}
+                        <div class="flex items-center gap-2 p-2 bg-gray-700/30 rounded text-sm hover:bg-gray-700/50">
+                          <span class="text-red-400">✗</span>
+                          <span class="text-gray-300 truncate flex-1" title={file.sourcePath}>{file.name}</span>
+                          <span class="text-gray-500">{formatBytes(file.size)}</span>
+                        </div>
+                      {/each}
+                      {#if filteredMissingFiles.length === 0 && verifySearchQuery}
+                        <div class="text-center text-gray-500 py-4">
+                          No files matching "{verifySearchQuery}"
+                        </div>
+                      {/if}
+                    </div>
+                  {/if}
                 </div>
               {:else if verifyResult.filesMissing === 0}
                 <div class="text-center py-8 text-green-400">
@@ -1351,6 +1439,42 @@
                   <button on:click={() => removeExcludePattern(pattern)} class="text-gray-500 hover:text-red-400">×</button>
                 </span>
               {/each}
+            </div>
+          </div>
+
+          <div class="bg-gray-800/50 rounded-lg p-6">
+            <h3 class="text-white font-medium mb-4">Logs & Diagnostics</h3>
+            <p class="text-gray-400 text-sm mb-4">
+              Export log files for troubleshooting. Logs contain scan activity and error information.
+            </p>
+            <div class="flex gap-3">
+              <button
+                on:click={exportLogs}
+                disabled={exportingLogs}
+                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
+              >
+                {#if exportingLogs}
+                  <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Exporting...
+                {:else}
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Export Logs
+                {/if}
+              </button>
+              <button
+                on:click={openLogFolder}
+                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg flex items-center gap-2"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+                </svg>
+                Open Log Folder
+              </button>
             </div>
           </div>
 

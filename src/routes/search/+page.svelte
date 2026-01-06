@@ -12,6 +12,16 @@
     modified_at: number | null;
   }
 
+  // Extension filter presets
+  const extensionPresets = [
+    { id: 'images', label: 'Images', icon: '🖼️', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff'] },
+    { id: 'documents', label: 'Docs', icon: '📄', extensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'txt', 'rtf'] },
+    { id: 'video', label: 'Video', icon: '🎬', extensions: ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v'] },
+    { id: 'audio', label: 'Audio', icon: '🎵', extensions: ['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a'] },
+    { id: 'archives', label: 'Archives', icon: '📦', extensions: ['zip', 'rar', '7z', 'tar', 'gz', 'bz2'] },
+    { id: 'cad', label: 'CAD', icon: '📐', extensions: ['dwg', 'dxf', 'dwf', 'stl', 'step', 'stp', 'iges', 'igs'] },
+  ];
+
   let query = '';
   let results: SearchResult[] = [];
   let totalCount = 0;
@@ -20,8 +30,52 @@
   let searchInput: HTMLInputElement;
   let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  // Debounced search - 50ms for instant feel
-  $: if (query.length >= 1) {
+  // Extension filter state
+  let activeFilters: Set<string> = new Set();
+  let customExtension = '';
+  let showFilters = true; // Show filters by default
+
+  // Get active extensions list
+  function getActiveExtensions(): string[] | null {
+    const exts: string[] = [];
+
+    // Add preset extensions
+    for (const preset of extensionPresets) {
+      if (activeFilters.has(preset.id)) {
+        exts.push(...preset.extensions);
+      }
+    }
+
+    // Add custom extension if provided
+    if (customExtension.trim()) {
+      const custom = customExtension.trim().toLowerCase().replace(/^\./, '');
+      if (custom && !exts.includes(custom)) {
+        exts.push(custom);
+      }
+    }
+
+    return exts.length > 0 ? exts : null;
+  }
+
+  function toggleFilter(filterId: string) {
+    if (activeFilters.has(filterId)) {
+      activeFilters.delete(filterId);
+    } else {
+      activeFilters.add(filterId);
+    }
+    activeFilters = activeFilters; // Trigger reactivity
+    if (query.length >= 2) performSearch();
+  }
+
+  function clearFilters() {
+    activeFilters.clear();
+    activeFilters = activeFilters;
+    customExtension = '';
+    if (query.length >= 2) performSearch();
+  }
+
+  // Debounced search - 50ms for instant feel, min 2 chars for consistency
+  $: if (query.length >= 2) {
     if (searchTimeout) clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => performSearch(), 50);
   } else {
@@ -30,12 +84,14 @@
   }
 
   async function performSearch() {
-    if (query.length < 1) return;
+    if (query.length < 2) return;
     loading = true;
     try {
+      const extensions = getActiveExtensions();
       const response = await invoke<{ results: SearchResult[]; total: number }>('quick_search', {
         query,
-        limit: 100
+        limit: 100,
+        extensions
       });
       results = response.results;
       totalCount = response.total;
@@ -167,16 +223,95 @@
         bind:value={query}
         type="text"
         placeholder="Search files... (Esc to close)"
-        class="w-full pl-10 pr-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-lg placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+        class="w-full pl-10 pr-12 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white text-lg placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
         autocomplete="off"
         spellcheck="false"
       />
-      {#if loading}
-        <div class="absolute right-3 top-1/2 -translate-y-1/2">
+      <div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+        {#if loading}
           <div class="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-        </div>
-      {/if}
+        {/if}
+        <!-- Filter toggle button -->
+        <button
+          on:click={() => showFilters = !showFilters}
+          class="p-1 rounded hover:bg-gray-700 transition-colors {showFilters || activeFilters.size > 0 || customExtension ? 'text-indigo-400' : 'text-gray-400'}"
+          title="Filter by extension"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+          </svg>
+          {#if activeFilters.size > 0 || customExtension}
+            <span class="absolute -top-1 -right-1 w-2 h-2 bg-indigo-500 rounded-full"></span>
+          {/if}
+        </button>
+      </div>
     </div>
+
+    <!-- Extension Filters -->
+    {#if showFilters}
+      <div class="mt-3 p-2 bg-gray-900/50 rounded-lg border border-gray-700">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs text-gray-400 font-medium">Filter by extension</span>
+          {#if activeFilters.size > 0 || customExtension}
+            <button
+              on:click={clearFilters}
+              class="text-xs text-gray-500 hover:text-white transition-colors"
+            >
+              Clear all
+            </button>
+          {/if}
+        </div>
+
+        <!-- Preset filters -->
+        <div class="flex flex-wrap gap-1.5 mb-2">
+          {#each extensionPresets as preset}
+            <button
+              on:click={() => toggleFilter(preset.id)}
+              class="px-2 py-1 text-xs rounded-full transition-all flex items-center gap-1
+                {activeFilters.has(preset.id)
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}"
+            >
+              <span>{preset.icon}</span>
+              <span>{preset.label}</span>
+            </button>
+          {/each}
+        </div>
+
+        <!-- Custom extension input -->
+        <div class="flex items-center gap-2">
+          <input
+            bind:value={customExtension}
+            on:input={() => { if (query.length >= 1) performSearch(); }}
+            type="text"
+            placeholder="Custom ext (e.g., sql, json)"
+            class="flex-1 px-2 py-1 text-xs bg-gray-800 border border-gray-600 rounded text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+      </div>
+    {/if}
+
+    <!-- Active filters indicator (when panel is closed) -->
+    {#if !showFilters && (activeFilters.size > 0 || customExtension)}
+      <div class="mt-2 flex items-center gap-1 flex-wrap">
+        <span class="text-xs text-gray-500">Filtering:</span>
+        {#each extensionPresets.filter(p => activeFilters.has(p.id)) as preset}
+          <span class="px-1.5 py-0.5 text-[10px] bg-indigo-600/30 text-indigo-300 rounded">
+            {preset.icon} {preset.label}
+          </span>
+        {/each}
+        {#if customExtension}
+          <span class="px-1.5 py-0.5 text-[10px] bg-indigo-600/30 text-indigo-300 rounded">
+            .{customExtension}
+          </span>
+        {/if}
+        <button
+          on:click={clearFilters}
+          class="text-[10px] text-gray-500 hover:text-white ml-1"
+        >✕</button>
+      </div>
+    {/if}
+
     {#if query.length >= 1}
       <div class="mt-2 flex items-center justify-between text-xs text-gray-400">
         <span>{totalCount.toLocaleString()} results</span>

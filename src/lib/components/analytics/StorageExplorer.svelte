@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, afterUpdate } from 'svelte';
+  import { onMount, afterUpdate, onDestroy } from 'svelte';
   import { formatBytes, formatNumber } from '$lib/utils/format';
   import type { FolderItem, DriveStats } from '$lib/types';
   import { createEventDispatcher } from 'svelte';
@@ -16,6 +16,9 @@
     navigate: { index: number };
     drillDown: { path: string; name: string };
   }>();
+
+  // Debounce timer for rendering
+  let renderTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Type for treemap data
   interface TreemapItem {
@@ -77,11 +80,22 @@
     }
   }
 
+  function cleanupD3() {
+    if (!container) return;
+    const svg = d3.select(container);
+    // Remove all event listeners before removing elements
+    svg.selectAll('*')
+      .on('mouseover', null)
+      .on('mouseout', null)
+      .on('click', null);
+    svg.selectAll('*').remove();
+  }
+
   function renderTreemap() {
     if (!container || displayData.length === 0) return;
 
-    // Clear previous content
-    d3.select(container).selectAll('*').remove();
+    // Clean up previous D3 content and event listeners
+    cleanupD3();
 
     updateDimensions();
 
@@ -230,21 +244,37 @@
       });
   }
 
+  // Debounced render to avoid excessive re-renders
+  function scheduleRender() {
+    if (renderTimeout) clearTimeout(renderTimeout);
+    renderTimeout = setTimeout(() => {
+      renderTreemap();
+    }, 50);
+  }
+
   onMount(() => {
     updateDimensions();
     window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
+    return () => {
+      window.removeEventListener('resize', updateDimensions);
+    };
+  });
+
+  onDestroy(() => {
+    // Clean up D3 and timers on component destroy
+    if (renderTimeout) clearTimeout(renderTimeout);
+    cleanupD3();
   });
 
   afterUpdate(() => {
     if (!loading && displayData.length > 0) {
-      renderTreemap();
+      scheduleRender();
     }
   });
 
-  // Re-render when data changes
+  // Re-render when data changes (debounced)
   $: if (displayData && container && !loading) {
-    renderTreemap();
+    scheduleRender();
   }
 </script>
 

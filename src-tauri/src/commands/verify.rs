@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use tauri::{Emitter, State};
-use tracing::info;
+use tracing::{debug, info};
 
 /// Verification mode for comparing files
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -187,6 +187,8 @@ pub async fn verify_cross_disk(
     let mut name_size_map: HashMap<(String, i64), (usize, String)> = HashMap::new();
 
     for (drive_idx, pattern) in target_patterns.iter().enumerate() {
+        debug!("Loading files from target drive {} with pattern: {}", target_drives[drive_idx], pattern);
+
         let mut target_stmt = conn
             .prepare(
                 "SELECT path, name, size, partial_hash
@@ -206,17 +208,30 @@ pub async fn verify_cross_disk(
             })
             .map_err(|e| format!("Failed to query target files: {}", e))?;
 
+        let mut drive_file_count = 0i64;
+        let mut drive_unique_added = 0i64;
+
         for file in target_files.filter_map(|r| r.ok()) {
             let (path, name, size, hash) = file;
+            drive_file_count += 1;
 
             // Index by hash if available
             if let Some(h) = hash {
                 hash_map.entry((size, h)).or_insert((drive_idx, path.clone()));
             }
 
-            // Index by name + size
-            name_size_map.entry((name.to_lowercase(), size)).or_insert((drive_idx, path));
+            // Index by name + size - track if we added a new entry
+            let key = (name.to_lowercase(), size);
+            if !name_size_map.contains_key(&key) {
+                name_size_map.insert(key, (drive_idx, path));
+                drive_unique_added += 1;
+            }
         }
+
+        info!(
+            "Target drive {} ({}): {} files queried, {} unique (name+size) added to index",
+            drive_idx, target_drives[drive_idx], drive_file_count, drive_unique_added
+        );
     }
 
     info!(
