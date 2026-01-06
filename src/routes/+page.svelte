@@ -10,7 +10,7 @@
   import Toast from '$lib/components/common/Toast.svelte';
   import Modal from '$lib/components/common/Modal.svelte';
   import StatsCards from '$lib/components/analytics/StatsCards.svelte';
-  import StorageExplorer from '$lib/components/analytics/StorageExplorer.svelte';
+  import StorageExplorerV2 from '$lib/components/analytics/StorageExplorerV2.svelte';
   import FileCategories from '$lib/components/analytics/FileCategories.svelte';
   import SizeDistribution from '$lib/components/analytics/SizeDistribution.svelte';
   import DuplicateList from '$lib/components/duplicates/DuplicateList.svelte';
@@ -46,6 +46,42 @@
   let unlistenIncrementalProgress: (() => void) | null = null;
   let unlistenAutoScanPhase: (() => void) | null = null;
   let unlistenAutoScanComplete: (() => void) | null = null;
+
+  // Scan timer
+  let scanStartTime: number | null = null;
+  let scanElapsedMs = 0;
+  let scanTimerInterval: ReturnType<typeof setInterval> | null = null;
+
+  function startScanTimer() {
+    scanStartTime = Date.now();
+    scanElapsedMs = 0;
+    if (scanTimerInterval) clearInterval(scanTimerInterval);
+    scanTimerInterval = setInterval(() => {
+      if (scanStartTime) {
+        scanElapsedMs = Date.now() - scanStartTime;
+      }
+    }, 100);
+  }
+
+  function stopScanTimer() {
+    if (scanTimerInterval) {
+      clearInterval(scanTimerInterval);
+      scanTimerInterval = null;
+    }
+  }
+
+  function formatElapsed(ms: number): string {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    if (hours > 0) {
+      return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s`;
+    } else {
+      return `${seconds}s`;
+    }
+  }
 
   // Settings
   $: settings = $settingsStore;
@@ -121,6 +157,7 @@
       }
       console.log('[UI] scan-complete received (manual scan), setting isScanning=false');
       isScanning = false;
+      stopScanTimer();
       await stats.load();
       loadAnalytics();
       loadDriveStats();
@@ -151,6 +188,7 @@
         } else {
           // Manual scan completion - reset everything after a brief delay
           console.log('[UI] Manual scan complete, resetting...');
+          stopScanTimer();
           setTimeout(() => {
             incrementalProgress = null;
             isScanning = false;
@@ -184,11 +222,12 @@
       isAutoScan = false;
       isScanning = false;
       incrementalProgress = null;
+      stopScanTimer();
 
       // Load fresh stats and show completion notification
       await stats.load();
       const totalFiles = $stats?.totalFiles ?? 0;
-      notify(`All drives scanned: ${formatNumber(totalFiles)} files indexed`, 'success');
+      notify(`All drives scanned: ${formatNumber(totalFiles)} files indexed in ${formatElapsed(scanElapsedMs)}`, 'success');
 
       loadAnalytics();
       loadDriveStats();
@@ -223,6 +262,7 @@
     unlistenIncrementalProgress?.();
     unlistenAutoScanPhase?.();
     unlistenAutoScanComplete?.();
+    stopScanTimer();
     if (driveRefreshInterval) {
       clearInterval(driveRefreshInterval);
       driveRefreshInterval = null;
@@ -235,15 +275,8 @@
       const previousDrives = new Map(drives.map(d => [d.path, d.is_online]));
       drives = await invoke<DriveStatus[]>('get_drives_status');
 
-      // Auto-select online local disks that haven't been scanned yet (only on initial load)
-      if (!silent) {
-        drives.forEach(d => {
-          if (d.is_online && d.drive_type === 'Local Disk' && d.is_ready) {
-            selectedDrives.add(d.path);
-          }
-        });
-        selectedDrives = selectedDrives;
-      }
+      // No auto-selection - auto-scan at startup handles all drives
+      // User can manually select drives for targeted re-scans
 
       // Notify about drives that came online or went offline
       for (const drive of drives) {
@@ -304,6 +337,7 @@
     isAutoScan = true; // Mark as auto-scan mode
     driveProgress = {};
     scanProgress = { scan_id: 0, files_scanned: 0, total_size: 0, current_path: 'Initializing...', files_per_second: 0, is_complete: false, error: null, drives: {} };
+    startScanTimer();
 
     try {
       await invoke('auto_scan_drives');
@@ -311,6 +345,7 @@
       notify(`Auto-scan failed: ${e}`, 'error');
       isScanning = false;
       isAutoScan = false;
+      stopScanTimer();
     }
   }
 
@@ -365,6 +400,7 @@
     isScanning = true;
     driveProgress = {};
     scanProgress = { scan_id: 0, files_scanned: 0, total_size: 0, current_path: 'Starting...', files_per_second: 0, is_complete: false, error: null, drives: {} };
+    startScanTimer();
 
     try {
       await invoke('start_scan', {
@@ -379,6 +415,7 @@
     } catch (e) {
       notify(`Scan failed: ${e}`, 'error');
       isScanning = false;
+      stopScanTimer();
     }
   }
 
@@ -625,56 +662,16 @@
   $: sizeDistribution = $analyticsStore.sizeDistribution;
   $: extensionDistribution = $analyticsStore.extensionDistribution;
   $: fileTypeCategories = $analyticsStore.fileTypeCategories;
-  $: folderContents = $analyticsStore.folderContents;
   $: analyticsLoading = $analyticsStore.loading;
 
-  // Treemap navigation state
-  let treemapPath: string[] = [];
-  let treemapLoading = false;
+  // UI state
   let expandedCategory: string | null = null;
-
-  async function loadTreemapLevel(path?: string) {
-    treemapLoading = true;
-    try {
-      const data = await analyticsStore.loadFolderContents(path, 20);
-      console.log('Loaded folder contents for path:', path, 'Got:', data?.length, 'items');
-    } catch (e) {
-      console.error('Failed to load folder contents for path:', path, e);
-      notify(`Failed to load folder: ${e}`, 'error');
-    } finally {
-      treemapLoading = false;
-    }
-  }
-
-  function drillDownFolder(item: { path: string; name: string }) {
-    console.log('Drilling down into:', item);
-    treemapPath = [...treemapPath, item.name];
-    loadTreemapLevel(item.path);
-  }
-
-  function navigateToLevel(index: number) {
-    if (index < 0) {
-      treemapPath = [];
-      loadTreemapLevel();
-    } else {
-      // Rebuild path from segments
-      const segments = treemapPath.slice(0, index + 1);
-      treemapPath = segments;
-      // Reconstruct the full Windows path
-      // First segment is drive (e.g., "C:") or UNC path (e.g., "\\server\share")
-      if (segments.length > 0) {
-        const fullPath = segments.join('\\');
-        loadTreemapLevel(fullPath);
-      }
-    }
-  }
 
   async function loadAnalytics() {
     try {
       await analyticsStore.loadAll();
-      // Load new analytics data
       await analyticsStore.loadFileTypeDistribution();
-      await analyticsStore.loadFolderContents();
+      // Note: Treemap data is loaded by StorageExplorerV2 component itself
     } catch (e) {
       console.error('Failed to load analytics:', e);
       notify(`Failed to load analytics: ${e instanceof Error ? e.message : e}`, 'error');
@@ -1025,6 +1022,14 @@
 
           <!-- Stats -->
           <div class="flex flex-wrap gap-4 text-xs text-gray-400">
+            <!-- Timer -->
+            <span class="flex items-center gap-1 text-prism-300 font-mono">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" stroke-width="2"/>
+                <path stroke-linecap="round" stroke-width="2" d="M12 6v6l4 2"/>
+              </svg>
+              {formatElapsed(scanElapsedMs)}
+            </span>
             <span>Checked: {formatNumber(incrementalProgress.files_checked)}</span>
             {#if incrementalProgress.files_unchanged > 0}
               <span class="text-gray-500">Unchanged: {formatNumber(incrementalProgress.files_unchanged)}</span>
@@ -1063,7 +1068,15 @@
                 </span>
               {/if}
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-3">
+              <!-- Timer -->
+              <span class="flex items-center gap-1 text-xs text-prism-300 font-mono">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" stroke-width="2"/>
+                  <path stroke-linecap="round" stroke-width="2" d="M12 6v6l4 2"/>
+                </svg>
+                {formatElapsed(scanElapsedMs)}
+              </span>
               {#if estimatedPercent > 0}
                 <span class="text-sm text-prism-400 font-medium">{estimatedPercent.toFixed(0)}%</span>
               {/if}
@@ -1164,15 +1177,9 @@
             <StatsCards {totalFiles} {totalSize} driveCount={driveStats.length} />
 
             <!-- Interactive Treemap / Storage Explorer -->
-            <StorageExplorer
-              {folderContents}
-              {driveStats}
-              {treemapPath}
-              loading={treemapLoading}
-              {isScanning}
-              on:navigate={(e) => navigateToLevel(e.detail.index)}
-              on:drillDown={(e) => drillDownFolder(e.detail)}
-            />
+            <div class="h-[500px]">
+              <StorageExplorerV2 {driveStats} {isScanning} />
+            </div>
 
             <!-- File Categories with Donut Chart -->
             <FileCategories categories={fileTypeCategories} bind:expandedCategory />

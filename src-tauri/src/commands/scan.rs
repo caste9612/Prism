@@ -120,6 +120,12 @@ pub async fn start_scan(
                     }
                 }
 
+                // Rebuild folder_sizes table for treemap visualization
+                info!("Rebuilding folder sizes for treemap...");
+                if let Err(e) = db.rebuild_folder_sizes(scan_id) {
+                    error!("Failed to rebuild folder sizes: {}", e);
+                }
+
                 // Optimize database after scan (full scan typically has many changes)
                 let total_files: u64 = progress.drives.values()
                     .map(|d| d.files_scanned)
@@ -128,8 +134,9 @@ pub async fn start_scan(
                     error!("Failed to optimize database: {}", e);
                 }
 
-                // Emit stats update
+                // Emit stats update and treemap ready
                 let _ = app_handle_clone.emit("stats-updated", ());
+                let _ = app_handle_clone.emit("treemap-ready", ());
             }
             Err(e) => {
                 error!("Scan failed: {}", e);
@@ -334,13 +341,20 @@ pub async fn start_incremental_scan(
     // Conditionally optimize database based on frequency settings
     let total_changes = result.files_new + result.files_updated + result.files_deleted;
     if total_changes > 0 {
+        // Rebuild folder_sizes table for treemap visualization
+        info!("Rebuilding folder sizes for treemap (incremental)...");
+        if let Err(e) = db.rebuild_folder_sizes(scan_id) {
+            error!("Failed to rebuild folder sizes: {}", e);
+        }
+
         if let Err(e) = db.optimize_if_needed(total_changes) {
             error!("Failed to optimize database: {}", e);
         }
     }
 
-    // Emit stats update
+    // Emit stats update and treemap ready
     let _ = app_handle.emit("stats-updated", ());
+    let _ = app_handle.emit("treemap-ready", ());
 
     // Mark scan as complete
     state.is_scanning.store(false, Ordering::SeqCst);

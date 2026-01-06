@@ -158,8 +158,10 @@ pub async fn quick_search(
 
         // Use FTS5 for blazing fast full-text search
         // Escape special FTS5 characters to prevent query errors
+        // FTS5 tokenizes on punctuation, so split on common separators
         let fts_query = query
-            .split_whitespace()
+            .split(|c: char| c.is_whitespace() || c == '.' || c == '-' || c == '_')
+            .filter(|s| !s.is_empty())
             .map(|word| {
                 // Escape FTS5 special characters
                 let escaped = word
@@ -168,8 +170,7 @@ pub async fn quick_search(
                     .replace(':', "")
                     .replace('(', "")
                     .replace(')', "")
-                    .replace('^', "")
-                    .replace('-', " "); // Treat hyphen as space
+                    .replace('^', "");
                 if escaped.trim().is_empty() {
                     String::new()
                 } else {
@@ -226,9 +227,9 @@ pub async fn quick_search(
         );
 
         // Debug: log the query and extension filter
+        debug!("Quick search: raw query='{}', fts_query='{}', ext_count={}", query, fts_query, ext_count);
         if ext_count > 0 {
             debug!("Quick search with {} extension filters: {:?}", ext_count, extensions);
-            debug!("SQL: {}", results_sql);
         }
 
         // Prepare parameters
@@ -269,6 +270,7 @@ pub async fn quick_search(
             .filter_map(|r| r.ok())
             .collect();
 
+        debug!("Quick search returned {} results (total: {})", results.len(), total);
         Ok::<_, String>(QuickSearchResponse { results, total })
     })
     .await

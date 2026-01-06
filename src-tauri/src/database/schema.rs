@@ -121,4 +121,26 @@ CREATE INDEX IF NOT EXISTS idx_files_path_prefix ON files(SUBSTR(path, 1, 3), pa
 
 -- Index for path and size (helps with folder size aggregation)
 CREATE INDEX IF NOT EXISTS idx_files_path_size ON files(path, size);
+
+-- Pre-computed folder sizes for fast treemap visualization
+-- Populated during scan to avoid expensive runtime aggregation
+CREATE TABLE IF NOT EXISTS folder_sizes (
+    id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,          -- Full folder path (e.g., "C:\Users\Documents")
+    name TEXT NOT NULL,                 -- Folder name only (e.g., "Documents")
+    drive TEXT NOT NULL,                -- Drive letter or UNC root (e.g., "C:\", "\\server\share\")
+    depth INTEGER NOT NULL,             -- 0 = drive root, 1 = first level, etc.
+    total_size INTEGER NOT NULL,        -- Sum of all files in this folder and subfolders
+    file_count INTEGER NOT NULL,        -- Number of files in this folder and subfolders
+    folder_count INTEGER NOT NULL,      -- Number of direct child folders
+    parent_path TEXT,                   -- Parent folder path (NULL for drive roots)
+    scan_id INTEGER NOT NULL,
+    FOREIGN KEY (scan_id) REFERENCES scans(id)
+);
+
+-- Indexes for efficient treemap queries
+CREATE INDEX IF NOT EXISTS idx_folder_sizes_drive ON folder_sizes(drive);
+CREATE INDEX IF NOT EXISTS idx_folder_sizes_parent ON folder_sizes(parent_path);
+CREATE INDEX IF NOT EXISTS idx_folder_sizes_drive_depth ON folder_sizes(drive, depth);
+CREATE INDEX IF NOT EXISTS idx_folder_sizes_size ON folder_sizes(total_size DESC);
 "#;

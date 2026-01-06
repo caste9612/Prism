@@ -90,12 +90,13 @@ fn export_logs(state: tauri::State<'_, AppState>, output_path: String) -> Result
 
     let mut copied = 0;
 
-    // Copy all log files
+    // Copy all log files (files containing ".log" in name, e.g., prism.log.2026-01-06)
     if let Ok(entries) = fs::read_dir(log_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "log") {
-                let file_name = path.file_name().unwrap();
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // Match files like "prism.log", "prism.log.2026-01-06", etc.
+            if path.is_file() && file_name.contains(".log") {
                 let dest = output_dir.join(file_name);
                 if fs::copy(&path, &dest).is_ok() {
                     copied += 1;
@@ -293,6 +294,10 @@ pub fn run() {
             commands::analytics::get_folder_sizes,
             commands::analytics::get_file_type_distribution,
             commands::analytics::get_folder_contents,
+            // Treemap (pre-computed folder sizes)
+            commands::analytics::get_treemap_data,
+            commands::analytics::get_folder_children,
+            commands::analytics::rebuild_folder_sizes,
             // Tree view
             commands::tree::get_directory_tree,
             commands::tree::get_tree_children,

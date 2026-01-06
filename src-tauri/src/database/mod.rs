@@ -259,6 +259,7 @@ impl Database {
         self.conn.execute_batch(
             "DELETE FROM files;
              DELETE FROM files_fts;
+             DELETE FROM folder_sizes;
              DELETE FROM scans;
              VACUUM;"
         )?;
@@ -1157,6 +1158,360 @@ impl Database {
     }
 }
 
+// ========== Folder Sizes (Treemap) ==========
+
+/// Folder size information for treemap visualization
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FolderSize {
+    pub id: i64,
+    pub path: String,
+    pub name: String,
+    pub drive: String,
+    pub depth: i32,
+    pub total_size: i64,
+    pub file_count: i64,
+    pub folder_count: i64,
+    pub parent_path: Option<String>,
+}
+
+/// Treemap node for hierarchical visualization
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TreemapNode {
+    pub path: String,
+    pub name: String,
+    pub size: i64,
+    pub file_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<TreemapNode>>,
+}
+
+impl Database {
+    /// Rebuild folder_sizes table from files table
+    /// Called after scan completes to pre-compute folder aggregations
+    /// Uses a Rust-based approach for reliable path handling
+    pub fn rebuild_folder_sizes(&self, scan_id: i64) -> Result<usize> {
+        use std::collections::HashMap;
+
+        info!("Rebuilding folder_sizes table...");
+        let start = std::time::Instant::now();
+
+        // Clear all existing folder_sizes (we rebuild completely)
+        self.conn.execute("DELETE FROM folder_sizes", [])?;
+
+        // Step 1: Read all files and aggregate by folder path
+        // HashMap: folder_path -> (total_size, file_count)
+        let mut folder_stats: HashMap<String, (i64, i64)> = HashMap::new();
+
+        {
+            let mut stmt = self.conn.prepare("SELECT path, size FROM files")?;
+            let mut rows = stmt.query([])?;
+
+            while let Some(row) = rows.next()? {
+                let file_path: String = row.get(0)?;
+                let size: i64 = row.get(1)?;
+
+                // Extract folder path from file path
+                if let Some(last_sep) = file_path.rfind('\\') {
+                    let mut folder_path = &file_path[..last_sep];
+
+                    // Aggregate to this folder and all parent folders
+                    loop {
+                        let entry = folder_stats.entry(folder_path.to_string()).or_insert((0, 0));
+                        entry.0 += size;
+                        entry.1 += 1;
+
+                        // Find parent folder
+                        if folder_path.len() <= 3 {
+                            // We're at drive root (e.g., "C:\"), stop
+                            break;
+                        }
+
+                        if let Some(parent_sep) = folder_path[..folder_path.len()].rfind('\\') {
+                            if parent_sep < 3 {
+                                // Parent is drive root
+                                folder_path = &folder_path[..3];
+                            } else {
+                                folder_path = &folder_path[..parent_sep];
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        info!("Aggregated {} unique folders", folder_stats.len());
+
+        // Step 2: Count direct subfolders for each folder
+        let mut subfolder_counts: HashMap<String, i64> = HashMap::new();
+        for folder_path in folder_stats.keys() {
+            if let Some(parent) = get_parent_path(folder_path) {
+                *subfolder_counts.entry(parent).or_insert(0) += 1;
+            }
+        }
+
+        // Step 3: Insert all folder stats into database
+        let tx = self.conn.unchecked_transaction()?;
+        let mut inserted = 0;
+
+        {
+            let mut insert_stmt = tx.prepare(
+                "INSERT OR REPLACE INTO folder_sizes (path, name, drive, depth, total_size, file_count, folder_count, parent_path, scan_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+            )?;
+
+            for (folder_path, (total_size, file_count)) in &folder_stats {
+                let name = get_folder_name(folder_path);
+                let drive = get_drive_root(folder_path);
+                let depth = get_folder_depth(folder_path);
+                let parent_path = get_parent_path(folder_path);
+                let folder_count = subfolder_counts.get(folder_path).copied().unwrap_or(0);
+
+                insert_stmt.execute(params![
+                    folder_path,
+                    name,
+                    drive,
+                    depth,
+                    total_size,
+                    file_count,
+                    folder_count,
+                    parent_path,
+                    scan_id
+                ])?;
+                inserted += 1;
+            }
+        }
+
+        tx.commit()?;
+
+        let elapsed = start.elapsed();
+        info!("Rebuilt folder_sizes: {} folders in {:.2}s", inserted, elapsed.as_secs_f64());
+
+        Ok(inserted)
+    }
+
+    /// Get treemap data for a specific path with children up to max_depth
+    /// Optimized: fetches all needed data in ONE query and builds tree in memory
+    pub fn get_treemap_data(
+        &self,
+        drive: Option<&str>,
+        path: Option<&str>,
+        max_depth: i32,
+        min_size: i64,
+    ) -> Result<Vec<TreemapNode>> {
+        use std::collections::HashMap;
+
+        info!("get_treemap_data called: drive={:?}, path={:?}, max_depth={}, min_size={}",
+              drive, path, max_depth, min_size);
+
+        // Normalize drive path (ensure it ends with backslash for consistency)
+        let drive_normalized = drive.map(|d| {
+            if d.ends_with('\\') { d.to_string() } else { format!("{}\\", d) }
+        });
+
+        // Determine the filtering strategy
+        let folders: Vec<FolderSize> = match (&drive_normalized, path) {
+            // Case 1: Specific path - get children of that path
+            (_, Some(p)) => {
+                let pattern = format!("{}\\%", p.trim_end_matches('\\'));
+                let base_depth = if p.len() <= 3 { 0 } else { (p.matches('\\').count() as i32) - 1 };
+                let target_depth = base_depth + max_depth;
+
+                info!("Querying path '{}' with pattern '{}', depth {} to {}", p, pattern, base_depth, target_depth);
+
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, path, name, drive, depth, total_size, file_count, folder_count, parent_path
+                     FROM folder_sizes
+                     WHERE path LIKE ?1 AND depth <= ?2 AND total_size >= ?3
+                     ORDER BY depth, total_size DESC"
+                )?;
+                let result: Vec<FolderSize> = stmt.query_map(params![pattern, target_depth, min_size], |row| {
+                    Ok(FolderSize {
+                        id: row.get(0)?, path: row.get(1)?, name: row.get(2)?,
+                        drive: row.get(3)?, depth: row.get(4)?, total_size: row.get(5)?,
+                        file_count: row.get(6)?, folder_count: row.get(7)?, parent_path: row.get(8)?,
+                    })
+                })?.filter_map(|r| r.ok()).collect();
+                result
+            },
+
+            // Case 2: Drive selected, no specific path - get drive root children
+            (Some(d), None) => {
+                info!("Querying drive '{}', depth 0 to {}", d, max_depth);
+
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, path, name, drive, depth, total_size, file_count, folder_count, parent_path
+                     FROM folder_sizes
+                     WHERE drive = ?1 AND depth <= ?2 AND total_size >= ?3
+                     ORDER BY depth, total_size DESC"
+                )?;
+                let result: Vec<FolderSize> = stmt.query_map(params![d, max_depth, min_size], |row| {
+                    Ok(FolderSize {
+                        id: row.get(0)?, path: row.get(1)?, name: row.get(2)?,
+                        drive: row.get(3)?, depth: row.get(4)?, total_size: row.get(5)?,
+                        file_count: row.get(6)?, folder_count: row.get(7)?, parent_path: row.get(8)?,
+                    })
+                })?.filter_map(|r| r.ok()).collect();
+                result
+            },
+
+            // Case 3: All drives - get all roots with children
+            (None, None) => {
+                info!("Querying all drives, depth 0 to {}", max_depth);
+
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, path, name, drive, depth, total_size, file_count, folder_count, parent_path
+                     FROM folder_sizes
+                     WHERE depth <= ?1 AND total_size >= ?2
+                     ORDER BY depth, total_size DESC"
+                )?;
+                let result: Vec<FolderSize> = stmt.query_map(params![max_depth, min_size], |row| {
+                    Ok(FolderSize {
+                        id: row.get(0)?, path: row.get(1)?, name: row.get(2)?,
+                        drive: row.get(3)?, depth: row.get(4)?, total_size: row.get(5)?,
+                        file_count: row.get(6)?, folder_count: row.get(7)?, parent_path: row.get(8)?,
+                    })
+                })?.filter_map(|r| r.ok()).collect();
+                result
+            },
+        };
+
+        info!("Fetched {} folders from database", folders.len());
+
+        // Build tree in memory
+        let mut nodes_map: HashMap<String, TreemapNode> = HashMap::new();
+        for folder in &folders {
+            nodes_map.insert(folder.path.clone(), TreemapNode {
+                path: folder.path.clone(),
+                name: folder.name.clone(),
+                size: folder.total_size,
+                file_count: folder.file_count,
+                children: None,
+            });
+        }
+
+        // Attach children to parents (process from deepest to shallowest)
+        let mut sorted_folders = folders.clone();
+        sorted_folders.sort_by(|a, b| b.depth.cmp(&a.depth));
+
+        for folder in &sorted_folders {
+            if let Some(ref parent_path) = folder.parent_path {
+                if let Some(child_node) = nodes_map.remove(&folder.path) {
+                    if let Some(parent_node) = nodes_map.get_mut(parent_path) {
+                        parent_node.children.get_or_insert_with(Vec::new).push(child_node);
+                    } else {
+                        nodes_map.insert(folder.path.clone(), child_node);
+                    }
+                }
+            }
+        }
+
+        // Sort children by size descending
+        fn sort_children(node: &mut TreemapNode) {
+            if let Some(ref mut children) = node.children {
+                children.sort_by(|a, b| b.size.cmp(&a.size));
+                children.truncate(30); // Limit children per node
+                for child in children.iter_mut() {
+                    sort_children(child);
+                }
+            }
+        }
+        for node in nodes_map.values_mut() {
+            sort_children(node);
+        }
+
+        // Determine which nodes to return as top-level
+        let mut result: Vec<TreemapNode> = match (&drive_normalized, path) {
+            (_, Some(p)) => {
+                // Return direct children of the specified path
+                let parent = p.trim_end_matches('\\');
+                nodes_map.into_values()
+                    .filter(|n| {
+                        sorted_folders.iter()
+                            .find(|f| f.path == n.path)
+                            .map(|f| f.parent_path.as_deref() == Some(parent))
+                            .unwrap_or(false)
+                    })
+                    .collect()
+            },
+            (Some(d), None) => {
+                // Return depth 0 folders for the selected drive
+                nodes_map.into_values()
+                    .filter(|n| {
+                        sorted_folders.iter()
+                            .find(|f| f.path == n.path)
+                            .map(|f| f.depth == 0 && f.drive == *d)
+                            .unwrap_or(false)
+                    })
+                    .collect()
+            },
+            (None, None) => {
+                // Return all depth 0 folders (drive roots)
+                nodes_map.into_values()
+                    .filter(|n| {
+                        sorted_folders.iter()
+                            .find(|f| f.path == n.path)
+                            .map(|f| f.depth == 0)
+                            .unwrap_or(false)
+                    })
+                    .collect()
+            },
+        };
+
+        result.sort_by(|a, b| b.size.cmp(&a.size));
+        info!("Returning {} top-level nodes", result.len());
+
+        Ok(result)
+    }
+
+    /// Get folder children for a specific path (single level, for lazy loading)
+    pub fn get_folder_children(&self, path: &str, min_size: i64, limit: i64) -> Result<Vec<FolderSize>> {
+        let mut stmt = self.conn.prepare_cached(
+            r#"
+            SELECT id, path, name, drive, depth, total_size, file_count, folder_count, parent_path
+            FROM folder_sizes
+            WHERE parent_path = ?1 AND total_size >= ?2
+            ORDER BY total_size DESC
+            LIMIT ?3
+            "#,
+        )?;
+
+        let folders = stmt
+            .query_map(params![path, min_size, limit], |row| {
+                Ok(FolderSize {
+                    id: row.get(0)?,
+                    path: row.get(1)?,
+                    name: row.get(2)?,
+                    drive: row.get(3)?,
+                    depth: row.get(4)?,
+                    total_size: row.get(5)?,
+                    file_count: row.get(6)?,
+                    folder_count: row.get(7)?,
+                    parent_path: row.get(8)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(folders)
+    }
+
+    /// Clear folder_sizes for specific drives (before rescan)
+    pub fn clear_folder_sizes_for_drives(&self, drive_paths: &[String]) -> Result<usize> {
+        let mut total = 0;
+        for drive in drive_paths {
+            let pattern = format!("{}%", drive);
+            let deleted = self.conn.execute(
+                "DELETE FROM folder_sizes WHERE drive LIKE ?1",
+                params![pattern],
+            )?;
+            total += deleted;
+        }
+        Ok(total)
+    }
+}
+
 /// Known drive information (for offline detection)
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct KnownDrive {
@@ -1222,6 +1577,70 @@ pub struct ScanInfo {
     pub total_files: Option<i64>,
     pub total_size: Option<i64>,
     pub status: String,
+}
+
+// ========== Path Helper Functions ==========
+
+/// Get the folder name from a full path
+fn get_folder_name(path: &str) -> String {
+    if path.len() <= 3 {
+        // Drive root (e.g., "C:\")
+        return path.to_string();
+    }
+
+    if let Some(last_sep) = path.rfind('\\') {
+        path[last_sep + 1..].to_string()
+    } else {
+        path.to_string()
+    }
+}
+
+/// Get the drive root from a path (e.g., "C:\" from "C:\Users\foo")
+fn get_drive_root(path: &str) -> String {
+    if path.len() >= 3 && path.chars().nth(1) == Some(':') {
+        path[..3].to_uppercase()
+    } else if path.starts_with("\\\\") {
+        // UNC path: \\server\share -> \\server\share\
+        let without_prefix = path.trim_start_matches("\\\\");
+        let parts: Vec<&str> = without_prefix.splitn(3, '\\').collect();
+        if parts.len() >= 2 {
+            format!("\\\\{}\\{}\\", parts[0], parts[1])
+        } else {
+            path.to_string()
+        }
+    } else {
+        path.to_string()
+    }
+}
+
+/// Get folder depth (0 = drive root, 1 = first level folder, etc.)
+fn get_folder_depth(path: &str) -> i32 {
+    if path.len() <= 3 {
+        return 0;
+    }
+
+    // Count backslashes after the drive root
+    let after_root = &path[3..];
+    after_root.matches('\\').count() as i32
+}
+
+/// Get parent folder path, or None if at drive root
+fn get_parent_path(path: &str) -> Option<String> {
+    if path.len() <= 3 {
+        // Already at drive root
+        return None;
+    }
+
+    if let Some(last_sep) = path.rfind('\\') {
+        if last_sep < 3 {
+            // Parent is drive root
+            Some(path[..3].to_string())
+        } else {
+            Some(path[..last_sep].to_string())
+        }
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

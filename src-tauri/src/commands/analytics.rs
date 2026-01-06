@@ -458,3 +458,104 @@ pub async fn get_folder_sizes(
 
     Ok(result)
 }
+
+// ========== Treemap API (using pre-computed folder_sizes) ==========
+
+use crate::database::{FolderSize as DbFolderSize, TreemapNode};
+
+/// Request for treemap data
+#[derive(Debug, serde::Deserialize)]
+pub struct TreemapRequest {
+    pub drive: Option<String>,
+    pub path: Option<String>,
+    pub max_depth: Option<i32>,
+    pub min_size: Option<i64>,
+}
+
+/// Get treemap data for visualization (uses pre-computed folder_sizes table)
+/// Much faster than the old get_folder_contents as it doesn't need to aggregate at runtime
+#[tauri::command]
+pub async fn get_treemap_data(
+    state: State<'_, AppState>,
+    request: TreemapRequest,
+) -> Result<Vec<TreemapNode>, String> {
+    let start = std::time::Instant::now();
+    debug!("get_treemap_data: drive={:?}, path={:?}", request.drive, request.path);
+
+    let db = state.db.lock().await;
+    let result = db
+        .get_treemap_data(
+            request.drive.as_deref(),
+            request.path.as_deref(),
+            request.max_depth.unwrap_or(3),
+            request.min_size.unwrap_or(1024 * 1024), // Default 1MB minimum
+        )
+        .map_err(|e| format!("Failed to get treemap data: {}", e))?;
+
+    let elapsed = start.elapsed();
+    info!(
+        "get_treemap_data completed in {:.2}ms, {} top-level nodes",
+        elapsed.as_secs_f64() * 1000.0,
+        result.len()
+    );
+
+    Ok(result)
+}
+
+/// Get folder children for lazy loading (single level only)
+#[tauri::command]
+pub async fn get_folder_children(
+    state: State<'_, AppState>,
+    path: String,
+    min_size: Option<i64>,
+    limit: Option<i64>,
+) -> Result<Vec<DbFolderSize>, String> {
+    let start = std::time::Instant::now();
+    debug!("get_folder_children: path={}", path);
+
+    let db = state.db.lock().await;
+    let result = db
+        .get_folder_children(
+            &path,
+            min_size.unwrap_or(0),
+            limit.unwrap_or(100),
+        )
+        .map_err(|e| format!("Failed to get folder children: {}", e))?;
+
+    let elapsed = start.elapsed();
+    debug!(
+        "get_folder_children completed in {:.2}ms, {} results",
+        elapsed.as_secs_f64() * 1000.0,
+        result.len()
+    );
+
+    Ok(result)
+}
+
+/// Rebuild folder_sizes table manually (for debugging/maintenance)
+#[tauri::command]
+pub async fn rebuild_folder_sizes(state: State<'_, AppState>) -> Result<usize, String> {
+    let start = std::time::Instant::now();
+    info!("Manual rebuild_folder_sizes requested");
+
+    let db = state.db.lock().await;
+
+    // Get most recent scan ID
+    let scan_id: i64 = db
+        .connection()
+        .query_row("SELECT MAX(id) FROM scans", [], |row| row.get(0))
+        .unwrap_or(1);
+
+    let count = db
+        .rebuild_folder_sizes(scan_id)
+        .map_err(|e| format!("Failed to rebuild folder sizes: {}", e))?;
+
+    let elapsed = start.elapsed();
+    info!(
+        "Manual rebuild_folder_sizes completed in {:.2}s, {} folders",
+        elapsed.as_secs_f64(),
+        count
+    );
+
+    Ok(count)
+}
