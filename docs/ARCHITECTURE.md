@@ -111,9 +111,23 @@ CREATE TABLE files (
 
 -- Full-text search
 CREATE VIRTUAL TABLE files_fts USING fts5(
-    name, path,
+    name, path, extension,
     content='files',
     content_rowid='id'
+);
+
+-- Pre-computed folder sizes (for fast treemap)
+CREATE TABLE folder_sizes (
+    id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    drive TEXT NOT NULL,
+    depth INTEGER NOT NULL,
+    total_size INTEGER NOT NULL,
+    file_count INTEGER NOT NULL,
+    folder_count INTEGER NOT NULL,
+    parent_path TEXT,
+    scan_id INTEGER NOT NULL
 );
 
 -- Scan history
@@ -132,6 +146,8 @@ CREATE INDEX idx_files_extension ON files(extension);
 CREATE INDEX idx_files_size ON files(size);
 CREATE INDEX idx_files_partial_hash ON files(partial_hash);
 CREATE INDEX idx_files_phash ON files(perceptual_hash);
+CREATE INDEX idx_folder_sizes_drive ON folder_sizes(drive);
+CREATE INDEX idx_folder_sizes_parent ON folder_sizes(parent_path);
 ```
 
 ## Key Components

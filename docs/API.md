@@ -307,6 +307,69 @@ await invoke<FolderSize[]>('get_folder_sizes', {
 });
 ```
 
+### `get_treemap_data`
+
+Get pre-computed treemap data for fast visualization.
+
+```typescript
+interface TreemapRequest {
+    drive: string | null;    // null = all drives
+    path: string | null;     // null = root
+    max_depth: number;       // Tree depth to fetch
+    min_size: number;        // Minimum folder size (bytes)
+}
+
+interface TreemapNode {
+    path: string;
+    name: string;
+    size: number;
+    file_count: number;
+    children: TreemapNode[];
+}
+
+await invoke<TreemapNode[]>('get_treemap_data', {
+    request: {
+        drive: 'C:\\',
+        path: null,
+        max_depth: 4,
+        min_size: 10485760  // 10MB
+    }
+});
+```
+
+### `get_folder_children`
+
+Get direct children of a folder with size info.
+
+```typescript
+interface FolderSize {
+    id: number;
+    path: string;
+    name: string;
+    drive: string;
+    depth: number;
+    total_size: number;
+    file_count: number;
+    folder_count: number;
+    parent_path: string | null;
+}
+
+await invoke<FolderSize[]>('get_folder_children', {
+    path: 'C:\\Users',
+    minSize: 1048576,  // 1MB
+    limit: 100
+});
+```
+
+### `rebuild_folder_sizes`
+
+Manually trigger folder sizes rebuild.
+
+```typescript
+// Returns number of folders processed
+await invoke<number>('rebuild_folder_sizes');
+```
+
 ## Utility Commands
 
 ### `open_in_explorer`
@@ -388,5 +451,62 @@ Emitted when statistics change.
 ```typescript
 await listen('stats-updated', () => {
     // Reload stats
+});
+```
+
+### `incremental-progress`
+
+Emitted during incremental scans with detailed phase info.
+
+```typescript
+interface IncrementalProgress {
+    phase: 'preparing' | 'scanning' | 'cleaning' | 'indexing' | 'complete';
+    percent: number;
+    files_checked: number;
+    files_new: number;
+    files_updated: number;
+    files_deleted: number;
+    files_unchanged: number;
+    current_drive: string | null;
+}
+
+await listen<IncrementalProgress>('incremental-progress', (event) => {
+    console.log('Phase:', event.payload.phase);
+});
+```
+
+### `auto-scan-phase`
+
+Emitted when auto-scan changes phase.
+
+```typescript
+interface AutoScanPhase {
+    phase: string;       // 'local' | 'network' | 'all'
+    has_network: boolean;
+    paths: string[];
+}
+
+await listen<AutoScanPhase>('auto-scan-phase', (event) => {
+    console.log('Scanning:', event.payload.phase);
+});
+```
+
+### `auto-scan-complete`
+
+Emitted when auto-scan finishes all drives.
+
+```typescript
+await listen('auto-scan-complete', () => {
+    console.log('All drives scanned!');
+});
+```
+
+### `treemap-ready`
+
+Emitted when folder sizes have been rebuilt.
+
+```typescript
+await listen('treemap-ready', () => {
+    // Reload treemap data
 });
 ```
