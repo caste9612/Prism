@@ -722,12 +722,15 @@ impl Scanner {
             let is_running = Arc::new(AtomicBool::new(true));
             let is_running_clone = Arc::clone(&is_running);
 
+            info!("Full scan progress thread: Starting");
             let progress_thread = thread::spawn(move || {
+                let mut emit_count = 0u64;
                 while is_running_clone.load(Ordering::Relaxed) {
                     let files = files_scanned.load(Ordering::Relaxed);
                     let size = total_size.load(Ordering::Relaxed);
                     let elapsed = start_time.elapsed().as_secs_f64();
                     let fps = if elapsed > 0.0 { files as f64 / elapsed } else { 0.0 };
+                    emit_count += 1;
 
                     // Build per-drive progress with normalized keys
                     let mut all_done = true;
@@ -805,13 +808,26 @@ impl Scanner {
                         indexing: None,
                     };
 
+                    // Log every second (4 emits)
+                    if emit_count <= 4 || emit_count % 4 == 0 {
+                        let drives_info: Vec<_> = progress.drives.iter()
+                            .map(|(k, v)| format!("{}:{}/{:.0}%", k, v.files_scanned, v.progress_percent))
+                            .collect();
+                        info!(
+                            "[FULL SCAN PROGRESS #{}] files={}, fps={:.0}, drives={:?}",
+                            emit_count, files, fps, drives_info
+                        );
+                    }
+
                     let _ = handle.emit("scan-progress", &progress);
                     thread::sleep(Duration::from_millis(250)); // Update 4x per second
                 }
+                info!("Full scan progress thread: Stopped after {} emits", emit_count);
             });
 
             Some((progress_thread, is_running))
         } else {
+            warn!("Full scan progress thread: No app_handle, progress won't be emitted!");
             None
         };
 

@@ -313,6 +313,7 @@ pub fn run() {
             commands::export::export_to_csv,
             // Utils
             commands::utils::clear_database,
+            commands::utils::reset_app,
             commands::utils::open_in_explorer,
             // Verification
             commands::verify::verify_cross_disk,

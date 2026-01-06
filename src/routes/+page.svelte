@@ -691,6 +691,19 @@
     }
   }
 
+  // Full reset - clears database AND deletes logs (simulates fresh install)
+  async function resetApp() {
+    if (!confirm('Full Reset: Clear ALL data AND delete log files?\n\nThis simulates a fresh installation. The app will need to be restarted.')) return;
+    try {
+      const result = await invoke<string>('reset_app');
+      await stats.load();
+      driveStats = [];
+      notify(result, 'success');
+    } catch (e) {
+      notify(`Failed to reset: ${e}`, 'error');
+    }
+  }
+
   // Settings
   function saveSettings() {
     settingsStore.setAll(tempSettings);
@@ -823,9 +836,14 @@
           </div>
         </div>
       </div>
-      <button on:click={clearDatabase} class="text-sm text-gray-400 hover:text-red-400 transition-colors" title="Clear all data">
-        Clear Data
-      </button>
+      <div class="flex gap-4">
+        <button on:click={clearDatabase} class="text-sm text-gray-400 hover:text-red-400 transition-colors" title="Clear all data">
+          Clear Data
+        </button>
+        <button on:click={resetApp} class="text-sm text-gray-400 hover:text-orange-400 transition-colors" title="Full reset - simulate fresh install">
+          Full Reset
+        </button>
+      </div>
     </div>
   </header>
 

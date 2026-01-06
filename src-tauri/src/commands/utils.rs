@@ -1,6 +1,7 @@
 //! Utility commands
 
 use crate::AppState;
+use std::fs;
 use tauri::{AppHandle, Emitter, State};
 use tracing::info;
 
@@ -16,6 +17,45 @@ pub async fn clear_database(app_handle: AppHandle, state: State<'_, AppState>) -
 
     info!("Database cleared successfully");
     Ok(())
+}
+
+/// Full reset - clears database AND deletes all logs
+/// Use this to simulate a completely fresh installation
+#[tauri::command]
+pub async fn reset_app(app_handle: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
+    info!("Full app reset requested");
+
+    // 1. Clear database
+    let db = state.db.lock().await;
+    db.clear_all_data().map_err(|e| e.to_string())?;
+    drop(db);
+    info!("Database cleared");
+
+    // 2. Delete log files
+    let mut logs_deleted = 0;
+    if let Some(local_data) = dirs::data_local_dir() {
+        let log_dir = local_data.join("Prism").join("logs");
+        if log_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&log_dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Ok(_) = fs::remove_file(&path) {
+                            logs_deleted += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    info!("Deleted {} log files", logs_deleted);
+
+    // Emit stats update
+    let _ = app_handle.emit("stats-updated", ());
+
+    let message = format!("Reset complete: database cleared, {} log files deleted. Restart the app for a fresh start.", logs_deleted);
+    info!("{}", message);
+    Ok(message)
 }
 
 /// Open file location in system file explorer
