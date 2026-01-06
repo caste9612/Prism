@@ -156,94 +156,66 @@ pub async fn start_scan(
     Ok(initial_progress)
 }
 
-/// Auto-scan all drives on startup (local first, then network)
+/// Auto-scan all drives on startup (all drives in parallel)
 /// Uses smart scan: incremental for previously scanned drives, full for new ones
 #[tauri::command]
 pub async fn auto_scan_drives(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    info!("Starting auto-scan of all drives (smart mode)");
+    info!("Starting auto-scan of all drives (smart mode, parallel)");
 
     // Get all ready drives
     let drives = get_available_drives().await?;
 
-    // Separate local and network drives - scan local first to avoid network blocking
-    let local_paths: Vec<String> = drives
+    // Collect all ready drives (local + network together)
+    let all_paths: Vec<String> = drives
         .iter()
-        .filter(|d| d.is_ready && d.drive_type == "Local Disk")
+        .filter(|d| d.is_ready)
         .map(|d| d.path.clone())
         .collect();
 
-    let network_paths: Vec<String> = drives
-        .iter()
-        .filter(|d| d.is_ready && d.drive_type == "Network Drive")
-        .map(|d| d.path.clone())
-        .collect();
-
-    if local_paths.is_empty() && network_paths.is_empty() {
+    if all_paths.is_empty() {
         info!("No drives to scan");
         return Ok("No drives to scan".to_string());
     }
 
-    let mut results = Vec::new();
-    let has_network = !network_paths.is_empty();
+    let local_count = drives.iter().filter(|d| d.is_ready && d.drive_type == "Local Disk").count();
+    let network_count = drives.iter().filter(|d| d.is_ready && d.drive_type == "Network Drive").count();
 
-    // Emit auto-scan phase: starting local drives
-    if !local_paths.is_empty() {
-        info!("Emitting auto-scan-phase: local (has_network: {})", has_network);
-        let _ = app_handle.emit("auto-scan-phase", serde_json::json!({
-            "phase": "local",
-            "has_network": has_network,
-            "paths": local_paths
-        }));
-    }
+    info!("Auto-scanning {} drives ({} local, {} network): {:?}",
+          all_paths.len(), local_count, network_count, all_paths);
 
-    // Scan local drives first (fast)
-    if !local_paths.is_empty() {
-        info!("Auto-scanning {} local drives: {:?}", local_paths.len(), local_paths);
-        let local_request = ScanRequest {
-            paths: local_paths.clone(),
-            exclude_hidden: Some(true),
-            exclude_system: Some(true),
-            exclude_patterns: None,
-            min_file_size: Some(0),
-        };
-        match start_smart_scan(app_handle.clone(), state.clone(), local_request).await {
-            Ok(r) => results.push(format!("Local drives: {}", r)),
-            Err(e) => error!("Local drive scan error: {}", e),
+    // Emit auto-scan-phase with all drives (no separate phases)
+    let _ = app_handle.emit("auto-scan-phase", serde_json::json!({
+        "phase": "all",
+        "has_network": network_count > 0,
+        "paths": all_paths
+    }));
+
+    // Scan all drives together in parallel
+    let request = ScanRequest {
+        paths: all_paths.clone(),
+        exclude_hidden: Some(true),
+        exclude_system: Some(true),
+        exclude_patterns: None,
+        min_file_size: Some(0),
+    };
+
+    let result = match start_smart_scan(app_handle.clone(), state, request).await {
+        Ok(r) => format!("All drives: {}", r),
+        Err(e) => {
+            error!("Auto-scan error: {}", e);
+            format!("Error: {}", e)
         }
-    }
-
-    // Emit auto-scan phase: starting network drives
-    if !network_paths.is_empty() {
-        info!("Emitting auto-scan-phase: network");
-        let _ = app_handle.emit("auto-scan-phase", serde_json::json!({
-            "phase": "network",
-            "has_network": true,
-            "paths": network_paths
-        }));
-
-        info!("Auto-scanning {} network drives: {:?}", network_paths.len(), network_paths);
-        let network_request = ScanRequest {
-            paths: network_paths.clone(),
-            exclude_hidden: Some(true),
-            exclude_system: Some(true),
-            exclude_patterns: None,
-            min_file_size: Some(0),
-        };
-        match start_smart_scan(app_handle.clone(), state, network_request).await {
-            Ok(r) => results.push(format!("Network drives: {}", r)),
-            Err(e) => error!("Network drive scan error: {}", e),
-        }
-    }
+    };
 
     // Emit auto-scan complete
     let _ = app_handle.emit("auto-scan-complete", serde_json::json!({
-        "results": results.join("; ")
+        "results": result
     }));
 
-    Ok(results.join("; "))
+    Ok(result)
 }
 
 /// Smart scan - automatically chooses between full scan and incremental scan

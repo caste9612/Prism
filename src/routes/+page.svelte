@@ -38,7 +38,7 @@
   let isAutoScan = false; // Track if we're in auto-scan mode
   let scanProgress: ScanProgressType | null = null;
   let incrementalProgress: IncrementalProgress | null = null;
-  let autoScanPhase: 'local' | 'network' | null = null; // Track auto-scan phase
+  let autoScanPhase: 'local' | 'network' | 'all' | null = null; // Track auto-scan phase
   let autoScanHasNetwork = false; // Track if network drives are pending
   let unlistenProgress: (() => void) | null = null;
   let unlistenComplete: (() => void) | null = null;
@@ -76,9 +76,10 @@
         is_complete: scanProgress?.is_complete
       });
 
-      // Update per-drive progress from backend
+      // Update per-drive progress from backend - MERGE with existing data
+      // This preserves completed drives from previous phases
       if (scanProgress?.drives) {
-        driveProgress = scanProgress.drives;
+        driveProgress = { ...driveProgress, ...scanProgress.drives };
         // Log drives progress every few updates
         const driveKeys = Object.keys(scanProgress.drives);
         if (driveKeys.length > 0) {
@@ -88,20 +89,22 @@
       }
 
       if (scanProgress?.is_complete) {
-        // DON'T set isScanning = false if we're in auto-scan mode with pending network phase
-        // The auto-scan-phase event will handle the transition
-        if (!isAutoScan || !autoScanHasNetwork || autoScanPhase === 'network') {
-          console.log('[UI] Scan complete, setting isScanning=false (isAutoScan=%s, hasNetwork=%s, phase=%s)',
-                      isAutoScan, autoScanHasNetwork, autoScanPhase);
+        // During auto-scan, NEVER set isScanning=false here - let auto-scan-complete handle it
+        // This prevents race conditions where scan-complete arrives after phase change
+        if (!isAutoScan) {
+          console.log('[UI] Manual scan complete, setting isScanning=false');
           isScanning = false;
         } else {
-          console.log('[UI] Scan complete but auto-scan has network phase pending, keeping isScanning=true');
+          console.log('[UI] Auto-scan phase complete (phase=%s), waiting for auto-scan-complete', autoScanPhase);
         }
 
         if (scanProgress.error) {
           notify(`Scan failed: ${scanProgress.error}`, 'error');
         } else {
-          notify(`Scan complete: ${formatNumber(scanProgress.files_scanned)} files indexed`, 'success');
+          // Only show "complete" notification for manual scans (auto-scan uses auto-scan-complete)
+          if (!isAutoScan) {
+            notify(`Scan complete: ${formatNumber(scanProgress.files_scanned)} files indexed`, 'success');
+          }
           loadAnalytics();
           loadDriveStats();
         }
@@ -109,13 +112,13 @@
     });
 
     unlistenComplete = await listen('scan-complete', async () => {
-      // DON'T reset isScanning if we're in auto-scan mode with network phase pending
-      // The auto-scan-phase and auto-scan-complete events handle the transitions
-      if (isAutoScan && autoScanHasNetwork && autoScanPhase !== 'network') {
-        console.log('[UI] Ignoring scan-complete: auto-scan with network phase pending');
+      // During auto-scan, ALWAYS ignore scan-complete - let auto-scan-complete handle it
+      // This prevents race conditions where scan-complete arrives after phase change
+      if (isAutoScan) {
+        console.log('[UI] Ignoring scan-complete during auto-scan (phase=%s)', autoScanPhase);
         return;
       }
-      console.log('[UI] scan-complete received, setting isScanning=false');
+      console.log('[UI] scan-complete received (manual scan), setting isScanning=false');
       isScanning = false;
       await stats.load();
       loadAnalytics();
@@ -154,19 +157,19 @@
     // Listen for incremental scan progress
     unlistenIncrementalProgress = await listen<IncrementalProgress>('incremental-progress', (event) => {
       incrementalProgress = event.payload;
-      console.log('Incremental progress:', incrementalProgress, 'autoScanPhase:', autoScanPhase, 'hasNetwork:', autoScanHasNetwork);
+      console.log('[UI] Incremental progress:', incrementalProgress?.phase, 'percent:', incrementalProgress?.percent?.toFixed(1),
+                  'autoScanPhase:', autoScanPhase, 'isAutoScan:', isAutoScan);
 
       // When incremental scan completes
       if (incrementalProgress?.phase === 'complete') {
-        // If we're in auto-scan mode, let auto-scan-complete handle the final reset
         if (isAutoScan) {
-          console.log('Auto-scan phase complete, waiting for next phase or completion...');
-          setTimeout(() => {
-            incrementalProgress = null;
-          }, 500);
+          // During auto-scan, DON'T reset incrementalProgress here
+          // The auto-scan-phase handler will reset it when switching phases
+          // And auto-scan-complete will reset it at the end
+          console.log('[UI] Auto-scan phase complete (phase=%s), waiting for next phase...', autoScanPhase);
         } else {
-          // Manual scan completion - reset everything
-          console.log('Manual scan complete, resetting...');
+          // Manual scan completion - reset everything after a brief delay
+          console.log('[UI] Manual scan complete, resetting...');
           setTimeout(() => {
             incrementalProgress = null;
             isScanning = false;
@@ -179,33 +182,33 @@
 
     // Listen for auto-scan phase changes
     unlistenAutoScanPhase = await listen<{ phase: string; has_network: boolean; paths: string[] }>('auto-scan-phase', (event) => {
-      console.log('[UI] Auto-scan phase received:', event.payload.phase, 'isScanning was:', isScanning);
-      autoScanPhase = event.payload.phase as 'local' | 'network';
+      console.log('[UI] Auto-scan phase received:', event.payload.phase, 'paths:', event.payload.paths.length);
+      autoScanPhase = event.payload.phase as 'local' | 'network' | 'all';
       autoScanHasNetwork = event.payload.has_network;
 
-      // IMPORTANT: Set isScanning = true when a new phase starts
-      // This ensures the UI shows scanning state even after local phase completes
+      // IMPORTANT: Set isScanning = true when scan starts
       isScanning = true;
       console.log('[UI] After phase change: isScanning=%s, autoScanPhase=%s', isScanning, autoScanPhase);
 
-      // Reset drive progress for new phase to avoid stale data
-      driveProgress = {};
+      // Reset progress for new scan
       incrementalProgress = null;
-
-      // Show notification for network phase
-      if (autoScanPhase === 'network') {
-        notify(`Scanning ${event.payload.paths.length} network drives...`, 'info');
-      }
+      driveProgress = {};
     });
 
     // Listen for auto-scan complete
-    unlistenAutoScanComplete = await listen<{ results: string }>('auto-scan-complete', (event) => {
-      console.log('Auto-scan complete:', event.payload);
+    unlistenAutoScanComplete = await listen<{ results: string }>('auto-scan-complete', async (event) => {
+      console.log('[UI] Auto-scan complete:', event.payload);
       autoScanPhase = null;
       autoScanHasNetwork = false;
       isAutoScan = false;
       isScanning = false;
       incrementalProgress = null;
+
+      // Load fresh stats and show completion notification
+      await stats.load();
+      const totalFiles = $stats?.totalFiles ?? 0;
+      notify(`All drives scanned: ${formatNumber(totalFiles)} files indexed`, 'success');
+
       loadAnalytics();
       loadDriveStats();
     });
@@ -392,18 +395,22 @@
     }
   }
 
-  // Get scan status for a drive - same treatment for all drives
+  // Get scan status for a drive
   function getDriveScanStatus(drivePath: string): 'idle' | 'scanning' | 'done' {
     if (!isScanning) return 'idle';
     const normalizedPath = drivePath.toUpperCase();
 
-    // Check per-drive progress (from full scan)
+    // Check per-drive progress
     const progress = driveProgress[normalizedPath];
-    if (progress?.status === 'done') {
-      return 'done';
+
+    // If drive has progress data, use its status
+    if (progress) {
+      if (progress.status === 'done') return 'done';
+      if (progress.status === 'scanning') return 'scanning';
+      if (progress.status === 'waiting') return 'scanning'; // waiting = about to scan
     }
 
-    // If scanning, all drives show scanning status
+    // No progress data yet - show as scanning (waiting for first update)
     return 'scanning';
   }
 
@@ -823,7 +830,7 @@
                 >
               <!-- Progress bar fill - same for all drives -->
               {#if scanStatus === 'scanning' || scanStatus === 'done'}
-                {@const rawPercent = driveProgressInfo?.progress_percent ?? (incrementalProgress?.percent ?? 0)}
+                {@const rawPercent = scanStatus === 'done' ? 100 : (driveProgressInfo?.progress_percent ?? (incrementalProgress?.percent ?? 0))}
                 {@const progressPercent = rawPercent >= 0 ? rawPercent : 0}
                 <div
                   class="absolute bottom-0 left-0 right-0 transition-all duration-300 ease-out
@@ -940,19 +947,6 @@
         </div>
       </div>
 
-      <!-- Auto-scan Phase Indicator (Network Drives) -->
-      {#if isAutoScan && autoScanPhase === 'network' && !incrementalProgress}
-        <div class="mt-4 bg-blue-900/30 border border-blue-500/30 rounded-lg p-3">
-          <div class="flex items-center gap-3">
-            <div class="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
-            <div>
-              <span class="text-sm text-blue-300 font-medium">Scanning network drives...</span>
-              <span class="text-xs text-blue-400/70 ml-2">This may take longer due to network latency</span>
-            </div>
-          </div>
-        </div>
-      {/if}
-
       <!-- Incremental Scan Progress Bar -->
       {#if isScanning && incrementalProgress}
         {@const phase = incrementalProgress.phase}
@@ -965,17 +959,10 @@
           { id: 'complete', label: 'Done', icon: '✓' }
         ]}
         {@const phaseIndex = phases.findIndex(p => p.id === phase)}
-        <div class="mt-4 bg-gray-900/50 rounded-lg p-3 {isAutoScan && autoScanPhase === 'network' ? 'ring-1 ring-blue-500/30' : ''}">
+        <div class="mt-4 bg-gray-900/50 rounded-lg p-3">
           <!-- Phase Indicators -->
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-1">
-              <!-- Drive Type Badge -->
-              {#if isAutoScan && autoScanPhase}
-                <span class="mr-2 px-2 py-0.5 rounded text-xs font-medium
-                  {autoScanPhase === 'network' ? 'bg-blue-500/20 text-blue-300' : 'bg-green-500/20 text-green-300'}">
-                  {autoScanPhase === 'network' ? '🌐 Network' : '💾 Local'}
-                </span>
-              {/if}
               {#each phases as p, i}
                 {@const isActive = p.id === phase}
                 {@const isPast = i < phaseIndex}
@@ -1030,16 +1017,9 @@
         {@const indexingRate = scanProgress.indexing?.files_per_second ?? 0}
         {@const totalFilesEstimate = $stats?.totalFiles || 0}
         {@const estimatedPercent = totalFilesEstimate > 0 ? Math.min((scanProgress.files_scanned / totalFilesEstimate) * 100, 100) : 0}
-        <div class="mt-4 bg-gray-900/50 rounded-lg p-3 {isAutoScan && autoScanPhase === 'network' ? 'ring-1 ring-blue-500/30' : ''}">
+        <div class="mt-4 bg-gray-900/50 rounded-lg p-3">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-3">
-              <!-- Drive Type Badge for Full Scan -->
-              {#if isAutoScan && autoScanPhase}
-                <span class="px-2 py-0.5 rounded text-xs font-medium
-                  {autoScanPhase === 'network' ? 'bg-blue-500/20 text-blue-300' : 'bg-green-500/20 text-green-300'}">
-                  {autoScanPhase === 'network' ? '🌐 Network' : '💾 Local'}
-                </span>
-              {/if}
               <div class="w-4 h-4 border-2 border-prism-400 border-t-transparent rounded-full animate-spin"></div>
               <span class="text-sm text-white font-medium">
                 {formatNumber(scanProgress.files_scanned)} files scanned
