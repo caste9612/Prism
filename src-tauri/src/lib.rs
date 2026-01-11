@@ -161,15 +161,19 @@ pub fn run() {
 
     // Initialize tracing with file appender
     let file_appender = tracing_appender::rolling::daily(&log_dir, "prism.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // Use non-blocking writer for console too to prevent panic when stderr pipe is closed (OS error 232)
+    // This can happen when the app window is closed while a scan is running
+    let (non_blocking_console, _console_guard) = tracing_appender::non_blocking(std::io::stderr());
 
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "prism=debug,tauri=info".into()),
         )
-        .with(tracing_subscriber::fmt::layer()) // Console output
-        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false)) // File output
+        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking_console)) // Console output (non-blocking, lossy)
+        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking_file).with_ansi(false)) // File output
         .init();
 
     // Keep _guard alive for the entire app lifetime

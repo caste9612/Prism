@@ -876,6 +876,7 @@ pub struct DriveStatusChangeEvent {
     pub event_type: DriveEventType,
     pub is_indexed: bool,
     pub indexed_files: i64,
+    pub is_online: bool,
 }
 
 /// Type of drive status change
@@ -1013,6 +1014,7 @@ async fn check_and_emit_drive_changes_with_db(
                     event_type: DriveEventType::Online,
                     is_indexed: new_state.is_scanned,
                     indexed_files: new_state.indexed_files,
+                    is_online: true,
                 });
             } else if old_state.is_online && !new_state.is_online {
                 // Drive went offline
@@ -1023,6 +1025,7 @@ async fn check_and_emit_drive_changes_with_db(
                     event_type: DriveEventType::Offline,
                     is_indexed: new_state.is_scanned,
                     indexed_files: new_state.indexed_files,
+                    is_online: false,
                 });
             }
         } else {
@@ -1034,6 +1037,7 @@ async fn check_and_emit_drive_changes_with_db(
                 event_type: DriveEventType::Detected,
                 is_indexed: new_state.is_scanned,
                 indexed_files: new_state.indexed_files,
+                is_online: new_state.is_online,
             });
         }
     }
@@ -1050,6 +1054,7 @@ async fn check_and_emit_drive_changes_with_db(
                 event_type: DriveEventType::Removed,
                 is_indexed: old_state.is_scanned,
                 indexed_files: old_state.indexed_files,
+                is_online: false,
             });
         }
     }
@@ -1066,10 +1071,12 @@ async fn check_and_emit_drive_changes_with_db(
         let _ = app_handle.emit("drive-status-change", event);
 
         // Auto-queue known drives that come online for incremental scan
+        // Only queue if drive is actually online/accessible - don't queue offline network drives
         if (event.event_type == DriveEventType::Online || event.event_type == DriveEventType::Detected)
             && event.is_indexed
+            && event.is_online
         {
-            info!("Auto-queueing known drive {} for incremental scan", event.drive_path);
+            info!("Auto-queueing known drive {} for incremental scan (online)", event.drive_path);
             // Use the queue system to schedule the scan
             let drive_path = event.drive_path.clone();
             let drive_name = event.drive_name.clone();

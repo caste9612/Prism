@@ -342,11 +342,22 @@ impl QueueManager {
 
         let total_files = scan_result?;
 
-        // Mark scan as complete in database
+        // Mark scan as complete and rebuild folder sizes for treemap
         {
             let db = app_state.db.lock().await;
             if let Err(e) = db.update_scan_status(scan_id, "completed", Some(total_files), None) {
                 warn!("Failed to mark scan as complete: {}", e);
+            }
+
+            // Rebuild folder_sizes table for treemap visualization
+            info!("Rebuilding folder sizes for treemap (queue scan)...");
+            if let Err(e) = db.rebuild_folder_sizes(scan_id) {
+                error!("Failed to rebuild folder sizes: {}", e);
+            }
+
+            // Optimize database if needed
+            if let Err(e) = db.optimize_if_needed(total_files as u64) {
+                error!("Failed to optimize database: {}", e);
             }
         }
 
