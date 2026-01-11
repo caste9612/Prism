@@ -339,13 +339,17 @@
     // Start analytics/stats loading in background (parallel)
     const analyticsPromise = Promise.all([loadAnalytics(), loadDriveStats()]);
 
-    // Start auto-scan ONLY for known (already indexed) drives - don't wait for analytics
+    // Note: Auto-scan is now handled by the drive monitor (start_drive_monitor)
+    // which auto-queues known drives when they are detected as "online"
+    // This prevents duplicate scans that were occurring before
+
+    // Just notify user about drive status - scanning is handled by drive monitor
     const knownDrives = drives.filter(d => d.is_ready && d.is_scanned);
     const newDrives = drives.filter(d => d.is_ready && !d.is_scanned && d.drive_type === 'Local Disk');
 
     if (knownDrives.length > 0) {
-      notify(`Updating ${knownDrives.length} indexed drive${knownDrives.length > 1 ? 's' : ''}...`, 'info');
-      startKnownDrivesScan(); // Fire and forget - don't block on scan
+      notify(`${knownDrives.length} indexed drive${knownDrives.length > 1 ? 's' : ''} detected - updating...`, 'info');
+      // Drive monitor will auto-queue these for incremental scan
     }
 
     // Notify about new drives available (not auto-scanned)
@@ -771,29 +775,43 @@
     }
   }
 
-  // Clear database
+  // Clear database with visual feedback
+  let isClearing = false;
   async function clearDatabase() {
     if (!confirm('Clear all scanned data? This cannot be undone.')) return;
+    isClearing = true;
+    notify('Clearing database...', 'info');
     try {
       await invoke('clear_database');
       await stats.load();
       driveStats = [];
-      notify('Database cleared', 'success');
+      await loadDrives(true);
+      await loadAnalytics();
+      notify('Database cleared successfully! All scan data has been removed.', 'success');
     } catch (e) {
-      notify(`Failed to clear: ${e}`, 'error');
+      notify(`Failed to clear database: ${e}`, 'error');
+    } finally {
+      isClearing = false;
     }
   }
 
-  // Full reset - clears database AND deletes logs (simulates fresh install)
+  // Full reset with visual feedback - clears database AND deletes logs
+  let isResetting = false;
   async function resetApp() {
     if (!confirm('Full Reset: Clear ALL data AND delete log files?\n\nThis simulates a fresh installation. The app will need to be restarted.')) return;
+    isResetting = true;
+    notify('Performing full reset...', 'info');
     try {
       const result = await invoke<string>('reset_app');
       await stats.load();
       driveStats = [];
+      await loadDrives(true);
+      await loadAnalytics();
       notify(result, 'success');
     } catch (e) {
       notify(`Failed to reset: ${e}`, 'error');
+    } finally {
+      isResetting = false;
     }
   }
 
@@ -911,11 +929,21 @@
         </div>
       </div>
       <div class="flex gap-4">
-        <button on:click={clearDatabase} class="text-sm text-gray-400 hover:text-red-400 transition-colors" title="Clear all data">
-          Clear Data
+        <button
+          on:click={clearDatabase}
+          disabled={isClearing || isResetting || isScanning}
+          class="text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed {isClearing ? 'text-yellow-400 animate-pulse' : 'text-gray-400 hover:text-red-400'}"
+          title="Clear all data"
+        >
+          {isClearing ? 'Clearing...' : 'Clear Data'}
         </button>
-        <button on:click={resetApp} class="text-sm text-gray-400 hover:text-orange-400 transition-colors" title="Full reset - simulate fresh install">
-          Full Reset
+        <button
+          on:click={resetApp}
+          disabled={isClearing || isResetting || isScanning}
+          class="text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed {isResetting ? 'text-yellow-400 animate-pulse' : 'text-gray-400 hover:text-orange-400'}"
+          title="Full reset - simulate fresh install"
+        >
+          {isResetting ? 'Resetting...' : 'Full Reset'}
         </button>
       </div>
     </div>
