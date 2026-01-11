@@ -25,7 +25,7 @@ function createStatsStore() {
           total_files: number;
           total_size: number;
           duplicate_count: number;
-          last_scan: any | null;
+          last_scan: ScanInfo | null;
         }>('get_stats');
 
         set({

@@ -460,13 +460,15 @@ function createDuplicatesStore() {
 
     getSelectedFiles: (): { id: number; path: string }[] => {
       const state = getState();
-      return Array.from(state.selectedFiles).map(key => {
-        const colonIdx = key.indexOf(':');
-        return {
-          id: parseInt(key.substring(0, colonIdx)),
-          path: key.substring(colonIdx + 1)
-        };
-      });
+      return Array.from(state.selectedFiles)
+        .map(key => {
+          const colonIdx = key.indexOf(':');
+          if (colonIdx === -1) return null;
+          const id = parseInt(key.substring(0, colonIdx), 10);
+          if (isNaN(id)) return null;
+          return { id, path: key.substring(colonIdx + 1) };
+        })
+        .filter((f): f is { id: number; path: string } => f !== null);
     },
 
     // Delete operations
