@@ -21,6 +21,9 @@ function createNotificationStore() {
 
   const NOTIFICATION_DURATION = 4000;
 
+  // Track active timeouts for cleanup
+  const timeoutMap = new Map<number, ReturnType<typeof setTimeout>>();
+
   // Define notify function separately so helper methods can reference it
   const notify = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     let id: number;
@@ -33,18 +36,26 @@ function createNotificationStore() {
       };
     });
 
-    // Auto-dismiss after duration
-    setTimeout(() => {
+    // Auto-dismiss after duration with tracked timeout
+    const timeoutId = setTimeout(() => {
+      timeoutMap.delete(id);
       update(state => ({
         ...state,
         notifications: state.notifications.filter(n => n.id !== id),
       }));
     }, NOTIFICATION_DURATION);
 
+    timeoutMap.set(id!, timeoutId);
     return id!;
   };
 
   const dismiss = (id: number) => {
+    // Clear the associated timeout to prevent memory leak
+    const timeoutId = timeoutMap.get(id);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutMap.delete(id);
+    }
     update(state => ({
       ...state,
       notifications: state.notifications.filter(n => n.id !== id),
@@ -52,6 +63,11 @@ function createNotificationStore() {
   };
 
   const clear = () => {
+    // Clear all pending timeouts
+    for (const timeoutId of timeoutMap.values()) {
+      clearTimeout(timeoutId);
+    }
+    timeoutMap.clear();
     update(state => ({
       ...state,
       notifications: [],

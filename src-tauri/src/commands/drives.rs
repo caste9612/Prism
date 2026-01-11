@@ -10,8 +10,13 @@ use futures::future::join_all;
 
 /// Normalize a path for case-insensitive comparison on Windows
 /// Converts to uppercase and normalizes path separators
+/// Returns empty string for paths containing null bytes (security)
 #[inline]
 pub fn normalize_path(path: &str) -> String {
+    // Reject paths with null bytes (security)
+    if path.contains('\0') {
+        return String::new();
+    }
     path.to_uppercase().replace('/', "\\")
 }
 

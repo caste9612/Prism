@@ -1105,16 +1105,15 @@ impl Scanner {
             let _ = handle.emit("incremental-progress", &initial_progress);
         }
 
-        // Get existing files for ALL drives being scanned (not just the first one)
-        // Normalize all paths for consistent comparison (replace / with \ and uppercase)
-        let mut existing_files: HashMap<String, Option<i64>> = HashMap::new();
-        for drive in &self.config.root_paths {
-            let drive_files = db.get_drive_files_map(drive)?;
-            // Re-normalize paths to ensure consistent format
-            for (path, mtime) in drive_files {
-                let normalized = path.replace('/', "\\").to_uppercase();
-                existing_files.insert(normalized, mtime);
-            }
+        // Get existing files for ALL drives being scanned in a single query
+        // This avoids N+1 queries when scanning multiple drives
+        let drive_files = db.get_all_drives_files_map(&self.config.root_paths)?;
+
+        // Re-normalize paths to ensure consistent format (replace / with \ and uppercase)
+        let mut existing_files: HashMap<String, Option<i64>> = HashMap::with_capacity(drive_files.len());
+        for (path, mtime) in drive_files {
+            let normalized = path.replace('/', "\\").to_uppercase();
+            existing_files.insert(normalized, mtime);
         }
         let total_files_in_db = existing_files.len() as u64;
 
@@ -1190,7 +1189,11 @@ impl Scanner {
         }
 
         // Helper to normalize paths for comparison (consistent separators + uppercase)
+        // Returns empty string for paths containing null bytes (security)
         fn normalize_path(path: &str) -> String {
+            if path.contains('\0') {
+                return String::new();
+            }
             path.replace('/', "\\").to_uppercase()
         }
 
@@ -1710,7 +1713,14 @@ impl Scanner {
         // Phase 4: Handle FTS index
         // For small changes, FTS triggers handle updates automatically (much faster)
         // For large changes, full rebuild is more efficient
-        const FTS_INCREMENTAL_THRESHOLD: u64 = 1000;
+        // Use adaptive threshold based on database size to avoid unnecessary rebuilds
+        let fts_rebuild_threshold = if total_files_in_db > 1_000_000 {
+            100_000  // For large DBs (1M+ files), allow more changes before rebuild
+        } else if total_files_in_db > 100_000 {
+            10_000   // Medium DBs (100K+ files)
+        } else {
+            1_000    // Small DBs (under 100K files)
+        };
         let total_changes = incremental.files_new + incremental.files_updated + incremental.files_deleted;
 
         if total_changes > 0 {
@@ -1720,12 +1730,12 @@ impl Scanner {
                 let _ = handle.emit("incremental-progress", &incremental);
             }
 
-            if total_changes < FTS_INCREMENTAL_THRESHOLD {
+            if total_changes < fts_rebuild_threshold {
                 // Small changes: FTS triggers already updated the index during insert/update/delete
                 // Just verify triggers are in place (idempotent operation)
                 info!(
-                    "FTS: {} changes handled by triggers (below {} threshold, skipping full rebuild)",
-                    total_changes, FTS_INCREMENTAL_THRESHOLD
+                    "FTS: {} changes handled by triggers (below {} threshold for {}K files, skipping full rebuild)",
+                    total_changes, fts_rebuild_threshold, total_files_in_db / 1000
                 );
                 if let Err(e) = db.ensure_fts_triggers() {
                     warn!("Failed to verify FTS triggers: {}", e);
@@ -1733,8 +1743,8 @@ impl Scanner {
             } else {
                 // Large changes: full rebuild is more efficient
                 info!(
-                    "FTS: {} changes exceeds {} threshold, performing full rebuild",
-                    total_changes, FTS_INCREMENTAL_THRESHOLD
+                    "FTS: {} changes exceeds {} threshold for {}K files, performing full rebuild",
+                    total_changes, fts_rebuild_threshold, total_files_in_db / 1000
                 );
                 if let Err(e) = db.rebuild_fts_index() {
                     warn!("Failed to rebuild FTS index: {}", e);

@@ -143,4 +143,10 @@ CREATE INDEX IF NOT EXISTS idx_folder_sizes_drive ON folder_sizes(drive);
 CREATE INDEX IF NOT EXISTS idx_folder_sizes_parent ON folder_sizes(parent_path);
 CREATE INDEX IF NOT EXISTS idx_folder_sizes_drive_depth ON folder_sizes(drive, depth);
 CREATE INDEX IF NOT EXISTS idx_folder_sizes_size ON folder_sizes(total_size DESC);
+
+-- Index for scans table (sorted by time)
+CREATE INDEX IF NOT EXISTS idx_scans_status_started ON scans(status, started_at DESC);
+
+-- Index for timestamp-based queries (incremental scans)
+CREATE INDEX IF NOT EXISTS idx_files_created_at ON files(created_at DESC);
 "#;

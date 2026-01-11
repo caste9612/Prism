@@ -315,6 +315,17 @@ function createDuplicatesStore() {
         }
       }));
 
+      // Clean up any existing progress listener before setting up new one
+      // This prevents memory leaks if findDuplicates is called multiple times
+      if (unlistenProgress) {
+        try {
+          unlistenProgress();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+        unlistenProgress = null;
+      }
+
       // Set up progress listener
       try {
         unlistenProgress = await listen<DuplicateProgress>('duplicate-progress', (event) => {
@@ -322,6 +333,7 @@ function createDuplicatesStore() {
         });
       } catch (e) {
         console.warn('Could not set up progress listener:', e);
+        unlistenProgress = null;
       }
 
       try {
@@ -463,10 +475,15 @@ function createDuplicatesStore() {
       return Array.from(state.selectedFiles)
         .map(key => {
           const colonIdx = key.indexOf(':');
-          if (colonIdx === -1) return null;
+          // Validate key format: must have colon and path after it
+          if (colonIdx === -1 || colonIdx === key.length - 1) return null;
           const id = parseInt(key.substring(0, colonIdx), 10);
-          if (isNaN(id)) return null;
-          return { id, path: key.substring(colonIdx + 1) };
+          // Validate ID is a positive number
+          if (isNaN(id) || id <= 0) return null;
+          const path = key.substring(colonIdx + 1);
+          // Validate path is not empty
+          if (!path.trim()) return null;
+          return { id, path };
         })
         .filter((f): f is { id: number; path: string } => f !== null);
     },

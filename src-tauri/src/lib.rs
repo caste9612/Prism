@@ -79,15 +79,40 @@ fn get_log_dir(state: tauri::State<'_, AppState>) -> String {
 }
 
 /// Export logs to a specified path (copies all log files)
+/// Validates the output path to prevent path traversal attacks
 #[tauri::command]
 fn export_logs(state: tauri::State<'_, AppState>, output_path: String) -> Result<usize, String> {
     use std::fs;
+    use std::path::Path;
 
     let log_dir = &state.log_dir;
-    let output_dir = std::path::Path::new(&output_path);
+    let output_dir = Path::new(&output_path);
+
+    // Validate: Check for null bytes in path (security)
+    if output_path.contains('\0') {
+        return Err("Invalid path: contains null bytes".to_string());
+    }
+
+    // Validate: Check for path traversal patterns
+    if output_path.contains("..") {
+        return Err("Invalid path: path traversal not allowed".to_string());
+    }
 
     // Create output directory if needed
-    fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output directory: {}", e))?;
+    fs::create_dir_all(output_dir)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+    // Canonicalize to resolve symlinks and verify real path
+    let canonical_output = fs::canonicalize(output_dir)
+        .map_err(|e| format!("Failed to resolve output directory: {}", e))?;
+
+    // Verify the canonical path doesn't contain suspicious patterns
+    let canonical_str = canonical_output.to_string_lossy();
+    if canonical_str.contains("..") {
+        return Err("Invalid path: resolved path contains traversal".to_string());
+    }
+
+    info!("Exporting logs to validated path: {:?}", canonical_output);
 
     let mut copied = 0;
 
@@ -98,7 +123,11 @@ fn export_logs(state: tauri::State<'_, AppState>, output_path: String) -> Result
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             // Match files like "prism.log", "prism.log.2026-01-06", etc.
             if path.is_file() && file_name.contains(".log") {
-                let dest = output_dir.join(file_name);
+                // Additional validation: ensure filename is safe
+                if file_name.contains("..") || file_name.contains('\0') {
+                    continue;
+                }
+                let dest = canonical_output.join(file_name);
                 if fs::copy(&path, &dest).is_ok() {
                     copied += 1;
                 }
@@ -106,7 +135,7 @@ fn export_logs(state: tauri::State<'_, AppState>, output_path: String) -> Result
         }
     }
 
-    info!("Exported {} log files to {:?}", copied, output_path);
+    info!("Exported {} log files to {:?}", copied, canonical_output);
     Ok(copied)
 }
 

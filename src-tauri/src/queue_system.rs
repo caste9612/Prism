@@ -216,7 +216,8 @@ impl QueueManager {
                         let path = request.drive_path.clone();
                         info!("Scan worker processing: {}", path);
 
-                        // Update state to scanning
+                        // Update state to scanning - release lock BEFORE performing scan
+                        // to avoid potential deadlock if perform_scan tries to access state
                         {
                             let mut s = state.write().await;
                             s.scanner_busy = true;
@@ -226,10 +227,11 @@ impl QueueManager {
                             }
                             // Remove from queue
                             s.scan_queue.retain(|p| p != &path);
-                        }
+                        } // Lock released here before perform_scan
                         state_changed.notify_waiters();
 
                         // Perform the scan using existing scanner infrastructure
+                        // State lock is NOT held during this call to prevent deadlock
                         let result = Self::perform_scan(
                             &request,
                             &app_state,

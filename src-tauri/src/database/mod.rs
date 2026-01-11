@@ -869,6 +869,53 @@ impl Database {
         Ok(map)
     }
 
+    /// Get all file paths and mtimes for multiple drives in a single query
+    /// This avoids N+1 queries when scanning multiple drives
+    pub fn get_all_drives_files_map(&self, drive_paths: &[String]) -> Result<std::collections::HashMap<String, Option<i64>>> {
+        if drive_paths.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        // Build OR conditions for all drives
+        let conditions: Vec<String> = drive_paths
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("UPPER(path) LIKE ?{}", i + 1))
+            .collect();
+
+        let sql = format!(
+            "SELECT path, modified_at FROM files WHERE {}",
+            conditions.join(" OR ")
+        );
+
+        let mut stmt = self.conn.prepare(&sql)?;
+
+        // Create patterns for all drives
+        let patterns: Vec<String> = drive_paths
+            .iter()
+            .map(|p| format!("{}%", p.to_uppercase()))
+            .collect();
+
+        let params: Vec<&dyn rusqlite::ToSql> = patterns
+            .iter()
+            .map(|s| s as &dyn rusqlite::ToSql)
+            .collect();
+
+        let mut map = std::collections::HashMap::new();
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?;
+
+        for row in rows {
+            if let Ok((path, mtime)) = row {
+                map.insert(path.to_uppercase(), mtime);
+            }
+        }
+
+        info!("Loaded {} files for {} drives in single query", map.len(), drive_paths.len());
+        Ok(map)
+    }
+
     /// Get file count for a specific drive
     pub fn get_drive_file_count(&self, drive_path: &str) -> Result<i64> {
         let pattern = format!("{}%", drive_path.to_uppercase());
