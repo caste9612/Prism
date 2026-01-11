@@ -22,38 +22,74 @@ pub struct ExtensionCategory {
 }
 
 /// Get file size distribution for analytics
+/// Uses a single SQL query with CASE statements instead of N+1 queries
 #[tauri::command]
 pub async fn get_size_distribution(state: State<'_, AppState>) -> Result<Vec<SizeCategory>, String> {
     let db = state.db.lock().await;
     let conn = db.connection();
 
-    let categories = vec![
-        ("< 1 KB", 0i64, 1024i64),
-        ("1 KB - 10 KB", 1024, 10 * 1024),
-        ("10 KB - 100 KB", 10 * 1024, 100 * 1024),
-        ("100 KB - 1 MB", 100 * 1024, 1024 * 1024),
-        ("1 MB - 10 MB", 1024 * 1024, 10 * 1024 * 1024),
-        ("10 MB - 100 MB", 10 * 1024 * 1024, 100 * 1024 * 1024),
-        ("100 MB - 1 GB", 100 * 1024 * 1024, 1024 * 1024 * 1024),
-        ("> 1 GB", 1024 * 1024 * 1024, i64::MAX),
+    // Single query using CASE to classify files into size buckets
+    let query = r#"
+        SELECT
+            CASE
+                WHEN size < 1024 THEN 0
+                WHEN size < 10240 THEN 1
+                WHEN size < 102400 THEN 2
+                WHEN size < 1048576 THEN 3
+                WHEN size < 10485760 THEN 4
+                WHEN size < 104857600 THEN 5
+                WHEN size < 1073741824 THEN 6
+                ELSE 7
+            END as bucket,
+            COUNT(*) as cnt,
+            COALESCE(SUM(size), 0) as total
+        FROM files
+        GROUP BY bucket
+        ORDER BY bucket
+    "#;
+
+    let mut stmt = conn.prepare_cached(query).map_err(|e| e.to_string())?;
+
+    // Map bucket index to category name
+    let category_names = [
+        "< 1 KB",
+        "1 KB - 10 KB",
+        "10 KB - 100 KB",
+        "100 KB - 1 MB",
+        "1 MB - 10 MB",
+        "10 MB - 100 MB",
+        "100 MB - 1 GB",
+        "> 1 GB",
     ];
 
-    let mut result = Vec::new();
-
-    for (name, min_size, max_size) in categories {
-        let (count, total_size): (i64, i64) = conn
-            .query_row(
-                "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM files WHERE size >= ?1 AND size < ?2",
-                rusqlite::params![min_size, max_size],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap_or((0, 0));
-
-        result.push(SizeCategory {
+    // Initialize all categories with zero values
+    let mut result: Vec<SizeCategory> = category_names
+        .iter()
+        .map(|name| SizeCategory {
             name: name.to_string(),
-            count,
-            total_size,
-        });
+            count: 0,
+            total_size: 0,
+        })
+        .collect();
+
+    // Fill in actual values from query
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)? as usize,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+
+    for row in rows {
+        if let Ok((bucket, count, total_size)) = row {
+            if bucket < result.len() {
+                result[bucket].count = count;
+                result[bucket].total_size = total_size;
+            }
+        }
     }
 
     Ok(result)

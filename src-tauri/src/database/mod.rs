@@ -108,32 +108,53 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a batch of files efficiently
+    /// Insert a batch of files efficiently using a transaction
+    /// Wrapping in BEGIN/COMMIT dramatically improves performance (100x+ faster)
     pub fn insert_files_batch(&self, files: &[FileMetadata], scan_id: i64) -> Result<usize> {
-        let mut stmt = self.conn.prepare_cached(
-            "INSERT OR REPLACE INTO files (path, name, extension, size, created_at, modified_at, accessed_at, attributes, partial_hash, scan_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        )?;
-
-        let mut count = 0;
-        for file in files {
-            stmt.execute(params![
-                file.path,
-                file.name,
-                file.extension,
-                file.size,
-                file.created_at,
-                file.modified_at,
-                file.accessed_at,
-                file.attributes,
-                file.partial_hash,
-                scan_id,
-            ])?;
-            count += 1;
+        if files.is_empty() {
+            return Ok(0);
         }
 
-        debug!("Inserted {} files", count);
-        Ok(count)
+        // Begin transaction for batch insert
+        self.conn.execute("BEGIN IMMEDIATE", [])?;
+
+        let result = (|| {
+            let mut stmt = self.conn.prepare_cached(
+                "INSERT OR REPLACE INTO files (path, name, extension, size, created_at, modified_at, accessed_at, attributes, partial_hash, scan_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            )?;
+
+            let mut count = 0;
+            for file in files {
+                stmt.execute(params![
+                    file.path,
+                    file.name,
+                    file.extension,
+                    file.size,
+                    file.created_at,
+                    file.modified_at,
+                    file.accessed_at,
+                    file.attributes,
+                    file.partial_hash,
+                    scan_id,
+                ])?;
+                count += 1;
+            }
+
+            Ok::<usize, anyhow::Error>(count)
+        })();
+
+        match result {
+            Ok(count) => {
+                self.conn.execute("COMMIT", [])?;
+                debug!("Inserted {} files in transaction", count);
+                Ok(count)
+            }
+            Err(e) => {
+                let _ = self.conn.execute("ROLLBACK", []);
+                Err(e)
+            }
+        }
     }
 
     /// Get total file count

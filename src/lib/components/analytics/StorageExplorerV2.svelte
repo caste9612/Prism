@@ -36,8 +36,21 @@
   let breadcrumb: { path: string; name: string }[] = [];
   let currentPath: string | null = null;
 
-  // Cache
+  // Cache with size limit to prevent memory leaks
+  const MAX_CACHE_SIZE = 50;
   let cache = new Map<string, TreemapNode[]>();
+
+  // Evict oldest cache entries when limit is exceeded
+  function cacheSet(key: string, value: TreemapNode[]) {
+    if (cache.size >= MAX_CACHE_SIZE) {
+      // Delete oldest entry (first key in Map iteration order)
+      const oldestKey = cache.keys().next().value;
+      if (oldestKey !== undefined) {
+        cache.delete(oldestKey);
+      }
+    }
+    cache.set(key, value);
+  }
 
   // Container
   let container: HTMLDivElement;
@@ -75,6 +88,8 @@
   onDestroy(() => {
     if (unlistenTreemapReady) unlistenTreemapReady();
     if (resizeObserver) resizeObserver.disconnect();
+    // Clear cache to free memory when component is destroyed
+    cache.clear();
   });
 
   async function loadDriveInfo() {
@@ -121,7 +136,7 @@
       }
 
       treemapData = data;
-      cache.set(cacheKey, data);
+      cacheSet(cacheKey, data);
     } catch (e) {
       if (!cache.has(cacheKey)) {
         error = `Failed to load: ${e}`;
