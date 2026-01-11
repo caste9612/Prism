@@ -1075,25 +1075,69 @@ impl Database {
 
     /// Check how many of the given relative paths exist on a different drive
     /// Returns the count of matching paths
+    /// Count matching paths efficiently using a single query with temp table
+    /// This replaces the N+1 query pattern with a batch approach
     pub fn count_matching_paths(&self, drive_path: &str, relative_paths: &[String]) -> Result<usize> {
         if relative_paths.is_empty() {
             return Ok(0);
         }
 
-        let mut matches = 0;
-        for rel_path in relative_paths {
-            let full_path = format!("{}{}", drive_path, rel_path).to_uppercase();
-            let exists: i64 = self.conn.query_row(
-                "SELECT COUNT(*) FROM files WHERE UPPER(path) = ?1",
-                params![full_path],
-                |row| row.get(0),
+        // For small sets, use IN clause directly (more efficient for < 100 paths)
+        if relative_paths.len() <= 100 {
+            // Build full paths
+            let full_paths: Vec<String> = relative_paths
+                .iter()
+                .map(|rel| format!("{}{}", drive_path, rel).to_uppercase())
+                .collect();
+
+            // Build IN clause with placeholders
+            let placeholders: Vec<String> = (1..=full_paths.len())
+                .map(|i| format!("?{}", i))
+                .collect();
+            let sql = format!(
+                "SELECT COUNT(DISTINCT UPPER(path)) FROM files WHERE UPPER(path) IN ({})",
+                placeholders.join(",")
+            );
+
+            let mut stmt = self.conn.prepare(&sql)?;
+
+            // Bind all paths
+            let params: Vec<&dyn rusqlite::ToSql> = full_paths
+                .iter()
+                .map(|s| s as &dyn rusqlite::ToSql)
+                .collect();
+
+            let count: i64 = stmt.query_row(params.as_slice(), |row| row.get(0))?;
+            return Ok(count as usize);
+        }
+
+        // For larger sets, use temp table approach
+        self.conn.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS temp_path_check (path TEXT PRIMARY KEY)",
+            [],
+        )?;
+        self.conn.execute("DELETE FROM temp_path_check", [])?;
+
+        // Batch insert paths
+        {
+            let mut stmt = self.conn.prepare_cached(
+                "INSERT OR IGNORE INTO temp_path_check (path) VALUES (?1)"
             )?;
-            if exists > 0 {
-                matches += 1;
+            for rel_path in relative_paths {
+                let full_path = format!("{}{}", drive_path, rel_path).to_uppercase();
+                stmt.execute(params![full_path])?;
             }
         }
 
-        Ok(matches)
+        // Single count query
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM files f
+             INNER JOIN temp_path_check t ON UPPER(f.path) = t.path",
+            [],
+            |row| row.get(0),
+        )?;
+
+        Ok(count as usize)
     }
 
     /// Detect overlapping drives by sampling and comparing file paths

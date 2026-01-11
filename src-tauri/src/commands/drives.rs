@@ -112,6 +112,9 @@ pub async fn get_available_drives() -> Result<Vec<DriveInfo>, String> {
         const DRIVE_RAMDISK: u32 = 6;
 
         let mut buffer: [u16; 512] = [0; 512];
+        // SAFETY: GetLogicalDriveStringsW writes null-terminated UTF-16 strings to buffer.
+        // Buffer is stack-allocated with sufficient size (512 chars). Return value indicates
+        // bytes written (excluding null) or 0 on error.
         let len = unsafe { GetLogicalDriveStringsW(buffer.len() as u32, buffer.as_mut_ptr()) };
 
         if len == 0 {
@@ -128,6 +131,8 @@ pub async fn get_available_drives() -> Result<Vec<DriveInfo>, String> {
                     let mut path_wide: Vec<u16> = drive_str.encode_utf16().collect();
                     path_wide.push(0);
 
+                    // SAFETY: GetDriveTypeW requires null-terminated UTF-16 string.
+                    // path_wide is properly null-terminated via push(0) above.
                     let drive_type_raw = unsafe { GetDriveTypeW(path_wide.as_ptr()) };
                     let drive_type = match drive_type_raw {
                         DRIVE_REMOVABLE => "Removable",
@@ -149,6 +154,8 @@ pub async fn get_available_drives() -> Result<Vec<DriveInfo>, String> {
                     let mut flags: u32 = 0;
                     let mut fs_name: [u16; 256] = [0; 256];
 
+                    // SAFETY: GetVolumeInformationW requires null-terminated root path and output buffers.
+                    // All buffers are stack-allocated with sufficient size. Output params are properly initialized.
                     let has_volume_info = unsafe {
                         GetVolumeInformationW(
                             path_wide.as_ptr(),

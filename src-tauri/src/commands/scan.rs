@@ -33,6 +33,16 @@ pub async fn start_scan(
         return Err("No paths specified for scanning".to_string());
     }
 
+    // Prevent concurrent scans using compare_exchange for atomic check-and-set
+    // This ensures only one scan can run at a time
+    if state
+        .is_scanning
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("A scan is already in progress. Please wait for it to complete.".to_string());
+    }
+
     // Create scan configuration with settings from frontend
     let mut config = ScanConfig {
         root_paths: request.paths.clone(),
@@ -75,8 +85,7 @@ pub async fn start_scan(
     let app_handle_clone = app_handle.clone();
     let is_scanning = state.is_scanning.clone();
 
-    // Mark scan as starting
-    is_scanning.store(true, Ordering::SeqCst);
+    // Note: is_scanning was already set to true by compare_exchange above
 
     // Get drive info for known_drives (volume names and types)
     let drive_info: HashMap<String, (String, String)> = match get_available_drives().await {

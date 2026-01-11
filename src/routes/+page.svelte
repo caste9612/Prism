@@ -45,6 +45,16 @@
   let incrementalProgress: IncrementalProgress | null = null;
   let autoScanPhase: 'local' | 'network' | 'all' | null = null; // Track auto-scan phase
   let autoScanHasNetwork = false; // Track if network drives are pending
+  // Event listener cleanup array - all listeners are collected here for reliable cleanup
+  let cleanupFunctions: (() => void)[] = [];
+
+  // Helper to register a listener and add its cleanup to the array
+  async function registerListener<T>(event: string, handler: (event: { payload: T }) => void): Promise<void> {
+    const unlisten = await listen<T>(event, handler);
+    cleanupFunctions.push(unlisten);
+  }
+
+  // Legacy individual references (kept for backwards compatibility during transition)
   let unlistenProgress: (() => void) | null = null;
   let unlistenComplete: (() => void) | null = null;
   let unlistenStats: (() => void) | null = null;
@@ -355,6 +365,17 @@
   });
 
   onDestroy(async () => {
+    // Clean up all registered event listeners
+    for (const cleanup of cleanupFunctions) {
+      try {
+        cleanup();
+      } catch (e) {
+        console.error('Failed to cleanup listener:', e);
+      }
+    }
+    cleanupFunctions = [];
+
+    // Legacy cleanup (for any listeners not yet migrated to cleanupFunctions)
     unlistenProgress?.();
     unlistenComplete?.();
     unlistenStats?.();
@@ -365,6 +386,7 @@
     unlistenQueueSystemState?.();
     unlistenDriveStatusChange?.();
     unlistenQueueScanComplete?.();
+
     stopScanTimer();
     if (driveRefreshInterval) {
       clearInterval(driveRefreshInterval);
