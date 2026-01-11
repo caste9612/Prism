@@ -1429,11 +1429,11 @@ impl Scanner {
                                     let progress = if estimated > 0 {
                                         ((drive_file_count as f64 / estimated as f64) * 100.0).min(99.0)
                                     } else {
-                                        -1.0
+                                        0.0 // Use 0 for indeterminate progress (new drives)
                                     };
 
                                     if drive_file_count % 50000 == 0 {
-                                        if progress >= 0.0 {
+                                        if estimated > 0 {
                                             info!("[{}] Drive {} progress: {} files ({:.1}%), {:.0} files/sec",
                                                   drive_type_str, root_path, drive_file_count, progress, fps);
                                         } else {
@@ -1551,11 +1551,11 @@ impl Scanner {
                                     let progress = if estimated > 0 {
                                         ((drive_file_count as f64 / estimated as f64) * 100.0).min(99.0)
                                     } else {
-                                        -1.0
+                                        0.0 // Use 0 for indeterminate progress (new drives)
                                     };
 
                                     if drive_file_count % 50000 == 0 {
-                                        if progress >= 0.0 {
+                                        if estimated > 0 {
                                             info!("[{}] Drive {} progress: {} files ({:.1}%), {:.0} files/sec",
                                                   drive_type_str, root_path, drive_file_count, progress, fps);
                                         } else {
