@@ -8,5 +8,5 @@
 mod finder;
 pub mod phash;
 
-pub use finder::{DuplicateFinder, DuplicateGroup, DuplicateFile};
+pub use finder::{DuplicateFinder, DuplicateGroup, DuplicateFile, DuplicateProgress};
 pub use phash::{compute_phash, compute_dhash, hamming_distance, is_image_file};

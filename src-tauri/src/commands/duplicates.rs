@@ -1,8 +1,10 @@
 //! Duplicate detection and management commands
 
-use crate::duplicates::{DuplicateFinder, DuplicateGroup};
+use crate::duplicates::{DuplicateFinder, DuplicateGroup, DuplicateProgress};
 use crate::AppState;
 use serde::Serialize;
+use std::sync::mpsc;
+use std::thread;
 use tauri::{AppHandle, Emitter, State};
 use tracing::{debug, error, info, warn};
 
@@ -15,32 +17,98 @@ pub struct DuplicateResponse {
     pub detection_time_ms: u64,
 }
 
-/// Find duplicate files in the database
+/// Progress event payload (matches frontend DuplicateProgress interface)
+#[derive(Debug, Clone, Serialize)]
+struct DuplicateProgressEvent {
+    phase: String,
+    percent: f64,
+    #[serde(rename = "candidateGroups")]
+    candidate_groups: usize,
+    #[serde(rename = "confirmedGroups")]
+    confirmed_groups: usize,
+    #[serde(rename = "filesProcessed")]
+    files_processed: usize,
+    #[serde(rename = "totalFiles")]
+    total_files: usize,
+    message: String,
+}
+
+impl From<DuplicateProgress> for DuplicateProgressEvent {
+    fn from(p: DuplicateProgress) -> Self {
+        Self {
+            phase: p.phase,
+            percent: p.percent,
+            candidate_groups: p.candidate_groups,
+            confirmed_groups: p.confirmed_groups,
+            files_processed: p.files_processed,
+            total_files: p.total_files,
+            message: p.message,
+        }
+    }
+}
+
+/// Find duplicate files in the database with progress events
 #[tauri::command]
 pub async fn find_duplicates(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     min_size: Option<i64>,
 ) -> Result<DuplicateResponse, String> {
     let start = std::time::Instant::now();
-    info!("Starting duplicate detection");
+    info!("=== FIND DUPLICATES COMMAND START ===");
+    info!("min_size parameter: {:?}", min_size);
 
+    // Get database connection
     let db = state.db.lock().await;
 
+    // Create finder
     let finder = if let Some(size) = min_size {
+        info!("Using custom min size: {} bytes", size);
         DuplicateFinder::new().with_min_size(size)
     } else {
+        info!("Using default min size");
         DuplicateFinder::new()
     };
 
+    // Create channel for progress updates
+    let (tx, rx) = mpsc::channel::<DuplicateProgress>();
+    let app_handle_clone = app_handle.clone();
+
+    // Spawn thread to emit progress events
+    let progress_thread = thread::spawn(move || {
+        while let Ok(progress) = rx.recv() {
+            let event: DuplicateProgressEvent = progress.into();
+            debug!("Emitting progress: {}% - {}", event.percent, event.message);
+            if let Err(e) = app_handle_clone.emit("duplicate-progress", &event) {
+                warn!("Failed to emit progress event: {}", e);
+            }
+        }
+        debug!("Progress thread finished");
+    });
+
+    // Run duplicate detection with progress callback
     let groups = finder
-        .find_duplicates(&db)
-        .map_err(|e| format!("Duplicate detection failed: {}", e))?;
+        .find_duplicates_with_progress(&db, |progress| {
+            // Send progress to the channel (non-blocking)
+            let _ = tx.send(progress);
+        })
+        .map_err(|e| {
+            error!("Duplicate detection failed: {}", e);
+            format!("Duplicate detection failed: {}", e)
+        })?;
+
+    // Drop sender to signal progress thread to finish
+    drop(tx);
+
+    // Wait for progress thread to complete
+    let _ = progress_thread.join();
 
     let total_wasted_space: i64 = groups.iter().map(|g| g.wasted_space).sum();
     let detection_time_ms = start.elapsed().as_millis() as u64;
 
+    info!("=== FIND DUPLICATES COMMAND COMPLETE ===");
     info!(
-        "Duplicate detection complete: {} groups, {} wasted space in {}ms",
+        "Found {} groups, {} bytes wasted in {}ms",
         groups.len(),
         total_wasted_space,
         detection_time_ms
@@ -74,7 +142,9 @@ pub async fn delete_duplicate(
     file_id: i64,
     file_path: String,
 ) -> Result<(), String> {
-    info!("Deleting duplicate file: {} (id: {})", file_path, file_id);
+    info!("=== DELETE DUPLICATE FILE ===");
+    info!("File ID: {}", file_id);
+    info!("File path: {}", file_path);
 
     // Validate path exists and matches
     let path = std::path::Path::new(&file_path);
@@ -120,7 +190,16 @@ pub async fn delete_duplicates_batch(
     state: State<'_, AppState>,
     files: Vec<(i64, String)>,
 ) -> Result<BatchDeleteResponse, String> {
-    info!("Batch deleting {} duplicate files", files.len());
+    info!("=== BATCH DELETE DUPLICATES START ===");
+    info!("Files to delete: {}", files.len());
+
+    // Log first few files
+    for (i, (id, path)) in files.iter().take(5).enumerate() {
+        info!("  {}. [{}] {}", i + 1, id, path);
+    }
+    if files.len() > 5 {
+        info!("  ... and {} more", files.len() - 5);
+    }
 
     let mut deleted = 0;
     let mut errors = Vec::new();
@@ -162,17 +241,20 @@ pub async fn delete_duplicates_batch(
     }
 
     if !errors.is_empty() {
-        warn!("Some files failed to delete: {:?}", errors);
+        warn!("Some files failed to delete:");
+        for err in &errors {
+            warn!("  - {}", err);
+        }
     }
 
     // Emit stats update
     let _ = app_handle.emit("stats-updated", ());
 
-    info!(
-        "Batch delete complete: {} of {} files deleted",
-        deleted,
-        files.len()
-    );
+    info!("=== BATCH DELETE DUPLICATES COMPLETE ===");
+    info!("Successfully deleted: {}/{} files", deleted, files.len());
+    if !errors.is_empty() {
+        info!("Errors: {}", errors.len());
+    }
 
     Ok(BatchDeleteResponse { deleted, errors })
 }
@@ -218,10 +300,8 @@ pub async fn find_similar_images(
     let start = std::time::Instant::now();
     let similarity_threshold = threshold.unwrap_or(10);
 
-    info!(
-        "Starting similar image detection with threshold {}",
-        similarity_threshold
-    );
+    info!("=== SIMILAR IMAGE DETECTION START ===");
+    info!("Similarity threshold: {} bits (lower = more similar)", similarity_threshold);
 
     let db = state.db.lock().await;
     let conn = db.connection();
@@ -352,12 +432,23 @@ pub async fn find_similar_images(
     let detection_time_ms = start.elapsed().as_millis() as u64;
     let total_images: usize = groups.iter().map(|g| g.images.len()).sum();
 
-    info!(
-        "Similar image detection complete: {} groups, {} images in {}ms",
-        groups.len(),
-        total_images,
-        detection_time_ms
-    );
+    info!("=== SIMILAR IMAGE DETECTION COMPLETE ===");
+    info!("Found {} similar image groups containing {} total images", groups.len(), total_images);
+    info!("Detection took {}ms", detection_time_ms);
+
+    // Log top 5 groups
+    if !groups.is_empty() {
+        info!("Top similar image groups:");
+        for (i, group) in groups.iter().take(5).enumerate() {
+            info!("  {}. {} similar images", i + 1, group.images.len());
+            for img in group.images.iter().take(3) {
+                info!("      - {} (distance: {} bits)", img.name, img.distance_from_first);
+            }
+            if group.images.len() > 3 {
+                info!("      ... and {} more", group.images.len() - 3);
+            }
+        }
+    }
 
     Ok(SimilarImagesResponse {
         total_groups: groups.len(),
