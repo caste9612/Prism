@@ -557,28 +557,34 @@
 
 <!-- Image Preview Modal -->
 {#if previewImage}
+  <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
   <div
     class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
     on:click={() => previewImage = null}
     on:keydown={(e) => e.key === 'Escape' && (previewImage = null)}
     role="dialog"
+    aria-modal="true"
+    aria-label="Image preview"
     tabindex="-1"
   >
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
     <div class="max-w-4xl max-h-full flex flex-col" on:click|stopPropagation>
       <div class="flex items-center justify-between mb-2">
         <span class="text-white font-medium truncate">{previewImage.name}</span>
         <button
           on:click={() => previewImage = null}
           class="p-2 text-gray-400 hover:text-white"
+          aria-label="Close preview"
         >
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
       <img
         src={getImageSrc(previewImage.path)}
-        alt={previewImage.name}
+        alt="Preview of {previewImage.name}"
         class="max-w-full max-h-[80vh] object-contain rounded-lg"
       />
       <div class="text-center mt-2 text-gray-400 text-sm">{previewImage.path}</div>
