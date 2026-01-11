@@ -981,19 +981,18 @@ impl Database {
 
         info!("Inserted {} files to temp table in {:?}", files.len(), start.elapsed());
 
-        // Update using JOIN - single table scan instead of one per file
+        // Update using UPDATE...FROM syntax (SQLite 3.33.0+) - single table scan O(n)
         let updated = tx.execute(
             &format!(
                 "UPDATE files SET
-                    name = (SELECT u.name FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path),
-                    extension = (SELECT u.extension FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path),
-                    size = (SELECT u.size FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path),
-                    modified_at = (SELECT u.modified_at FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path),
-                    partial_hash = (SELECT u.partial_hash FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path),
+                    name = u.name,
+                    extension = u.extension,
+                    size = u.size,
+                    modified_at = u.modified_at,
+                    partial_hash = u.partial_hash,
                     scan_id = {}
-                WHERE EXISTS (
-                    SELECT 1 FROM files_to_update u WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path
-                )",
+                FROM files_to_update u
+                WHERE UPPER(REPLACE(files.path, '/', '\\')) = u.normalized_path",
                 scan_id
             ),
             [],
