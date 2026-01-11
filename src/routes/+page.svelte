@@ -8,7 +8,7 @@
 
   // Debug logger - only logs in development mode
   const debug = import.meta.env.DEV
-    ? (...args: unknown[]) => debug(...args)
+    ? (...args: unknown[]) => console.log(...args)
     : () => {};
 
   // Components
