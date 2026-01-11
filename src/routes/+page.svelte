@@ -1363,8 +1363,9 @@
 
             <!-- Source Drive Selection -->
             <div class="mb-4">
-              <label class="block text-gray-300 mb-2">Source Drive (to verify)</label>
+              <label for="verify-source-drive" class="block text-gray-300 mb-2">Source Drive (to verify)</label>
               <select
+                id="verify-source-drive"
                 bind:value={verifySourceDrive}
                 class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-prism-500"
               >
@@ -1376,8 +1377,8 @@
             </div>
 
             <!-- Target Drives Selection -->
-            <div class="mb-6">
-              <label class="block text-gray-300 mb-2">Target Drives (backup locations)</label>
+            <div class="mb-6" role="group" aria-labelledby="verify-target-label">
+              <span id="verify-target-label" class="block text-gray-300 mb-2">Target Drives (backup locations)</span>
               <div class="space-y-2 max-h-48 overflow-y-auto">
                 {#each driveStats.filter(d => d.path !== verifySourceDrive) as drive (drive.path)}
                   <label class="flex items-center gap-3 p-2 bg-gray-700/50 rounded hover:bg-gray-700 cursor-pointer">
