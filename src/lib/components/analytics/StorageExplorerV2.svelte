@@ -99,7 +99,7 @@
     error = null;
 
     try {
-      const data = await invoke<TreemapNode[]>('get_treemap_data', {
+      let data = await invoke<TreemapNode[]>('get_treemap_data', {
         request: {
           drive: selectedDrive,
           path: path || null,
@@ -107,6 +107,19 @@
           min_size: 10 * 1024 * 1024, // 10MB minimum
         }
       });
+
+      // If we got a single root node that represents the drive itself,
+      // show its children directly instead of showing the drive as one big rectangle
+      if (data.length === 1 && data[0].children && data[0].children.length > 0 && selectedDrive) {
+        const root = data[0];
+        const rootPath = root.path.toLowerCase().replace(/\\+$/, '');
+        const drivePath = selectedDrive.toLowerCase().replace(/\\+$/, '');
+        // Check if this is the drive root
+        if ((rootPath === drivePath || rootPath.length <= 2) && root.children) {
+          data = root.children;
+        }
+      }
+
       treemapData = data;
       cache.set(cacheKey, data);
     } catch (e) {
@@ -165,8 +178,8 @@
 
   function getColor(index: number, depth: number): string {
     const baseColor = colors[index % colors.length];
-    // Lighten for deeper levels
-    const lighten = depth * 15;
+    // Lighten for deeper levels - limited to max +30 for readability
+    const lighten = Math.min(depth * 10, 30);
     return adjustBrightness(baseColor, lighten);
   }
 
@@ -178,7 +191,7 @@
     return `rgb(${r}, ${g}, ${b})`;
   }
 
-  // Recursive treemap layout with squarified algorithm
+  // Squarified treemap layout (Bruls-Huizing-Van Wijk algorithm)
   interface LayoutRect {
     node: TreemapNode;
     x: number;
@@ -189,6 +202,146 @@
     colorIndex: number;
   }
 
+  // Calculate worst aspect ratio for a row of nodes
+  function getWorstRatio(row: TreemapNode[], w: number, h: number, totalArea: number): number {
+    if (row.length === 0) return Infinity;
+
+    const rowSum = row.reduce((s, n) => s + n.size, 0);
+    const areaRatio = rowSum / totalArea;
+    const isHorizontal = w >= h;
+
+    // The dimension along which we're laying out the row
+    const rowDim = isHorizontal ? w * areaRatio : h * areaRatio;
+    const crossDim = isHorizontal ? h : w;
+
+    let worst = 0;
+    for (const node of row) {
+      const nodeRatio = node.size / rowSum;
+      const nodeDim = crossDim * nodeRatio;
+
+      if (nodeDim > 0 && rowDim > 0) {
+        const aspectRatio = Math.max(rowDim / nodeDim, nodeDim / rowDim);
+        worst = Math.max(worst, aspectRatio);
+      }
+    }
+    return worst;
+  }
+
+  // Find optimal row using squarified algorithm
+  function layoutRow(nodes: TreemapNode[], w: number, h: number, totalSize: number): TreemapNode[] {
+    if (nodes.length === 0) return [];
+    if (nodes.length === 1) return [nodes[0]];
+
+    const row: TreemapNode[] = [nodes[0]];
+    let worstRatio = getWorstRatio(row, w, h, totalSize);
+
+    for (let i = 1; i < nodes.length; i++) {
+      const testRow = [...row, nodes[i]];
+      const testRatio = getWorstRatio(testRow, w, h, totalSize);
+
+      // Only add to row if aspect ratio improves or stays same
+      if (testRatio <= worstRatio) {
+        row.push(nodes[i]);
+        worstRatio = testRatio;
+      } else {
+        break;
+      }
+    }
+
+    return row;
+  }
+
+  function squarify(
+    nodes: TreemapNode[],
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    depth: number = 0,
+    colorIndex: number = 0
+  ): LayoutRect[] {
+    if (!nodes || nodes.length === 0 || w < 2 || h < 2) return [];
+
+    const totalSize = nodes.reduce((s, n) => s + n.size, 0);
+    if (totalSize === 0) return [];
+
+    const sorted = [...nodes].sort((a, b) => b.size - a.size);
+    const result: LayoutRect[] = [];
+
+    let remaining = [...sorted];
+    let currentX = x;
+    let currentY = y;
+    let remainingW = w;
+    let remainingH = h;
+    let remainingSize = totalSize;
+    let colorIdx = colorIndex;
+
+    while (remaining.length > 0 && remainingW > 1 && remainingH > 1) {
+      const row = layoutRow(remaining, remainingW, remainingH, remainingSize);
+      if (row.length === 0) break;
+
+      const isHorizontal = remainingW >= remainingH;
+      const rowSum = row.reduce((s, n) => s + n.size, 0);
+
+      // Use remaining size for proper proportions
+      const rowRatio = rowSum / remainingSize;
+
+      // Calculate row dimension - fill the available space proportionally
+      const rowDim = isHorizontal
+        ? remainingW * rowRatio
+        : remainingH * rowRatio;
+
+      // Layout row elements - fill the cross dimension completely
+      let pos = isHorizontal ? currentY : currentX;
+      const crossDim = isHorizontal ? remainingH : remainingW;
+
+      for (let i = 0; i < row.length; i++) {
+        const node = row[i];
+        const nodeRatio = node.size / rowSum;
+        const nodeDim = crossDim * nodeRatio;
+
+        const rect: LayoutRect = isHorizontal
+          ? { node, x: currentX, y: pos, width: rowDim, height: nodeDim, depth, colorIndex: colorIdx }
+          : { node, x: pos, y: currentY, width: nodeDim, height: rowDim, depth, colorIndex: colorIdx };
+
+        result.push(rect);
+
+        // Recurse for children - minimal header for text
+        if (node.children && node.children.length > 0 && rect.width > 40 && rect.height > 30) {
+          const headerHeight = 16;
+          const childRects = squarify(
+            node.children,
+            rect.x,
+            rect.y + headerHeight,
+            rect.width,
+            rect.height - headerHeight,
+            depth + 1,
+            colorIdx
+          );
+          result.push(...childRects);
+        }
+
+        pos += nodeDim;
+        colorIdx++;
+      }
+
+      // Update remaining space
+      if (isHorizontal) {
+        currentX += rowDim;
+        remainingW -= rowDim;
+      } else {
+        currentY += rowDim;
+        remainingH -= rowDim;
+      }
+
+      remainingSize -= rowSum;
+      remaining = remaining.slice(row.length);
+    }
+
+    return result;
+  }
+
+  // Alias for backward compatibility
   function layoutTreemap(
     nodes: TreemapNode[],
     x: number,
@@ -198,91 +351,16 @@
     depth: number = 0,
     colorIndex: number = 0
   ): LayoutRect[] {
-    if (!nodes || nodes.length === 0 || width < 10 || height < 10) return [];
-
-    const total = nodes.reduce((sum, n) => sum + n.size, 0);
-    if (total === 0) return [];
-
-    const result: LayoutRect[] = [];
-    const sorted = [...nodes].sort((a, b) => b.size - a.size);
-
-    // Squarified treemap algorithm
-    let currentX = x;
-    let currentY = y;
-    let remainingWidth = width;
-    let remainingHeight = height;
-
-    for (let i = 0; i < sorted.length; i++) {
-      const node = sorted[i];
-      const ratio = node.size / total;
-      const isHorizontal = remainingWidth >= remainingHeight;
-
-      let rectWidth: number, rectHeight: number;
-      if (isHorizontal) {
-        rectWidth = remainingWidth * ratio;
-        rectHeight = remainingHeight;
-        // Pack multiple small items in a row
-        if (i < sorted.length - 1 && rectWidth < 60) {
-          // Group remaining small items
-          let groupSize = node.size;
-          let groupCount = 1;
-          for (let j = i + 1; j < sorted.length; j++) {
-            groupSize += sorted[j].size;
-            groupCount++;
-          }
-          rectWidth = remainingWidth * (groupSize / total) / groupCount * 1.5;
-        }
-      } else {
-        rectWidth = remainingWidth;
-        rectHeight = remainingHeight * ratio;
-      }
-
-      // Ensure minimum size
-      rectWidth = Math.max(10, Math.min(rectWidth, remainingWidth));
-      rectHeight = Math.max(10, Math.min(rectHeight, remainingHeight));
-
-      const rect: LayoutRect = {
-        node,
-        x: currentX,
-        y: currentY,
-        width: rectWidth,
-        height: rectHeight,
-        depth,
-        colorIndex: colorIndex + i,
-      };
-      result.push(rect);
-
-      // Layout children recursively inside this rect (with padding)
-      if (node.children && node.children.length > 0 && rectWidth > 50 && rectHeight > 40) {
-        const padding = 2;
-        const headerHeight = 18;
-        const childRects = layoutTreemap(
-          node.children,
-          currentX + padding,
-          currentY + headerHeight,
-          rectWidth - padding * 2,
-          rectHeight - headerHeight - padding,
-          depth + 1,
-          colorIndex + i
-        );
-        result.push(...childRects);
-      }
-
-      // Move to next position
-      if (isHorizontal) {
-        currentX += rectWidth;
-        remainingWidth -= rectWidth;
-      } else {
-        currentY += rectHeight;
-        remainingHeight -= rectHeight;
-      }
-    }
-
-    return result;
+    return squarify(nodes, x, y, width, height, depth, colorIndex);
   }
 
-  // Compute layout reactively
-  $: layout = selectedDrive !== null ? layoutTreemap(treemapData, 0, 0, containerWidth, containerHeight) : [];
+  // Compute layout reactively - free space shown as separate bar, not proportional
+  $: currentDriveInfo = selectedDrive ? getDriveInfoByPath(selectedDrive) : null;
+  $: freeSpaceSize = currentDriveInfo ? currentDriveInfo.free_space : 0;
+  $: totalDriveSpace = currentDriveInfo ? currentDriveInfo.total_space : 0;
+  $: freeSpaceBarHeight = 24; // Fixed height for free space bar
+  $: treemapHeight = selectedDrive && freeSpaceSize > 0 ? containerHeight - freeSpaceBarHeight : containerHeight;
+  $: layout = selectedDrive !== null ? layoutTreemap(treemapData, 0, 0, containerWidth, treemapHeight) : [];
   $: sortedDrives = [...driveStats].sort((a, b) => b.total_size - a.total_size);
 
   // Get drive info by path
@@ -458,7 +536,18 @@
     {:else}
       <!-- TREEMAP VIEW -->
       <svg width={containerWidth} height={containerHeight} class="absolute inset-0">
+        <!-- Folder rectangles -->
         {#each layout as rect (rect.node.path + rect.depth)}
+          {@const sizeStr = formatBytes(rect.node.size)}
+          {@const charWidth = 7}
+          {@const maxChars = Math.floor((rect.width - 8) / charWidth)}
+          {@const canFitName = maxChars >= 3 && rect.height >= 18}
+          {@const hasRenderedChildren = rect.node.children && rect.node.children.length > 0 && rect.width > 40 && rect.height > 30}
+          {@const canFitSize = !hasRenderedChildren && rect.height >= 38 && rect.width >= 50}
+          {@const truncatedName = rect.node.name.length > maxChars
+            ? rect.node.name.slice(0, maxChars - 1) + '…'
+            : rect.node.name}
+
           <g
             class="cursor-pointer"
             on:click|stopPropagation={() => drillDown(rect.node)}
@@ -467,42 +556,96 @@
             role="button"
             tabindex="0"
           >
+            <!-- Tooltip always available -->
+            <title>{rect.node.name} - {sizeStr}</title>
+
             <rect
-              x={rect.x + 1}
-              y={rect.y + 1}
-              width={Math.max(0, rect.width - 2)}
-              height={Math.max(0, rect.height - 2)}
+              x={rect.x}
+              y={rect.y}
+              width={rect.width}
+              height={rect.height}
               fill={getColor(rect.colorIndex, rect.depth)}
               rx="2"
-              stroke={rect.depth === 0 ? '#1f2937' : 'none'}
-              stroke-width={rect.depth === 0 ? 2 : 0}
-              class="transition-opacity hover:opacity-90"
+              stroke={rect.depth === 0 ? '#1f2937' : 'rgba(0,0,0,0.3)'}
+              stroke-width={rect.depth === 0 ? 2 : 1}
+              class="transition-opacity hover:opacity-80"
             />
 
-            {#if rect.width > 50 && rect.height > 20}
+            <!-- Name - only if it fits -->
+            {#if canFitName}
               <text
                 x={rect.x + 4}
                 y={rect.y + 14}
                 class="fill-white text-xs font-medium pointer-events-none"
-                style="text-shadow: 0 1px 2px rgba(0,0,0,0.8)"
+                style="text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.7)"
               >
-                {rect.node.name.length > Math.floor(rect.width / 7) - 2
-                  ? rect.node.name.slice(0, Math.floor(rect.width / 7) - 2) + '...'
-                  : rect.node.name}
+                {truncatedName}
               </text>
             {/if}
 
-            {#if rect.width > 60 && rect.height > 35 && rect.depth === 0}
+            <!-- Size on second line - only if it fits -->
+            {#if canFitSize}
               <text
                 x={rect.x + 4}
-                y={rect.y + 28}
-                class="fill-white/70 text-[10px] pointer-events-none"
+                y={rect.y + 26}
+                class="fill-white/80 text-[10px] pointer-events-none"
+                style="text-shadow: 0 1px 2px rgba(0,0,0,0.8)"
               >
-                {formatBytes(rect.node.size)}
+                {sizeStr}
               </text>
             {/if}
           </g>
         {/each}
+
+        <!-- FREE SPACE BAR - Fixed height at bottom -->
+        {#if selectedDrive && freeSpaceSize > 0}
+          {@const usedPercent = totalDriveSpace > 0 ? ((totalDriveSpace - freeSpaceSize) / totalDriveSpace) * 100 : 0}
+          {@const freePercent = 100 - usedPercent}
+          <g class="pointer-events-none">
+            <!-- Background bar -->
+            <rect
+              x="0"
+              y={treemapHeight}
+              width={containerWidth}
+              height={freeSpaceBarHeight}
+              fill="#1f2937"
+            />
+            <!-- Used space portion -->
+            <rect
+              x="0"
+              y={treemapHeight}
+              width={containerWidth * usedPercent / 100}
+              height={freeSpaceBarHeight}
+              fill="#6366f1"
+              fill-opacity="0.6"
+            />
+            <!-- Free space portion -->
+            <rect
+              x={containerWidth * usedPercent / 100}
+              y={treemapHeight}
+              width={containerWidth * freePercent / 100}
+              height={freeSpaceBarHeight}
+              fill="#10b981"
+              fill-opacity="0.4"
+            />
+            <!-- Text: Used / Free -->
+            <text
+              x="8"
+              y={treemapHeight + 16}
+              class="fill-white text-[11px] font-medium"
+            >
+              Used: {formatBytes(totalDriveSpace - freeSpaceSize)} ({usedPercent.toFixed(0)}%)
+            </text>
+            <text
+              x={containerWidth - 8}
+              y={treemapHeight + 16}
+              text-anchor="end"
+              class="fill-emerald-300 text-[11px] font-medium"
+            >
+              Free: {formatBytes(freeSpaceSize)} ({freePercent.toFixed(0)}%)
+            </text>
+          </g>
+        {/if}
       </svg>
     {/if}
   </div>
