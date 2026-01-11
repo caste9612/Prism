@@ -70,20 +70,32 @@ pub async fn open_in_explorer(path: String) -> Result<(), String> {
         return Err("Path does not exist".to_string());
     }
 
-    let folder_path = if path_obj.is_file() {
-        path_obj
+    // Canonicalize to resolve symlinks and get the real path
+    // This prevents symlink traversal attacks
+    let canonical_path = std::fs::canonicalize(path_obj)
+        .map_err(|e| format!("Failed to resolve path: {}", e))?;
+
+    // Log the canonical path for security audit
+    if canonical_path.to_string_lossy() != path {
+        info!("Path resolved: {} -> {}", path, canonical_path.display());
+    }
+
+    let canonical_str = canonical_path.to_string_lossy().to_string();
+
+    let folder_path = if canonical_path.is_file() {
+        canonical_path
             .parent()
             .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or(path.clone())
+            .unwrap_or(canonical_str.clone())
     } else {
-        path.clone()
+        canonical_str.clone()
     };
 
     #[cfg(target_os = "windows")]
     {
-        if path_obj.is_file() {
+        if canonical_path.is_file() {
             std::process::Command::new("explorer")
-                .args(["/select,", &path])
+                .args(["/select,", &canonical_str])
                 .spawn()
                 .map_err(|e| format!("Failed to open explorer: {}", e))?;
         } else {
@@ -97,7 +109,7 @@ pub async fn open_in_explorer(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .args(["-R", &path])
+            .args(["-R", &canonical_str])
             .spawn()
             .map_err(|e| format!("Failed to open Finder: {}", e))?;
     }
