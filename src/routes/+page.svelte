@@ -13,7 +13,7 @@
   import StorageExplorerV2 from '$lib/components/analytics/StorageExplorerV2.svelte';
   import FileCategories from '$lib/components/analytics/FileCategories.svelte';
   import SizeDistribution from '$lib/components/analytics/SizeDistribution.svelte';
-  import DuplicateList from '$lib/components/duplicates/DuplicateList.svelte';
+  import DuplicatesPage from '$lib/components/duplicates/DuplicatesPage.svelte';
 
   // Types
   import type { DriveStatus, DriveProgress, ScanProgress as ScanProgressType, DriveStats, TabType, PreScanOverlapResult, VerificationSummary, VerificationProgress, IncrementalProgress, FileVerificationResult } from '$lib/types';
@@ -46,6 +46,31 @@
   let unlistenIncrementalProgress: (() => void) | null = null;
   let unlistenAutoScanPhase: (() => void) | null = null;
   let unlistenAutoScanComplete: (() => void) | null = null;
+  let unlistenQueueSystemState: (() => void) | null = null;
+  let unlistenDriveStatusChange: (() => void) | null = null;
+  let unlistenQueueScanComplete: (() => void) | null = null;
+
+  // Queue system state
+  interface QueueSystemState {
+    drives: Record<string, {
+      path: string;
+      name: string;
+      drive_type: string;
+      status: 'online' | 'offline' | 'queued' | 'scanning' | 'indexed' | 'error';
+      scan_progress: number;
+      files_found: number;
+      files_indexed: number;
+      total_size: number;
+      error_message: string | null;
+      is_known: boolean;
+    }>;
+    scan_queue: string[];
+    scanner_busy: boolean;
+    current_scan: string | null;
+    session_files_scanned: number;
+    session_files_indexed: number;
+  }
+  let queueSystemState: QueueSystemState | null = null;
 
   // Scan timer
   let scanStartTime: number | null = null;
@@ -87,9 +112,6 @@
   $: settings = $settingsStore;
   let tempSettings = { ...settings };
 
-  // Delete confirmation
-  let deleteConfirm: { files: { id: number; path: string }[]; show: boolean } = { files: [], show: false };
-  let deleting = false;
 
   // Overlap warning
   let overlapWarning: { show: boolean; results: PreScanOverlapResult[]; pendingPaths: string[] } = {
@@ -233,18 +255,91 @@
       loadDriveStats();
     });
 
-    // Load drives first
+    // Listen for queue system state updates
+    unlistenQueueSystemState = await listen<QueueSystemState>('queue-system-state', (event) => {
+      queueSystemState = event.payload;
+      console.log('[Queue] System state updated:', {
+        scanner_busy: queueSystemState?.scanner_busy,
+        current_scan: queueSystemState?.current_scan,
+        queue_size: queueSystemState?.scan_queue?.length ?? 0
+      });
+    });
+
+    // Listen for drive status changes (from drive monitor)
+    unlistenDriveStatusChange = await listen<{
+      drive_path: string;
+      drive_name: string;
+      drive_type: string;
+      event_type: 'online' | 'offline' | 'detected' | 'removed';
+      is_indexed: boolean;
+      indexed_files: number;
+    }>('drive-status-change', (event) => {
+      const { drive_path, drive_name, event_type, is_indexed } = event.payload;
+      console.log('[Drive Monitor] Status change:', event.payload);
+
+      if (event_type === 'online') {
+        notify(`${drive_name} is now online`, 'info');
+        if (is_indexed) {
+          notify(`Queued ${drive_name} for update`, 'info');
+        }
+      } else if (event_type === 'offline') {
+        notify(`${drive_name} went offline`, 'info');
+      } else if (event_type === 'detected') {
+        notify(`New drive detected: ${drive_name}`, 'info');
+      } else if (event_type === 'removed') {
+        notify(`Drive removed: ${drive_path}`, 'info');
+      }
+
+      // Refresh drives list
+      loadDrives(true);
+    });
+
+    // Listen for queue scan complete events
+    unlistenQueueScanComplete = await listen<{
+      drive_path: string;
+      files_indexed: number;
+      scan_id: number;
+    }>('queue-scan-complete', async (event) => {
+      console.log('[Queue] Scan complete:', event.payload);
+      notify(`Scan complete: ${event.payload.drive_path} (${formatNumber(event.payload.files_indexed)} files)`, 'success');
+      await stats.load();
+      loadAnalytics();
+      loadDriveStats();
+      loadDrives(true);
+    });
+
+    // Load drives first (needed for scan decision)
     await loadDrives();
 
-    // Load existing analytics
-    await loadAnalytics();
-    await loadDriveStats();
-
-    // Start auto-scan if there are ready local drives
-    if (drives.some(d => d.is_ready && d.drive_type === 'Local Disk')) {
-      notify('Starting automatic scan of all drives...', 'info');
-      await startAutoScan();
+    // Initialize queue system and drive monitor
+    try {
+      await invoke('init_queue_system');
+      console.log('[Queue] System initialized');
+      await invoke('start_drive_monitor', { intervalSeconds: 5 });
+      console.log('[Drive Monitor] Started');
+    } catch (e) {
+      console.error('[Queue] Failed to initialize:', e);
     }
+
+    // Start analytics/stats loading in background (parallel)
+    const analyticsPromise = Promise.all([loadAnalytics(), loadDriveStats()]);
+
+    // Start auto-scan ONLY for known (already indexed) drives - don't wait for analytics
+    const knownDrives = drives.filter(d => d.is_ready && d.is_scanned);
+    const newDrives = drives.filter(d => d.is_ready && !d.is_scanned && d.drive_type === 'Local Disk');
+
+    if (knownDrives.length > 0) {
+      notify(`Updating ${knownDrives.length} indexed drive${knownDrives.length > 1 ? 's' : ''}...`, 'info');
+      startKnownDrivesScan(); // Fire and forget - don't block on scan
+    }
+
+    // Notify about new drives available (not auto-scanned)
+    if (newDrives.length > 0) {
+      notify(`${newDrives.length} new drive${newDrives.length > 1 ? 's' : ''} available for indexing`, 'info');
+    }
+
+    // Wait for analytics to complete in background
+    await analyticsPromise;
 
     // Auto-refresh drives every 15 seconds to detect newly connected drives
     driveRefreshInterval = setInterval(() => {
@@ -254,7 +349,7 @@
     }, 15000);
   });
 
-  onDestroy(() => {
+  onDestroy(async () => {
     unlistenProgress?.();
     unlistenComplete?.();
     unlistenStats?.();
@@ -262,10 +357,19 @@
     unlistenIncrementalProgress?.();
     unlistenAutoScanPhase?.();
     unlistenAutoScanComplete?.();
+    unlistenQueueSystemState?.();
+    unlistenDriveStatusChange?.();
+    unlistenQueueScanComplete?.();
     stopScanTimer();
     if (driveRefreshInterval) {
       clearInterval(driveRefreshInterval);
       driveRefreshInterval = null;
+    }
+    // Stop drive monitor when page is destroyed
+    try {
+      await invoke('stop_drive_monitor');
+    } catch (e) {
+      console.error('Failed to stop drive monitor:', e);
     }
   });
 
@@ -343,6 +447,24 @@
       await invoke('auto_scan_drives');
     } catch (e) {
       notify(`Auto-scan failed: ${e}`, 'error');
+      isScanning = false;
+      isAutoScan = false;
+      stopScanTimer();
+    }
+  }
+
+  // Auto-scan ONLY known (already indexed) drives - used on startup
+  async function startKnownDrivesScan() {
+    isScanning = true;
+    isAutoScan = true;
+    driveProgress = {};
+    scanProgress = { scan_id: 0, files_scanned: 0, total_size: 0, current_path: 'Updating indexed drives...', files_per_second: 0, is_complete: false, error: null, drives: {} };
+    startScanTimer();
+
+    try {
+      await invoke('auto_scan_known_drives');
+    } catch (e) {
+      notify(`Update failed: ${e}`, 'error');
       isScanning = false;
       isAutoScan = false;
       stopScanTimer();
@@ -434,9 +556,12 @@
   }
 
   // Get scan status for a drive
-  function getDriveScanStatus(drivePath: string): 'idle' | 'scanning' | 'done' {
+  function getDriveScanStatus(drive: DriveStatus): 'idle' | 'scanning' | 'done' {
+    // Offline drives are always idle, never scanning
+    if (!drive.is_online) return 'idle';
     if (!isScanning) return 'idle';
-    const normalizedPath = drivePath.toUpperCase();
+
+    const normalizedPath = drive.path.toUpperCase();
 
     // Check per-drive progress
     const progress = driveProgress[normalizedPath];
@@ -499,17 +624,7 @@
     }
   }
 
-  // Duplicates
-  $: dupGroups = $duplicatesStore.groups;
-  $: dupLoading = $duplicatesStore.loading;
-  $: wastedSpace = $duplicatesStore.totalWastedSpace;
-  let expandedDupGroups = new Set<number>();
-  let selectedDupFiles = new Set<string>();
-
-  async function findDuplicates() {
-    selectedDupFiles = new Set();
-    await duplicatesStore.findDuplicates();
-  }
+  // Duplicates - now handled by DuplicatesPage component
 
   // Verification state
   let verifySourceDrive = '';
@@ -604,59 +719,6 @@
     }
   }
 
-  function toggleDupGroup(id: number) {
-    if (expandedDupGroups.has(id)) expandedDupGroups.delete(id);
-    else expandedDupGroups.add(id);
-    expandedDupGroups = expandedDupGroups;
-  }
-
-  function toggleDupFile(id: number, path: string) {
-    const key = `${id}:${path}`;
-    if (selectedDupFiles.has(key)) selectedDupFiles.delete(key);
-    else selectedDupFiles.add(key);
-    selectedDupFiles = selectedDupFiles;
-  }
-
-  function selectAllDuplicates() {
-    dupGroups.forEach(group => {
-      group.files.slice(1).forEach(file => {
-        selectedDupFiles.add(`${file.id}:${file.path}`);
-      });
-    });
-    selectedDupFiles = selectedDupFiles;
-  }
-
-  function showDeleteConfirm() {
-    const files = [...selectedDupFiles].map(key => {
-      const [id, ...pathParts] = key.split(':');
-      return { id: parseInt(id), path: pathParts.join(':') };
-    });
-    deleteConfirm = { files, show: true };
-  }
-
-  async function confirmDelete() {
-    deleting = true;
-    try {
-      const filesToDelete = deleteConfirm.files.map(f => [f.id, f.path] as [number, string]);
-      const result = await invoke<{ deleted: number; errors: string[] }>('delete_duplicates_batch', { files: filesToDelete });
-
-      if (result.errors && result.errors.length > 0) {
-        // Partial success - show warning with error count
-        notify(`Deleted ${result.deleted} files. ${result.errors.length} failed.`, result.deleted > 0 ? 'info' : 'error');
-        console.warn('Delete errors:', result.errors);
-      } else {
-        notify(`Deleted ${result.deleted} files`, 'success');
-      }
-
-      selectedDupFiles = new Set();
-      deleteConfirm = { files: [], show: false };
-      await findDuplicates();
-    } catch (e) {
-      notify(`Delete failed: ${e}`, 'error');
-    } finally {
-      deleting = false;
-    }
-  }
 
   // Analytics
   $: sizeDistribution = $analyticsStore.sizeDistribution;
@@ -762,25 +824,6 @@
 <!-- Toast Notifications -->
 <Toast notifications={$notifications} />
 
-<!-- Delete Confirmation Modal -->
-<Modal
-  show={deleteConfirm.show}
-  title="Delete {deleteConfirm.files.length} files?"
-  description="This action cannot be undone"
-  confirmText="Delete Files"
-  loading={deleting}
-  on:confirm={confirmDelete}
-  on:cancel={() => deleteConfirm = { files: [], show: false }}
->
-  <div slot="content" class="max-h-40 overflow-y-auto text-sm text-gray-400">
-    {#each deleteConfirm.files.slice(0, 5) as file}
-      <div class="truncate">{file.path}</div>
-    {/each}
-    {#if deleteConfirm.files.length > 5}
-      <div class="text-gray-500">...and {deleteConfirm.files.length - 5} more</div>
-    {/if}
-  </div>
-</Modal>
 
 <!-- Overlap Warning Modal -->
 <Modal
@@ -855,10 +898,21 @@
         <span class="text-sm">Detecting drives...</span>
       </div>
     {:else}
-      <div class="flex items-center gap-4">
-        <div class="flex items-center gap-3 flex-1 overflow-x-auto pb-1">
-          {#each drives as drive}
-                {@const scanStatus = getDriveScanStatus(drive.path)}
+      {@const indexedDrives = drives.filter(d => d.is_scanned || d.indexed_files > 0)}
+      {@const newLocalDrives = drives.filter(d => d.is_ready && !d.is_scanned && d.indexed_files === 0 && d.drive_type === 'Local Disk')}
+      {@const hasNewDrives = newLocalDrives.length > 0}
+
+      <div class="flex flex-col gap-4">
+        <!-- Indexed Drives Section -->
+        {#if indexedDrives.length > 0}
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-xs font-medium text-gray-400 uppercase tracking-wide">Indexed Drives</span>
+              <span class="text-xs text-gray-500">({indexedDrives.length})</span>
+            </div>
+            <div class="flex items-center gap-3 overflow-x-auto pb-1">
+              {#each indexedDrives as drive}
+                {@const scanStatus = getDriveScanStatus(drive)}
                 {@const indexedFiles = drive.indexed_files || getDriveIndexedCount(drive.path)}
                 {@const indexedSize = drive.indexed_size || getDriveIndexedSize(drive.path)}
                 {@const driveProgressInfo = driveProgress[drive.path.toUpperCase()]}
@@ -873,7 +927,7 @@
                       selectedDrives.has(drive.path) ? 'bg-prism-500/10 border-prism-500' : 'bg-gray-700/30 border-gray-600 hover:border-gray-500'}
                     {!drive.is_ready && !isOffline ? 'opacity-50 cursor-not-allowed' : ''}"
                 >
-              <!-- Progress bar fill - same for all drives -->
+              <!-- Progress bar fill -->
               {#if scanStatus === 'scanning' || scanStatus === 'done'}
                 {@const rawPercent = scanStatus === 'done' ? 100 : (driveProgressInfo?.progress_percent ?? (incrementalProgress?.percent ?? 0))}
                 {@const progressPercent = rawPercent >= 0 ? rawPercent : 0}
@@ -882,7 +936,6 @@
                     {scanStatus === 'done' ? 'bg-green-500/20' : 'bg-prism-500/30'}"
                   style="height: {progressPercent}%"
                 ></div>
-                <!-- Animated shimmer overlay while scanning -->
                 {#if scanStatus === 'scanning'}
                   <div class="absolute inset-0 overflow-hidden">
                     <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer"></div>
@@ -891,14 +944,13 @@
               {/if}
 
               <div class="relative flex items-center gap-2">
-                <!-- Drive letter prominently displayed -->
                 <div class="relative flex items-center justify-center w-8 h-8 rounded-lg {isOffline ? 'bg-red-900/30' : scanStatus === 'scanning' ? 'bg-prism-500/30' : 'bg-gray-600/50'}">
                   <span class="text-base font-bold {isOffline ? 'text-red-400' : scanStatus === 'scanning' ? 'text-prism-400' : 'text-white'}">{drive.path.charAt(0)}</span>
                   {#if isOffline}
                     <div class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full" title="Offline"></div>
                   {:else if scanStatus === 'scanning'}
                     <div class="absolute -top-1 -right-1 w-3 h-3 bg-prism-500 rounded-full animate-pulse"></div>
-                  {:else if scanStatus === 'done' || indexedFiles > 0}
+                  {:else}
                     <div class="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
                   {/if}
                 </div>
@@ -909,7 +961,6 @@
                 </div>
 
                 {#if isOffline}
-                  <!-- Delete button for offline drives -->
                   <button
                     on:click|stopPropagation={() => removeOfflineDrive(drive.path)}
                     class="w-6 h-6 ml-auto flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-400 hover:text-red-300 transition-colors"
@@ -926,70 +977,150 @@
                 {/if}
               </div>
 
-              <!-- Progress/Stats display - same for all drives -->
               <div class="relative text-left">
                 {#if scanStatus === 'scanning'}
                   {@const percent = driveProgressInfo?.progress_percent ?? incrementalProgress?.percent ?? 0}
                   {@const filesCount = driveProgressInfo?.files_scanned ?? incrementalProgress?.files_checked ?? 0}
                   <div class="text-xs text-prism-400 font-bold">
-                    {#if percent >= 0}
-                      Scanning {Math.round(percent)}%
-                    {:else}
-                      Scanning...
-                    {/if}
+                    {#if percent >= 0}Scanning {Math.round(percent)}%{:else}Scanning...{/if}
                   </div>
-                  <div class="text-xs text-gray-400">
-                    {formatNumber(filesCount)} files
-                  </div>
+                  <div class="text-xs text-gray-400">{formatNumber(filesCount)} files</div>
                 {:else if scanStatus === 'done'}
                   <div class="text-xs text-green-400 font-bold">Done</div>
-                  <div class="text-xs text-gray-400">
-                    {formatNumber(driveProgressInfo?.files_scanned ?? indexedFiles)} files
-                  </div>
+                  <div class="text-xs text-gray-400">{formatNumber(driveProgressInfo?.files_scanned ?? indexedFiles)} files</div>
                 {:else if isOffline && indexedFiles > 0}
-                  <div class="text-xs text-red-400 font-medium">
-                    {formatNumber(indexedFiles)} files
-                  </div>
-                  <div class="text-xs text-red-400/70">
-                    {formatBytes(indexedSize)} indexed
-                  </div>
+                  <div class="text-xs text-red-400 font-medium">{formatNumber(indexedFiles)} files</div>
+                  <div class="text-xs text-red-400/70">{formatBytes(indexedSize)} indexed</div>
                 {:else if indexedFiles > 0}
-                  <div class="text-xs text-green-400 font-medium">
-                    {formatNumber(indexedFiles)} files
-                  </div>
-                  <div class="text-xs text-gray-500">
-                    {formatBytes(indexedSize)}
-                  </div>
-                {:else if drive.is_ready && drive.total_space > 0}
-                  <div class="text-xs text-gray-500">{formatBytes(drive.free_space)} free</div>
-                  <div class="text-xs text-gray-600">{formatBytes(drive.total_space)} total</div>
-                {:else if isOffline}
-                  <div class="text-xs text-red-400/70">Disconnected</div>
+                  <div class="text-xs text-green-400 font-medium">{formatNumber(indexedFiles)} files</div>
+                  <div class="text-xs text-gray-500">{formatBytes(indexedSize)}</div>
                 {:else}
-                  <div class="text-xs text-gray-500">Not scanned</div>
+                  <div class="text-xs text-gray-500">Ready</div>
                 {/if}
               </div>
             </button>
-          {/each}
-        </div>
+              {/each}
 
-        <div class="flex items-center gap-2">
-          <button on:click={startScan} disabled={selectedDrives.size === 0 || isScanning || checkingOverlaps}
-            class="px-5 py-2.5 bg-prism-500 hover:bg-prism-600 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 flex items-center gap-2">
-            {#if checkingOverlaps}
-              <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              Checking...
-            {:else if isScanning}
-              <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              Scanning...
-            {:else}
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Scan
-            {/if}
-          </button>
-        </div>
+              <!-- Scan button for indexed drives -->
+              <button on:click={startScan} disabled={selectedDrives.size === 0 || isScanning || checkingOverlaps}
+                class="px-4 py-2.5 bg-prism-500 hover:bg-prism-600 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 flex items-center gap-2 shrink-0">
+                {#if checkingOverlaps}
+                  <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Checking...
+                {:else if isScanning}
+                  <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Scanning...
+                {:else}
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Rescan
+                {/if}
+              </button>
+            </div>
+          </div>
+        {/if}
+
+        <!-- New Drives Available Section -->
+        {#if hasNewDrives}
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-xs font-medium text-yellow-400 uppercase tracking-wide">New Drives Available</span>
+              <span class="text-xs text-yellow-500/70">({newLocalDrives.length})</span>
+            </div>
+            <div class="flex items-center gap-3 overflow-x-auto pb-1">
+              {#each newLocalDrives as drive}
+                {@const scanStatus = getDriveScanStatus(drive)}
+                {@const driveProgressInfo = driveProgress[drive.path.toUpperCase()]}
+                <button
+                  on:click={() => toggleDrive(drive.path)}
+                  disabled={!drive.is_ready || isScanning}
+                  class="relative flex flex-col gap-1 px-4 py-3 rounded-xl border-2 transition-all min-w-[140px] overflow-hidden
+                    {scanStatus === 'scanning' ? 'bg-prism-500/10 border-prism-400 ring-2 ring-prism-400/30' :
+                      selectedDrives.has(drive.path) ? 'bg-yellow-500/10 border-yellow-500' : 'bg-yellow-900/10 border-yellow-600/50 hover:border-yellow-500'}
+                    {!drive.is_ready ? 'opacity-50 cursor-not-allowed' : ''}"
+                >
+              <!-- NEW badge -->
+              <div class="absolute top-1 right-1 px-1.5 py-0.5 text-[10px] font-bold bg-yellow-500/20 text-yellow-400 rounded">
+                NEW
+              </div>
+
+              <!-- Progress bar fill if scanning -->
+              {#if scanStatus === 'scanning'}
+                {@const rawPercent = driveProgressInfo?.progress_percent ?? 0}
+                {@const progressPercent = rawPercent >= 0 ? rawPercent : 0}
+                <div
+                  class="absolute bottom-0 left-0 right-0 transition-all duration-300 ease-out bg-prism-500/30"
+                  style="height: {progressPercent}%"
+                ></div>
+                <div class="absolute inset-0 overflow-hidden">
+                  <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer"></div>
+                </div>
+              {/if}
+
+              <div class="relative flex items-center gap-2">
+                <div class="relative flex items-center justify-center w-8 h-8 rounded-lg {scanStatus === 'scanning' ? 'bg-prism-500/30' : 'bg-yellow-900/30'}">
+                  <span class="text-base font-bold {scanStatus === 'scanning' ? 'text-prism-400' : 'text-yellow-400'}">{drive.path.charAt(0)}</span>
+                  {#if scanStatus === 'scanning'}
+                    <div class="absolute -top-1 -right-1 w-3 h-3 bg-prism-500 rounded-full animate-pulse"></div>
+                  {:else}
+                    <div class="absolute -top-1 -right-1 w-3 h-3 bg-yellow-500 rounded-full"></div>
+                  {/if}
+                </div>
+
+                <div class="flex flex-col">
+                  <span class="text-sm font-semibold text-yellow-400">{drive.path.substring(0, 2)}</span>
+                  <span class="text-xs text-yellow-500/70">Local</span>
+                </div>
+
+                {#if selectedDrives.has(drive.path) && !isScanning}
+                  <svg class="w-4 h-4 text-yellow-400 ml-auto" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                  </svg>
+                {/if}
+              </div>
+
+              <div class="relative text-left">
+                {#if scanStatus === 'scanning'}
+                  {@const percent = driveProgressInfo?.progress_percent ?? 0}
+                  {@const filesCount = driveProgressInfo?.files_scanned ?? 0}
+                  <div class="text-xs text-prism-400 font-bold">
+                    {#if percent >= 0}Indexing {Math.round(percent)}%{:else}Indexing...{/if}
+                  </div>
+                  <div class="text-xs text-gray-400">{formatNumber(filesCount)} files</div>
+                {:else if drive.total_space > 0}
+                  <div class="text-xs text-yellow-500/70">{formatBytes(drive.free_space)} free</div>
+                  <div class="text-xs text-gray-600">{formatBytes(drive.total_space)} total</div>
+                {:else}
+                  <div class="text-xs text-yellow-500/70">Not indexed</div>
+                {/if}
+              </div>
+            </button>
+              {/each}
+
+              <!-- Add to Index button for new drives -->
+              <button on:click={startScan} disabled={!Array.from(selectedDrives).some(p => newLocalDrives.some(d => d.path === p)) || isScanning}
+                class="px-4 py-2.5 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 flex items-center gap-2 shrink-0">
+                {#if isScanning}
+                  <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Indexing...
+                {:else}
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Add to Index
+                {/if}
+              </button>
+            </div>
+          </div>
+        {/if}
+
+        <!-- No drives message -->
+        {#if indexedDrives.length === 0 && newLocalDrives.length === 0}
+          <div class="text-center py-4 text-gray-500">
+            <p>No drives detected. Connect a drive to get started.</p>
+          </div>
+        {/if}
       </div>
 
       <!-- Incremental Scan Progress Bar -->
@@ -1209,20 +1340,7 @@
 
       <!-- DUPLICATES TAB -->
       {:else if activeTab === 'duplicates'}
-        <DuplicateList
-          groups={dupGroups}
-          loading={dupLoading}
-          {wastedSpace}
-          {totalFiles}
-          expandedGroups={expandedDupGroups}
-          selectedFiles={selectedDupFiles}
-          on:findDuplicates={findDuplicates}
-          on:selectAll={selectAllDuplicates}
-          on:deleteSelected={showDeleteConfirm}
-          on:toggleGroup={(e) => toggleDupGroup(e.detail.id)}
-          on:toggleFile={(e) => toggleDupFile(e.detail.id, e.detail.path)}
-          on:openInExplorer={(e) => openInExplorer(e.detail.path)}
-        />
+        <DuplicatesPage {totalFiles} />
 
       <!-- VERIFY BACKUP TAB -->
       {:else if activeTab === 'verify'}

@@ -7,6 +7,7 @@ pub mod commands;
 pub mod database;
 pub mod duplicates;
 pub mod error;
+pub mod queue_system;
 pub mod scanner;
 pub mod search;
 pub mod utils;
@@ -277,6 +278,7 @@ pub fn run() {
             // Scan
             commands::scan::start_scan,
             commands::scan::auto_scan_drives,
+            commands::scan::auto_scan_known_drives,
             commands::scan::start_incremental_scan,
             commands::scan::start_smart_scan,
             // Search
@@ -308,6 +310,8 @@ pub fn run() {
             commands::drives::remove_offline_drive,
             commands::drives::detect_drive_overlaps,
             commands::drives::check_pre_scan_overlap,
+            commands::drives::start_drive_monitor,
+            commands::drives::stop_drive_monitor,
             // Export
             commands::export::export_to_json,
             commands::export::export_to_csv,
@@ -318,6 +322,10 @@ pub fn run() {
             // Verification
             commands::verify::verify_cross_disk,
             commands::verify::quick_backup_check,
+            // Queue System
+            queue_system::init_queue_system,
+            queue_system::queue_drive_scan,
+            queue_system::get_queue_state,
             close_search_window,
             open_search_window,
             get_log_dir,
