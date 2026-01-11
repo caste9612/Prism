@@ -1,10 +1,12 @@
 //! Drive detection and management commands
 
-use crate::AppState;
+use crate::{AppState, database::Database};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use tauri::State;
+use tauri::{AppHandle, State, Emitter};
 use tracing::{info, debug, warn};
+use tokio::time::{timeout, Duration};
+use futures::future::join_all;
 
 /// Drive information (basic, from system detection)
 #[derive(Debug, Serialize, Clone)]
@@ -167,34 +169,30 @@ pub async fn get_available_drives() -> Result<Vec<DriveInfo>, String> {
                     let mut total_bytes: u64 = 0;
                     let mut total_free: u64 = 0;
 
-                    let disk_space_ok = unsafe {
-                        GetDiskFreeSpaceExW(
-                            path_wide.as_ptr(),
-                            &mut free_bytes,
-                            &mut total_bytes,
-                            &mut total_free,
-                        )
-                    } != 0;
-
-                    // For network drives, GetDiskFreeSpaceExW may fail even if accessible
-                    // Use the comprehensive check that tries multiple methods with retries
-                    let is_ready = if disk_space_ok {
-                        true
-                    } else if drive_type_raw == DRIVE_REMOTE {
-                        // Network drive: use comprehensive accessibility check
-                        eprintln!("[DRIVES] Network drive {} needs accessibility check...", drive_str);
-                        let accessible = check_network_drive_accessible(&drive_str);
-                        eprintln!("[DRIVES] Network drive {} accessible={}", drive_str, accessible);
-                        accessible
+                    // Skip GetDiskFreeSpaceExW for network drives - it blocks for ~15 seconds on offline drives
+                    // Network drives will be checked in parallel with timeout at the end
+                    let (is_ready, disk_space_ok, needs_network_check) = if drive_type_raw == DRIVE_REMOTE {
+                        // Mark as not ready, will check in parallel later
+                        (false, false, true)
                     } else {
-                        false
+                        // For local drives, call GetDiskFreeSpaceExW immediately
+                        let disk_space_ok = unsafe {
+                            GetDiskFreeSpaceExW(
+                                path_wide.as_ptr(),
+                                &mut free_bytes,
+                                &mut total_bytes,
+                                &mut total_free,
+                            )
+                        } != 0;
+                        (disk_space_ok, disk_space_ok, false)
                     };
 
                     detected_count += 1;
                     info!(
-                        "Detected drive {}: {} - type={}, ready={} (disk_space_ok={}), space={}/{}",
+                        "Detected drive {}: {} - type={}, ready={} (disk_space_ok={}), space={}/{}{}",
                         detected_count, drive_str, drive_type, is_ready, disk_space_ok,
-                        free_bytes, total_bytes
+                        free_bytes, total_bytes,
+                        if needs_network_check { " [needs async check]" } else { "" }
                     );
 
                     drives.push(DriveInfo {
@@ -263,6 +261,39 @@ pub async fn get_available_drives() -> Result<Vec<DriveInfo>, String> {
                 if !drives.iter().any(|d| d.path.to_uppercase() == net_drive.path.to_uppercase()) {
                     debug!("Adding network connection: {}", net_drive.path);
                     drives.push(net_drive);
+                }
+            }
+        }
+    }
+
+    // Check network drives in parallel with timeout (2 seconds per drive)
+    #[cfg(target_os = "windows")]
+    {
+        let network_drives_to_check: Vec<String> = drives
+            .iter()
+            .filter(|d| d.drive_type == "Network Drive" && !d.is_ready)
+            .map(|d| d.path.clone())
+            .collect();
+
+        if !network_drives_to_check.is_empty() {
+            info!("Checking {} network drives in parallel with 2s timeout...", network_drives_to_check.len());
+
+            let check_futures: Vec<_> = network_drives_to_check
+                .into_iter()
+                .map(|path| check_network_drive_with_timeout(path, 2))
+                .collect();
+
+            let results = join_all(check_futures).await;
+
+            // Update drives with results
+            for (path, is_accessible) in results {
+                if let Some(drive) = drives.iter_mut().find(|d| d.path == path) {
+                    drive.is_ready = is_accessible;
+                    if is_accessible {
+                        debug!("Network drive {} is accessible", path);
+                    } else {
+                        debug!("Network drive {} not accessible after timeout", path);
+                    }
                 }
             }
         }
@@ -348,6 +379,70 @@ fn try_reconnect_network_drive(local_path: &str, remote_path: &str) -> bool {
     } else {
         eprintln!("[NET] WNetAddConnection2W failed for {} -> {} with error: {}", local_path, remote_path, result);
         false
+    }
+}
+
+/// Fast check if a network drive is accessible (only 2 methods, no reconnection attempts)
+/// This is designed to be quick and used with timeout for parallel checking
+#[cfg(target_os = "windows")]
+fn check_network_drive_fast(path: &str) -> bool {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetDiskFreeSpaceExW(
+            directory: *const u16,
+            free_bytes_available: *mut u64,
+            total_bytes: *mut u64,
+            total_free_bytes: *mut u64,
+        ) -> i32;
+        fn GetFileAttributesW(file_name: *const u16) -> u32;
+    }
+
+    const INVALID_FILE_ATTRIBUTES: u32 = 0xFFFFFFFF;
+
+    let mut path_wide: Vec<u16> = path.encode_utf16().collect();
+    path_wide.push(0);
+
+    // Method 1: GetFileAttributesW (fastest)
+    let attrs = unsafe { GetFileAttributesW(path_wide.as_ptr()) };
+    if attrs != INVALID_FILE_ATTRIBUTES {
+        return true;
+    }
+
+    // Method 2: GetDiskFreeSpaceExW (backup)
+    let mut free_bytes: u64 = 0;
+    let mut total_bytes: u64 = 0;
+    let mut total_free: u64 = 0;
+
+    let disk_space_ok = unsafe {
+        GetDiskFreeSpaceExW(
+            path_wide.as_ptr(),
+            &mut free_bytes,
+            &mut total_bytes,
+            &mut total_free,
+        )
+    } != 0;
+
+    disk_space_ok
+}
+
+/// Check network drive accessibility with a timeout (async, for parallel checking)
+#[cfg(target_os = "windows")]
+async fn check_network_drive_with_timeout(path: String, timeout_secs: u64) -> (String, bool) {
+    let path_clone = path.clone();
+    let result = timeout(
+        Duration::from_secs(timeout_secs),
+        tokio::task::spawn_blocking(move || {
+            check_network_drive_fast(&path_clone)
+        })
+    ).await;
+
+    match result {
+        Ok(Ok(accessible)) => (path, accessible),
+        Ok(Err(_)) => (path, false), // spawn_blocking failed
+        Err(_) => {
+            debug!("Network drive {} check timed out after {}s", path, timeout_secs);
+            (path, false) // timeout
+        }
     }
 }
 
@@ -608,14 +703,13 @@ fn enumerate_network_connections() -> Option<Vec<DriveInfo>> {
                         }
                     };
 
-                    // Check if the network drive is actually accessible
-                    // REMEMBERED drives may need a reconnection attempt using WNetAddConnection2W
-                    // Pass the remote UNC path so we can try to reconnect
-                    let is_ready = check_network_drive_accessible_with_remote(&path, Some(&remote_name));
+                    // Don't check accessibility here - it will be done in parallel by get_available_drives
+                    // Mark as not ready initially, the parallel check will update this
+                    let is_ready = false;
 
                     debug!(
-                        "Found network connection: {} -> {} (accessible={})",
-                        path, remote_name, is_ready
+                        "Found network connection: {} -> {} (will check in parallel)",
+                        path, remote_name
                     );
 
                     drives.push(DriveInfo {
@@ -924,4 +1018,234 @@ pub async fn check_pre_scan_overlap(
         sample_size: sampled_files.len(),
         recommendation,
     })
+}
+
+// ============================================================================
+// DRIVE MONITOR - Background monitoring for drive state changes
+// ============================================================================
+
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+
+/// Event emitted when a drive's status changes
+#[derive(Debug, Serialize, Clone)]
+pub struct DriveStatusChangeEvent {
+    pub drive_path: String,
+    pub drive_name: String,
+    pub drive_type: String,
+    pub event_type: DriveEventType,
+    pub is_indexed: bool,
+    pub indexed_files: i64,
+}
+
+/// Type of drive status change
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DriveEventType {
+    /// Drive just came online
+    Online,
+    /// Drive went offline
+    Offline,
+    /// New drive detected (never seen before)
+    Detected,
+    /// Drive removed from system
+    Removed,
+}
+
+/// Cached drive state for comparison
+#[derive(Debug, Clone)]
+struct CachedDriveState {
+    is_online: bool,
+    is_scanned: bool,
+    indexed_files: i64,
+}
+
+lazy_static::lazy_static! {
+    static ref DRIVE_STATE_CACHE: Mutex<HashMap<String, CachedDriveState>> = Mutex::new(HashMap::new());
+    static ref MONITOR_RUNNING: Mutex<bool> = Mutex::new(false);
+}
+
+/// Start the background drive monitor
+/// Periodically checks drive status and emits events when changes occur
+#[tauri::command]
+pub async fn start_drive_monitor(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    interval_seconds: Option<u64>,
+) -> Result<String, String> {
+    let interval = interval_seconds.unwrap_or(5);
+
+    // Check if already running
+    {
+        let mut running = MONITOR_RUNNING.lock().unwrap();
+        if *running {
+            return Ok("Drive monitor already running".to_string());
+        }
+        *running = true;
+    }
+
+    info!("Starting drive monitor with {}s interval", interval);
+
+    // Spawn background task - clone the Arc<Mutex<Database>> directly since AppState doesn't implement Clone
+    let app_handle_clone = app_handle.clone();
+    let db_clone = state.db.clone();
+
+    tokio::spawn(async move {
+        loop {
+            // Check drives and emit events
+            if let Err(e) = check_and_emit_drive_changes_with_db(&app_handle_clone, &db_clone).await {
+                warn!("Drive monitor check failed: {}", e);
+            }
+
+            // Wait for next check
+            tokio::time::sleep(Duration::from_secs(interval)).await;
+
+            // Check if we should stop
+            let running = MONITOR_RUNNING.lock().unwrap();
+            if !*running {
+                info!("Drive monitor stopped");
+                break;
+            }
+        }
+    });
+
+    Ok(format!("Drive monitor started with {}s interval", interval))
+}
+
+/// Stop the background drive monitor
+#[tauri::command]
+pub fn stop_drive_monitor() -> Result<String, String> {
+    let mut running = MONITOR_RUNNING.lock().unwrap();
+    *running = false;
+    info!("Drive monitor stop requested");
+    Ok("Drive monitor stop requested".to_string())
+}
+
+/// Check current drive states and emit events for any changes (using database Arc directly)
+async fn check_and_emit_drive_changes_with_db(
+    app_handle: &AppHandle,
+    db: &Arc<tokio::sync::Mutex<Database>>,
+) -> Result<(), String> {
+    // Get current drive status
+    let available_drives = get_available_drives().await?;
+
+    // Get known drives from database
+    let db_guard: tokio::sync::MutexGuard<'_, Database> = db.lock().await;
+    let known_drives = db_guard.get_known_drives().map_err(|e| e.to_string())?;
+    drop(db_guard);
+
+    let known_paths: HashMap<String, _> = known_drives
+        .iter()
+        .map(|k| (k.path.to_uppercase(), k))
+        .collect();
+
+    // Build current state
+    let mut current_states: HashMap<String, (CachedDriveState, DriveInfo)> = HashMap::new();
+
+    for drive in &available_drives {
+        let path_upper = drive.path.to_uppercase();
+        let known = known_paths.get(&path_upper);
+
+        current_states.insert(path_upper, (
+            CachedDriveState {
+                is_online: drive.is_ready,
+                is_scanned: known.is_some(),
+                indexed_files: known.map(|k| k.total_files).unwrap_or(0),
+            },
+            drive.clone(),
+        ));
+    }
+
+    // Compare with cached state and emit events
+    let mut cache = DRIVE_STATE_CACHE.lock().unwrap();
+    let mut events: Vec<DriveStatusChangeEvent> = Vec::new();
+
+    // Check for new or changed drives
+    for (path, (new_state, drive_info)) in &current_states {
+        if let Some(old_state) = cache.get(path) {
+            // Drive existed before - check for changes
+            if !old_state.is_online && new_state.is_online {
+                // Drive came online
+                events.push(DriveStatusChangeEvent {
+                    drive_path: drive_info.path.clone(),
+                    drive_name: drive_info.name.clone(),
+                    drive_type: drive_info.drive_type.clone(),
+                    event_type: DriveEventType::Online,
+                    is_indexed: new_state.is_scanned,
+                    indexed_files: new_state.indexed_files,
+                });
+            } else if old_state.is_online && !new_state.is_online {
+                // Drive went offline
+                events.push(DriveStatusChangeEvent {
+                    drive_path: drive_info.path.clone(),
+                    drive_name: drive_info.name.clone(),
+                    drive_type: drive_info.drive_type.clone(),
+                    event_type: DriveEventType::Offline,
+                    is_indexed: new_state.is_scanned,
+                    indexed_files: new_state.indexed_files,
+                });
+            }
+        } else {
+            // New drive detected
+            events.push(DriveStatusChangeEvent {
+                drive_path: drive_info.path.clone(),
+                drive_name: drive_info.name.clone(),
+                drive_type: drive_info.drive_type.clone(),
+                event_type: DriveEventType::Detected,
+                is_indexed: new_state.is_scanned,
+                indexed_files: new_state.indexed_files,
+            });
+        }
+    }
+
+    // Check for removed drives
+    let current_paths: HashSet<String> = current_states.keys().cloned().collect();
+    for (path, old_state) in cache.iter() {
+        if !current_paths.contains(path) {
+            // Drive was removed
+            events.push(DriveStatusChangeEvent {
+                drive_path: path.clone(),
+                drive_name: format!("Removed ({})", path),
+                drive_type: "Unknown".to_string(),
+                event_type: DriveEventType::Removed,
+                is_indexed: old_state.is_scanned,
+                indexed_files: old_state.indexed_files,
+            });
+        }
+    }
+
+    // Update cache
+    cache.clear();
+    for (path, (state, _)) in current_states {
+        cache.insert(path, state);
+    }
+
+    // Emit events and queue drives for scanning if needed
+    for event in &events {
+        info!("Drive event: {:?} - {} ({})", event.event_type, event.drive_path, event.drive_name);
+        let _ = app_handle.emit("drive-status-change", event);
+
+        // Auto-queue known drives that come online for incremental scan
+        if (event.event_type == DriveEventType::Online || event.event_type == DriveEventType::Detected)
+            && event.is_indexed
+        {
+            info!("Auto-queueing known drive {} for incremental scan", event.drive_path);
+            // Use the queue system to schedule the scan
+            let drive_path = event.drive_path.clone();
+            let drive_name = event.drive_name.clone();
+            let drive_type = event.drive_type.clone();
+            tokio::spawn(async move {
+                if let Err(e) = crate::queue_system::queue_drive_for_scan(
+                    drive_path.clone(),
+                    drive_name,
+                    drive_type,
+                    true, // incremental scan for known drives
+                ).await {
+                    warn!("Failed to auto-queue drive {}: {}", drive_path, e);
+                }
+            });
+        }
+    }
+
+    Ok(())
 }
