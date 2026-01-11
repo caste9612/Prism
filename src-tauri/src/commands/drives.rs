@@ -8,6 +8,19 @@ use tracing::{info, debug, warn};
 use tokio::time::{timeout, Duration};
 use futures::future::join_all;
 
+/// Normalize a path for case-insensitive comparison on Windows
+/// Converts to uppercase and normalizes path separators
+#[inline]
+pub fn normalize_path(path: &str) -> String {
+    path.to_uppercase().replace('/', "\\")
+}
+
+/// Compare two paths case-insensitively (Windows-style)
+#[inline]
+pub fn paths_equal(a: &str, b: &str) -> bool {
+    normalize_path(a) == normalize_path(b)
+}
+
 /// Drive information (basic, from system detection)
 #[derive(Debug, Serialize, Clone)]
 pub struct DriveInfo {
@@ -258,7 +271,7 @@ pub async fn get_available_drives() -> Result<Vec<DriveInfo>, String> {
         if let Some(network_drives) = enumerate_network_connections() {
             for net_drive in network_drives {
                 // Check if we already have this drive (by path)
-                if !drives.iter().any(|d| d.path.to_uppercase() == net_drive.path.to_uppercase()) {
+                if !drives.iter().any(|d| paths_equal(&d.path, &net_drive.path)) {
                     debug!("Adding network connection: {}", net_drive.path);
                     drives.push(net_drive);
                 }
@@ -309,77 +322,6 @@ pub async fn get_available_drives() -> Result<Vec<DriveInfo>, String> {
         drives.len(), local_count, network_count, removable_count, other_count
     );
     Ok(drives)
-}
-
-/// Try to reconnect a remembered network drive
-#[cfg(target_os = "windows")]
-fn try_reconnect_network_drive(local_path: &str, remote_path: &str) -> bool {
-    use std::ptr;
-
-    #[repr(C)]
-    #[allow(non_snake_case)]
-    struct NETRESOURCEW {
-        dwScope: u32,
-        dwType: u32,
-        dwDisplayType: u32,
-        dwUsage: u32,
-        lpLocalName: *mut u16,
-        lpRemoteName: *mut u16,
-        lpComment: *mut u16,
-        lpProvider: *mut u16,
-    }
-
-    #[link(name = "mpr")]
-    extern "system" {
-        fn WNetAddConnection2W(
-            lpNetResource: *const NETRESOURCEW,
-            lpPassword: *const u16,
-            lpUserName: *const u16,
-            dwFlags: u32,
-        ) -> u32;
-    }
-
-    const RESOURCETYPE_DISK: u32 = 0x00000001;
-    const CONNECT_UPDATE_PROFILE: u32 = 0x00000001;
-    const NO_ERROR: u32 = 0;
-    const ERROR_ALREADY_ASSIGNED: u32 = 85;
-
-    // Prepare local name (e.g., "X:")
-    let local_name = local_path.trim_end_matches('\\');
-    let mut local_wide: Vec<u16> = local_name.encode_utf16().collect();
-    local_wide.push(0);
-
-    // Prepare remote name (e.g., "\\server\share")
-    let mut remote_wide: Vec<u16> = remote_path.encode_utf16().collect();
-    remote_wide.push(0);
-
-    let net_resource = NETRESOURCEW {
-        dwScope: 0,
-        dwType: RESOURCETYPE_DISK,
-        dwDisplayType: 0,
-        dwUsage: 0,
-        lpLocalName: local_wide.as_mut_ptr(),
-        lpRemoteName: remote_wide.as_mut_ptr(),
-        lpComment: ptr::null_mut(),
-        lpProvider: ptr::null_mut(),
-    };
-
-    let result = unsafe {
-        WNetAddConnection2W(
-            &net_resource,
-            ptr::null(),  // Use stored credentials
-            ptr::null(),  // Use current user
-            CONNECT_UPDATE_PROFILE,
-        )
-    };
-
-    if result == NO_ERROR || result == ERROR_ALREADY_ASSIGNED {
-        eprintln!("[NET] Successfully reconnected {} -> {} (result={})", local_path, remote_path, result);
-        true
-    } else {
-        eprintln!("[NET] WNetAddConnection2W failed for {} -> {} with error: {}", local_path, remote_path, result);
-        false
-    }
 }
 
 /// Fast check if a network drive is accessible (only 2 methods, no reconnection attempts)
@@ -444,120 +386,6 @@ async fn check_network_drive_with_timeout(path: String, timeout_secs: u64) -> (S
             (path, false) // timeout
         }
     }
-}
-
-/// Check if a network drive is accessible (may trigger reconnection)
-#[cfg(target_os = "windows")]
-fn check_network_drive_accessible(path: &str) -> bool {
-    check_network_drive_accessible_with_remote(path, None)
-}
-
-/// Check if a network drive is accessible, optionally trying to reconnect using remote path
-#[cfg(target_os = "windows")]
-fn check_network_drive_accessible_with_remote(path: &str, remote_path: Option<&str>) -> bool {
-    use std::fs;
-
-    eprintln!("[NET] Checking network drive: {}", path);
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetDiskFreeSpaceExW(
-            directory: *const u16,
-            free_bytes_available: *mut u64,
-            total_bytes: *mut u64,
-            total_free_bytes: *mut u64,
-        ) -> i32;
-        fn GetFileAttributesW(file_name: *const u16) -> u32;
-        fn GetLastError() -> u32;
-    }
-
-    const INVALID_FILE_ATTRIBUTES: u32 = 0xFFFFFFFF;
-
-    // Method 1: Try GetDiskFreeSpaceExW (often triggers reconnection)
-    let mut path_wide: Vec<u16> = path.encode_utf16().collect();
-    path_wide.push(0);
-
-    let mut free_bytes: u64 = 0;
-    let mut total_bytes: u64 = 0;
-    let mut total_free: u64 = 0;
-
-    let disk_space_ok = unsafe {
-        GetDiskFreeSpaceExW(
-            path_wide.as_ptr(),
-            &mut free_bytes,
-            &mut total_bytes,
-            &mut total_free,
-        )
-    } != 0;
-
-    if disk_space_ok {
-        eprintln!("[NET] {} accessible via GetDiskFreeSpaceExW (space: {}/{})", path, free_bytes, total_bytes);
-        debug!("Network drive {} accessible via GetDiskFreeSpaceExW", path);
-        return true;
-    }
-
-    let last_error = unsafe { GetLastError() };
-    eprintln!("[NET] {} GetDiskFreeSpaceExW failed with error code: {}", path, last_error);
-
-    // Method 2: Try GetFileAttributesW (lighter check)
-    let attrs = unsafe { GetFileAttributesW(path_wide.as_ptr()) };
-    if attrs != INVALID_FILE_ATTRIBUTES {
-        eprintln!("[NET] {} accessible via GetFileAttributesW (attrs: 0x{:x})", path, attrs);
-        debug!("Network drive {} accessible via GetFileAttributesW", path);
-        return true;
-    }
-    let last_error2 = unsafe { GetLastError() };
-    eprintln!("[NET] {} GetFileAttributesW failed with error code: {}", path, last_error2);
-
-    // Method 3: Try to explicitly reconnect the drive if we have the remote path
-    if let Some(remote) = remote_path {
-        if try_reconnect_network_drive(path, remote) {
-            // Retry after reconnection
-            let disk_space_ok = unsafe {
-                GetDiskFreeSpaceExW(
-                    path_wide.as_ptr(),
-                    &mut free_bytes,
-                    &mut total_bytes,
-                    &mut total_free,
-                )
-            } != 0;
-
-            if disk_space_ok {
-                eprintln!("[NET] {} accessible after reconnection (space: {}/{})", path, free_bytes, total_bytes);
-                debug!("Network drive {} accessible after WNetAddConnection2W", path);
-                return true;
-            }
-        }
-    }
-
-    // Method 4: Try std::fs::metadata
-    match fs::metadata(path) {
-        Ok(meta) => {
-            eprintln!("[NET] {} accessible via fs::metadata (is_dir: {})", path, meta.is_dir());
-            debug!("Network drive {} accessible via fs::metadata", path);
-            return true;
-        }
-        Err(e) => {
-            eprintln!("[NET] {} fs::metadata failed: {} (kind: {:?})", path, e, e.kind());
-        }
-    }
-
-    // Method 5: Try read_dir
-    let drive_path = std::path::Path::new(path);
-    match drive_path.read_dir() {
-        Ok(_entries) => {
-            eprintln!("[NET] {} accessible via read_dir", path);
-            debug!("Network drive {} accessible via read_dir", path);
-            return true;
-        }
-        Err(e) => {
-            eprintln!("[NET] {} read_dir failed: {} (kind: {:?})", path, e, e.kind());
-        }
-    }
-
-    eprintln!("[NET] {} NOT accessible after all attempts", path);
-    debug!("Network drive {} not accessible after all attempts", path);
-    false
 }
 
 /// Enumerate network connections (mapped drives and remembered connections)
@@ -969,7 +797,7 @@ pub async fn check_pre_scan_overlap(
 
     for known in &known_drives {
         // Skip if checking against the same drive
-        if known.path.to_uppercase() == drive_path.to_uppercase() {
+        if paths_equal(&known.path, &drive_path) {
             continue;
         }
 

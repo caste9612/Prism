@@ -6,6 +6,11 @@
   import { formatBytes, formatNumber } from '$lib/utils/format';
   import { onMount, onDestroy } from 'svelte';
 
+  // Debug logger - only logs in development mode
+  const debug = import.meta.env.DEV
+    ? (...args: unknown[]) => debug(...args)
+    : () => {};
+
   // Components
   import Toast from '$lib/components/common/Toast.svelte';
   import Modal from '$lib/components/common/Modal.svelte';
@@ -127,7 +132,7 @@
       scanProgress = event.payload;
 
       // Debug: log all progress events with indexing info
-      console.log('Scan progress received:', {
+      debug('Scan progress received:', {
         current_path: scanProgress?.current_path,
         has_indexing: 'indexing' in (scanProgress || {}),
         indexing: scanProgress?.indexing,
@@ -143,7 +148,7 @@
         const driveKeys = Object.keys(drives);
         if (driveKeys.length > 0) {
           const summary = driveKeys.map(k => `${k}:${Math.round(drives[k]?.progress_percent ?? 0)}%`).join(', ');
-          console.log('[driveProgress]', summary);
+          debug('[driveProgress]', summary);
         }
       }
 
@@ -151,10 +156,10 @@
         // During auto-scan, NEVER set isScanning=false here - let auto-scan-complete handle it
         // This prevents race conditions where scan-complete arrives after phase change
         if (!isAutoScan) {
-          console.log('[UI] Manual scan complete, setting isScanning=false');
+          debug('[UI] Manual scan complete, setting isScanning=false');
           isScanning = false;
         } else {
-          console.log('[UI] Auto-scan phase complete (phase=%s), waiting for auto-scan-complete', autoScanPhase);
+          debug('[UI] Auto-scan phase complete (phase=%s), waiting for auto-scan-complete', autoScanPhase);
         }
 
         if (scanProgress.error) {
@@ -174,10 +179,10 @@
       // During auto-scan, ALWAYS ignore scan-complete - let auto-scan-complete handle it
       // This prevents race conditions where scan-complete arrives after phase change
       if (isAutoScan) {
-        console.log('[UI] Ignoring scan-complete during auto-scan (phase=%s)', autoScanPhase);
+        debug('[UI] Ignoring scan-complete during auto-scan (phase=%s)', autoScanPhase);
         return;
       }
-      console.log('[UI] scan-complete received (manual scan), setting isScanning=false');
+      debug('[UI] scan-complete received (manual scan), setting isScanning=false');
       isScanning = false;
       stopScanTimer();
       await stats.load();
@@ -197,7 +202,7 @@
     // Listen for incremental scan progress
     unlistenIncrementalProgress = await listen<IncrementalProgress>('incremental-progress', (event) => {
       incrementalProgress = event.payload;
-      console.log('[UI] Incremental progress:', incrementalProgress?.phase, 'percent:', incrementalProgress?.percent?.toFixed(1),
+      debug('[UI] Incremental progress:', incrementalProgress?.phase, 'percent:', incrementalProgress?.percent?.toFixed(1),
                   'autoScanPhase:', autoScanPhase, 'isAutoScan:', isAutoScan);
 
       // When incremental scan completes
@@ -206,10 +211,10 @@
           // During auto-scan, DON'T reset incrementalProgress here
           // The auto-scan-phase handler will reset it when switching phases
           // And auto-scan-complete will reset it at the end
-          console.log('[UI] Auto-scan phase complete (phase=%s), waiting for next phase...', autoScanPhase);
+          debug('[UI] Auto-scan phase complete (phase=%s), waiting for next phase...', autoScanPhase);
         } else {
           // Manual scan completion - reset everything after a brief delay
-          console.log('[UI] Manual scan complete, resetting...');
+          debug('[UI] Manual scan complete, resetting...');
           stopScanTimer();
           setTimeout(() => {
             incrementalProgress = null;
@@ -223,13 +228,13 @@
 
     // Listen for auto-scan phase changes
     unlistenAutoScanPhase = await listen<{ phase: string; has_network: boolean; paths: string[] }>('auto-scan-phase', (event) => {
-      console.log('[UI] Auto-scan phase received:', event.payload.phase, 'paths:', event.payload.paths.length);
+      debug('[UI] Auto-scan phase received:', event.payload.phase, 'paths:', event.payload.paths.length);
       autoScanPhase = event.payload.phase as 'local' | 'network' | 'all';
       autoScanHasNetwork = event.payload.has_network;
 
       // IMPORTANT: Set isScanning = true when scan starts
       isScanning = true;
-      console.log('[UI] After phase change: isScanning=%s, autoScanPhase=%s', isScanning, autoScanPhase);
+      debug('[UI] After phase change: isScanning=%s, autoScanPhase=%s', isScanning, autoScanPhase);
 
       // Reset progress for new scan
       incrementalProgress = null;
@@ -238,7 +243,7 @@
 
     // Listen for auto-scan complete - MUST be set up BEFORE startAutoScan() is called
     unlistenAutoScanComplete = await listen<{ results: string }>('auto-scan-complete', async (event) => {
-      console.log('[UI] Auto-scan complete:', event.payload);
+      debug('[UI] Auto-scan complete:', event.payload);
       autoScanPhase = null;
       autoScanHasNetwork = false;
       isAutoScan = false;
@@ -258,7 +263,7 @@
     // Listen for queue system state updates
     unlistenQueueSystemState = await listen<QueueSystemState>('queue-system-state', (event) => {
       queueSystemState = event.payload;
-      console.log('[Queue] System state updated:', {
+      debug('[Queue] System state updated:', {
         scanner_busy: queueSystemState?.scanner_busy,
         current_scan: queueSystemState?.current_scan,
         queue_size: queueSystemState?.scan_queue?.length ?? 0
@@ -275,7 +280,7 @@
       indexed_files: number;
     }>('drive-status-change', (event) => {
       const { drive_path, drive_name, event_type, is_indexed } = event.payload;
-      console.log('[Drive Monitor] Status change:', event.payload);
+      debug('[Drive Monitor] Status change:', event.payload);
 
       if (event_type === 'online') {
         notify(`${drive_name} is now online`, 'info');
@@ -300,7 +305,7 @@
       files_indexed: number;
       scan_id: number;
     }>('queue-scan-complete', async (event) => {
-      console.log('[Queue] Scan complete:', event.payload);
+      debug('[Queue] Scan complete:', event.payload);
       notify(`Scan complete: ${event.payload.drive_path} (${formatNumber(event.payload.files_indexed)} files)`, 'success');
       await stats.load();
       loadAnalytics();
@@ -314,9 +319,9 @@
     // Initialize queue system and drive monitor
     try {
       await invoke('init_queue_system');
-      console.log('[Queue] System initialized');
+      debug('[Queue] System initialized');
       await invoke('start_drive_monitor', { intervalSeconds: 5 });
-      console.log('[Drive Monitor] Started');
+      debug('[Drive Monitor] Started');
     } catch (e) {
       console.error('[Queue] Failed to initialize:', e);
     }

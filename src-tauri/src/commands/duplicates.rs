@@ -100,8 +100,10 @@ pub async fn find_duplicates(
     // Drop sender to signal progress thread to finish
     drop(tx);
 
-    // Wait for progress thread to complete
-    let _ = progress_thread.join();
+    // Wait for progress thread to complete and handle potential panics
+    if let Err(e) = progress_thread.join() {
+        error!("Progress thread panicked: {:?}", e);
+    }
 
     let total_wasted_space: i64 = groups.iter().map(|g| g.wasted_space).sum();
     let detection_time_ms = start.elapsed().as_millis() as u64;
@@ -345,6 +347,7 @@ pub async fn find_similar_images(
 
     // Compute perceptual hashes for images that don't have them
     let mut hashes: HashMap<i64, (String, String, i64, u64)> = HashMap::new();
+    let mut new_hashes: Vec<(i64, Vec<u8>)> = Vec::new();
 
     for (id, path, name, size, existing_hash) in image_files {
         let phash = if let Some(hash_bytes) = existing_hash {
@@ -364,10 +367,7 @@ pub async fn find_similar_images(
             match compute_dhash(path_obj) {
                 Ok(hash) => {
                     let hash_bytes = hash.to_le_bytes().to_vec();
-                    let _ = conn.execute(
-                        "UPDATE files SET perceptual_hash = ?1 WHERE id = ?2",
-                        rusqlite::params![hash_bytes, id],
-                    );
+                    new_hashes.push((id, hash_bytes));
                     hash
                 }
                 Err(e) => {
@@ -378,6 +378,21 @@ pub async fn find_similar_images(
         };
 
         hashes.insert(id, (path, name, size, phash));
+    }
+
+    // Batch update all new hashes in a single transaction
+    if !new_hashes.is_empty() {
+        let _ = conn.execute("BEGIN IMMEDIATE", []);
+        {
+            let mut stmt = conn
+                .prepare_cached("UPDATE files SET perceptual_hash = ?1 WHERE id = ?2")
+                .map_err(|e| e.to_string())?;
+            for (id, hash_bytes) in &new_hashes {
+                let _ = stmt.execute(rusqlite::params![hash_bytes, id]);
+            }
+        }
+        let _ = conn.execute("COMMIT", []);
+        info!("Batch updated {} perceptual hashes", new_hashes.len());
     }
 
     info!("Computed {} perceptual hashes", hashes.len());
