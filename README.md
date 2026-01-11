@@ -45,6 +45,8 @@ Scan millions of files in seconds, find duplicates, and visualize your storage l
 - Scans **50,000+ files/second** on SSDs
 - **Incremental scanning** - only process changed files after first scan
 - **Smart scanning** - automatically chooses between full and incremental
+- **Queue-based architecture** - decoupled scanning with work queues
+- **Selective auto-scan** - only updates known drives at startup
 
 ### Powerful Search
 - **Unified Quick Search** - Single search experience via search bar or `Ctrl+Space`
@@ -58,6 +60,8 @@ Scan millions of files in seconds, find duplicates, and visualize your storage l
 - **Perceptual hashing** for similar images
 - **Batch deletion** with safety confirmations
 - **Wasted space calculation** per duplicate group
+- **Real-time progress** during detection
+- **Redesigned UI** with file type icons and batch actions
 
 ### Interactive Visualization
 - **Tree View** - Pre-expanded hierarchical view of your files
@@ -70,6 +74,12 @@ Scan millions of files in seconds, find duplicates, and visualize your storage l
 - **Folder aggregation** - View missing files grouped by folder with sizes
 - **Search & filter** - Find specific missing files quickly
 - Perfect for backup validation and migration
+
+### Drive Monitoring
+- **Background drive monitor** - detects drives going online/offline
+- **Auto-queue for scan** - known drives auto-queued when reconnected
+- **Fast network detection** - parallel checks with 2s timeout (was 20s)
+- **Real-time notifications** - UI updates when drives change
 
 ### Logging & Diagnostics
 - **Daily rolling logs** stored in `%LOCALAPPDATA%\Prism\logs`
@@ -191,7 +201,8 @@ Prism/
 │       ├── database/       # SQLite with FTS5
 │       ├── scanner/        # Parallel file walker
 │       ├── search/         # Search engine
-│       └── duplicates/     # Hash-based detection
+│       ├── duplicates/     # Hash-based detection
+│       └── queue_system/   # Queue-based scanning architecture
 └── docs/                   # Documentation
 ```
 
@@ -256,6 +267,11 @@ npm run tauri build    # Production build
 - [x] Storage Explorer V2 with nested treemap
 - [x] Scan progress timer
 - [x] Right-click to open in Explorer
+- [x] Queue-based scanning architecture
+- [x] Drive monitor with auto-queue
+- [x] Network drive optimization (10x faster)
+- [x] Duplicates page redesign with progress
+- [x] Selective auto-scan (known drives only)
 - [ ] Similar images comparison UI
 - [ ] Excel export
 - [ ] Theme toggle (dark/light)
