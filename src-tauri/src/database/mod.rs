@@ -1213,6 +1213,7 @@ impl Database {
                 // Extract folder path from file path
                 if let Some(last_sep) = file_path.rfind('\\') {
                     let mut folder_path = &file_path[..last_sep];
+                    let root_len = get_root_prefix_len(&file_path);
 
                     // Aggregate to this folder and all parent folders
                     loop {
@@ -1220,16 +1221,15 @@ impl Database {
                         entry.0 += size;
                         entry.1 += 1;
 
-                        // Find parent folder
-                        if folder_path.len() <= 3 {
-                            // We're at drive root (e.g., "C:\"), stop
+                        // Find parent folder - stop if at root
+                        if folder_path.len() <= root_len {
                             break;
                         }
 
-                        if let Some(parent_sep) = folder_path[..folder_path.len()].rfind('\\') {
-                            if parent_sep < 3 {
-                                // Parent is drive root
-                                folder_path = &folder_path[..3];
+                        if let Some(parent_sep) = folder_path.rfind('\\') {
+                            if parent_sep < root_len {
+                                // Parent is root
+                                folder_path = &folder_path[..root_len];
                             } else {
                                 folder_path = &folder_path[..parent_sep];
                             }
@@ -1581,10 +1581,44 @@ pub struct ScanInfo {
 
 // ========== Path Helper Functions ==========
 
+/// Get the length of the root prefix for a path.
+/// For local paths like "C:\Users", returns 3 (for "C:\").
+/// For UNC paths like "\\server\share\folder", returns the length up to and including the share.
+fn get_root_prefix_len(path: &str) -> usize {
+    if path.starts_with("\\\\") {
+        // UNC path: find the end of \\server\share
+        let without_prefix = &path[2..];
+        let mut sep_count = 0;
+        for (i, c) in without_prefix.char_indices() {
+            if c == '\\' {
+                sep_count += 1;
+                if sep_count == 2 {
+                    // Include the trailing backslash
+                    return 2 + i + 1;
+                }
+            }
+        }
+        // No trailing folder, the entire path is the root
+        path.len()
+    } else if path.len() >= 3 && path.as_bytes().get(1) == Some(&b':') {
+        // Local path like "C:\" or "D:\"
+        3
+    } else {
+        // Unknown format, treat whole path as root
+        path.len()
+    }
+}
+
+/// Check if a path is at its root level (drive root or UNC share root)
+fn is_at_root(path: &str) -> bool {
+    let root_len = get_root_prefix_len(path);
+    // At root if path length equals root prefix length (with or without trailing backslash)
+    path.len() <= root_len || (path.len() == root_len + 1 && path.ends_with('\\'))
+}
+
 /// Get the folder name from a full path
 fn get_folder_name(path: &str) -> String {
-    if path.len() <= 3 {
-        // Drive root (e.g., "C:\")
+    if is_at_root(path) {
         return path.to_string();
     }
 
@@ -1615,26 +1649,28 @@ fn get_drive_root(path: &str) -> String {
 
 /// Get folder depth (0 = drive root, 1 = first level folder, etc.)
 fn get_folder_depth(path: &str) -> i32 {
-    if path.len() <= 3 {
+    let root_len = get_root_prefix_len(path);
+    if path.len() <= root_len {
         return 0;
     }
 
-    // Count backslashes after the drive root
-    let after_root = &path[3..];
+    // Count backslashes after the root prefix
+    let after_root = &path[root_len..];
     after_root.matches('\\').count() as i32
 }
 
-/// Get parent folder path, or None if at drive root
+/// Get parent folder path, or None if at drive/UNC root
 fn get_parent_path(path: &str) -> Option<String> {
-    if path.len() <= 3 {
-        // Already at drive root
+    let root_len = get_root_prefix_len(path);
+    if path.len() <= root_len {
+        // Already at root
         return None;
     }
 
     if let Some(last_sep) = path.rfind('\\') {
-        if last_sep < 3 {
-            // Parent is drive root
-            Some(path[..3].to_string())
+        if last_sep < root_len {
+            // Parent is the root
+            Some(path[..root_len].to_string())
         } else {
             Some(path[..last_sep].to_string())
         }
