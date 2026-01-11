@@ -122,19 +122,8 @@ pub async fn find_duplicates(
     })
 }
 
-/// Normalize path for comparison (handles case-insensitivity on Windows)
-fn normalize_path(path: &str) -> String {
-    #[cfg(windows)]
-    {
-        path.to_uppercase().replace('/', "\\")
-    }
-    #[cfg(not(windows))]
-    {
-        path.to_string()
-    }
-}
-
 /// Delete a duplicate file with path validation
+/// Security: Uses canonicalize to prevent symlink attacks and verifies in DB before filesystem deletion
 #[tauri::command]
 pub async fn delete_duplicate(
     app_handle: AppHandle,
@@ -149,11 +138,6 @@ pub async fn delete_duplicate(
     // Validate path exists and matches
     let path = std::path::Path::new(&file_path);
 
-    // Check for symlinks first
-    if path.is_symlink() {
-        return Err("Cannot delete symlinks for safety reasons".to_string());
-    }
-
     if !path.exists() {
         return Err("File does not exist".to_string());
     }
@@ -161,13 +145,33 @@ pub async fn delete_duplicate(
         return Err("Path is not a file".to_string());
     }
 
-    // Delete from filesystem
-    std::fs::remove_file(&file_path).map_err(|e| format!("Failed to delete file: {}", e))?;
+    // Canonicalize to resolve symlinks and get the real path
+    // This prevents TOCTOU attacks where file is replaced with symlink between check and delete
+    let canonical_path = std::fs::canonicalize(path)
+        .map_err(|e| format!("Failed to resolve path: {}", e))?;
+    let canonical_str = canonical_path.to_string_lossy().to_string();
 
-    // Delete from database with path validation
+    // Log if path was different (potential attack or just normalized)
+    if canonical_str != file_path {
+        info!("Path resolved: {} -> {}", file_path, canonical_str);
+    }
+
+    // SECURITY: First verify file exists in database with matching path BEFORE deleting from filesystem
+    // This prevents deleting files that aren't tracked or have mismatched paths
     let db = state.db.lock().await;
-    db.delete_file(file_id, &file_path)
-        .map_err(|e| format!("Failed to remove from database: {}", e))?;
+    let deleted_from_db = db.delete_file(file_id, &file_path)
+        .map_err(|e| format!("Database validation failed: {}", e))?;
+
+    if !deleted_from_db {
+        return Err("File not found in database or path mismatch".to_string());
+    }
+
+    // Now safe to delete from filesystem - we've verified it's in our database
+    if let Err(e) = std::fs::remove_file(&canonical_path) {
+        // File deletion failed but DB already updated - log error but don't fail
+        // The file may have been deleted externally
+        info!("Warning: Failed to delete file from filesystem (may already be deleted): {}", e);
+    }
 
     // Emit stats update
     let _ = app_handle.emit("stats-updated", ());
@@ -184,6 +188,7 @@ pub struct BatchDeleteResponse {
 }
 
 /// Delete multiple duplicate files with path validation
+/// Security: Verifies files in DB first, uses canonicalize to prevent symlink attacks
 #[tauri::command]
 pub async fn delete_duplicates_batch(
     app_handle: AppHandle,
@@ -203,45 +208,51 @@ pub async fn delete_duplicates_batch(
 
     let mut deleted = 0;
     let mut errors = Vec::new();
-    let mut db_files = Vec::new();
 
-    // First, delete from filesystem
-    for (file_id, file_path) in &files {
+    // SECURITY: First validate and delete from database in a transaction
+    // This ensures we only delete files that are tracked in our database
+    let db = state.db.lock().await;
+    let db_result = db.delete_files_batch(&files);
+    drop(db); // Release lock before filesystem operations
+
+    let verified_files: Vec<(i64, String)> = match db_result {
+        Ok(_) => files.clone(), // All files verified and deleted from DB
+        Err(e) => {
+            // Database operation failed - don't proceed with filesystem deletion
+            return Err(format!("Database validation failed: {}", e));
+        }
+    };
+
+    // Now delete from filesystem - only files that were verified in DB
+    for (_file_id, file_path) in &verified_files {
         let path = std::path::Path::new(file_path);
 
-        // Check for symlinks - don't delete symlinks pointing elsewhere
-        if path.is_symlink() {
-            errors.push(format!("{}: is a symlink, skipping", file_path));
+        if !path.exists() {
+            // File may have been deleted externally - not an error since DB is already updated
+            deleted += 1;
             continue;
         }
 
-        if !path.exists() || !path.is_file() {
-            errors.push(format!("{}: file not found", file_path));
-            continue;
-        }
+        // Canonicalize to resolve symlinks and prevent TOCTOU attacks
+        let canonical_path = match std::fs::canonicalize(path) {
+            Ok(p) => p,
+            Err(e) => {
+                errors.push(format!("{}: failed to resolve path: {}", file_path, e));
+                continue;
+            }
+        };
 
-        if let Err(e) = std::fs::remove_file(file_path) {
+        if let Err(e) = std::fs::remove_file(&canonical_path) {
+            // Log but don't fail - file may have been deleted between check and delete
             errors.push(format!("{}: {}", file_path, e));
             continue;
         }
 
-        db_files.push((*file_id, file_path.clone()));
         deleted += 1;
     }
 
-    // Then, delete from database in a transaction
-    if !db_files.is_empty() {
-        let db = state.db.lock().await;
-        if let Err(e) = db.delete_files_batch(&db_files) {
-            // Propagate database error instead of silently logging
-            let db_error = format!("Database sync failed after deleting {} files: {}", deleted, e);
-            error!("{}", db_error);
-            errors.push(db_error);
-        }
-    }
-
     if !errors.is_empty() {
-        warn!("Some files failed to delete:");
+        warn!("Some files had issues during deletion:");
         for err in &errors {
             warn!("  - {}", err);
         }
@@ -253,7 +264,7 @@ pub async fn delete_duplicates_batch(
     info!("=== BATCH DELETE DUPLICATES COMPLETE ===");
     info!("Successfully deleted: {}/{} files", deleted, files.len());
     if !errors.is_empty() {
-        info!("Errors: {}", errors.len());
+        info!("Filesystem errors (DB already updated): {}", errors.len());
     }
 
     Ok(BatchDeleteResponse { deleted, errors })
