@@ -225,6 +225,80 @@ pub async fn auto_scan_drives(
     Ok(result)
 }
 
+/// Auto-scan ONLY known (previously indexed) drives on startup
+/// Performs incremental scan only, skips new drives
+#[tauri::command]
+pub async fn auto_scan_known_drives(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    info!("=== AUTO SCAN KNOWN DRIVES START ===");
+
+    // Get all ready drives
+    let drives = get_available_drives().await?;
+
+    // Filter ONLY drives that are already in the database (known)
+    let db = state.db.lock().await;
+    let known_paths: Vec<String> = drives
+        .iter()
+        .filter(|d| d.is_ready && db.is_drive_known(&d.path).unwrap_or(false))
+        .map(|d| d.path.clone())
+        .collect();
+    drop(db);
+
+    if known_paths.is_empty() {
+        info!("No known drives to scan - skipping auto-scan");
+        let _ = app_handle.emit("auto-scan-complete", serde_json::json!({
+            "results": "No indexed drives to update"
+        }));
+        return Ok("No known drives to scan".to_string());
+    }
+
+    info!("Auto-scanning {} known drives: {:?}", known_paths.len(), known_paths);
+
+    // Emit auto-scan-phase event
+    let _ = app_handle.emit("auto-scan-phase", serde_json::json!({
+        "phase": "incremental",
+        "has_network": false,
+        "paths": known_paths
+    }));
+
+    // Execute incremental scan for known drives only
+    let request = ScanRequest {
+        paths: known_paths.clone(),
+        exclude_hidden: Some(true),
+        exclude_system: Some(true),
+        exclude_patterns: None,
+        min_file_size: Some(0),
+    };
+
+    let result = match start_incremental_scan(app_handle.clone(), state, request).await {
+        Ok(progress) => {
+            let msg = format!(
+                "Updated {} drives: {} new, {} updated, {} deleted",
+                known_paths.len(),
+                progress.files_new,
+                progress.files_updated,
+                progress.files_deleted
+            );
+            info!("{}", msg);
+            msg
+        }
+        Err(e) => {
+            error!("Incremental scan error: {}", e);
+            format!("Error: {}", e)
+        }
+    };
+
+    // Emit auto-scan complete
+    let _ = app_handle.emit("auto-scan-complete", serde_json::json!({
+        "results": result
+    }));
+
+    info!("=== AUTO SCAN KNOWN DRIVES COMPLETE ===");
+    Ok(result)
+}
+
 /// Smart scan - automatically chooses between full scan and incremental scan
 /// Uses incremental for previously scanned drives, full scan for new drives
 #[tauri::command]
