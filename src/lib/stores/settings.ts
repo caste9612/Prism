@@ -46,24 +46,28 @@ function saveSettings(settings: Settings): void {
 function createSettingsStore() {
   const { subscribe, set, update } = writable<Settings>(loadSettings());
 
-  // Save to localStorage whenever settings change
-  subscribe(settings => {
-    saveSettings(settings);
-  });
+  // Helper to update and persist settings
+  const updateAndSave = (updater: (settings: Settings) => Settings) => {
+    update(settings => {
+      const newSettings = updater(settings);
+      saveSettings(newSettings);
+      return newSettings;
+    });
+  };
 
   return {
     subscribe,
 
     updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => {
-      update(settings => ({ ...settings, [key]: value }));
+      updateAndSave(settings => ({ ...settings, [key]: value }));
     },
 
     setAll: (newSettings: Partial<Settings>) => {
-      update(settings => ({ ...settings, ...newSettings }));
+      updateAndSave(settings => ({ ...settings, ...newSettings }));
     },
 
     addExcludePattern: (pattern: string) => {
-      update(settings => {
+      updateAndSave(settings => {
         if (!settings.excludePatterns.includes(pattern)) {
           return {
             ...settings,
@@ -75,7 +79,7 @@ function createSettingsStore() {
     },
 
     removeExcludePattern: (pattern: string) => {
-      update(settings => ({
+      updateAndSave(settings => ({
         ...settings,
         excludePatterns: settings.excludePatterns.filter(p => p !== pattern),
       }));
@@ -83,6 +87,7 @@ function createSettingsStore() {
 
     reset: () => {
       set(defaultSettings);
+      saveSettings(defaultSettings);
     },
   };
 }
