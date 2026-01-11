@@ -472,6 +472,10 @@
   }
 
   async function startScan() {
+    if (isScanning) {
+      console.warn('Scan already in progress');
+      return;
+    }
     if (selectedDrives.size === 0) return;
 
     // Check if any drives have been scanned before (to check for overlaps)
