@@ -840,7 +840,7 @@
   on:cancel={() => handleOverlapDecision(false)}
 >
   <div slot="content" class="space-y-3">
-    {#each overlapWarning.results as result}
+    {#each overlapWarning.results as result (result.drive_path)}
       <div class="bg-yellow-900/30 border border-yellow-600/50 rounded-lg p-3">
         <div class="flex items-center gap-2 text-yellow-400 font-medium">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -915,7 +915,7 @@
               <span class="text-xs text-gray-500">({indexedDrives.length})</span>
             </div>
             <div class="flex items-center gap-3 overflow-x-auto pb-1">
-              {#each indexedDrives as drive}
+              {#each indexedDrives as drive (drive.path)}
                 {@const scanStatus = getDriveScanStatus(drive)}
                 {@const indexedFiles = drive.indexed_files || getDriveIndexedCount(drive.path)}
                 {@const indexedSize = drive.indexed_size || getDriveIndexedSize(drive.path)}
@@ -1033,7 +1033,7 @@
               <span class="text-xs text-yellow-500/70">({newLocalDrives.length})</span>
             </div>
             <div class="flex items-center gap-3 overflow-x-auto pb-1">
-              {#each newLocalDrives as drive}
+              {#each newLocalDrives as drive (drive.path)}
                 {@const scanStatus = getDriveScanStatus(drive)}
                 {@const driveProgressInfo = driveProgress[drive.path.toUpperCase()]}
                 <button
@@ -1299,7 +1299,7 @@
     <!-- Tabs -->
     <div class="bg-gray-800/30 border-b border-gray-700 px-6">
       <div class="flex gap-1">
-        {#each tabs as tab}
+        {#each tabs as tab (tab.id)}
           <button
             on:click={() => switchTab(tab.id)}
             class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {activeTab === tab.id ? 'border-prism-500 text-white' : 'border-transparent text-gray-400 hover:text-white'}"
@@ -1364,7 +1364,7 @@
                 class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-prism-500"
               >
                 <option value="">Select source drive...</option>
-                {#each driveStats as drive}
+                {#each driveStats as drive (drive.path)}
                   <option value={drive.path}>{drive.path} - {drive.name} ({formatNumber(drive.file_count)} files)</option>
                 {/each}
               </select>
@@ -1374,7 +1374,7 @@
             <div class="mb-6">
               <label class="block text-gray-300 mb-2">Target Drives (backup locations)</label>
               <div class="space-y-2 max-h-48 overflow-y-auto">
-                {#each driveStats.filter(d => d.path !== verifySourceDrive) as drive}
+                {#each driveStats.filter(d => d.path !== verifySourceDrive) as drive (drive.path)}
                   <label class="flex items-center gap-3 p-2 bg-gray-700/50 rounded hover:bg-gray-700 cursor-pointer">
                     <input
                       type="checkbox"
@@ -1498,7 +1498,7 @@
                       Largest Missing Folders ({missingFolders.length} folders from {verifyResult.missingFiles.length} files)
                     </h4>
                     <div class="max-h-80 overflow-y-auto space-y-1">
-                      {#each missingFolders.slice(0, 50) as folder}
+                      {#each missingFolders.slice(0, 50) as folder (folder.path)}
                         <div class="flex items-center gap-2 p-2 bg-gray-700/30 rounded text-sm hover:bg-gray-700/50">
                           <span class="text-yellow-400">📁</span>
                           <span class="text-gray-300 truncate flex-1" title={folder.path}>{folder.path}</span>
@@ -1522,7 +1522,7 @@
                       {/if}
                     </h4>
                     <div class="max-h-80 overflow-y-auto space-y-1">
-                      {#each filteredMissingFiles as file}
+                      {#each filteredMissingFiles as file (file.sourcePath)}
                         <div class="flex items-center gap-2 p-2 bg-gray-700/30 rounded text-sm hover:bg-gray-700/50">
                           <span class="text-red-400">✗</span>
                           <span class="text-gray-300 truncate flex-1" title={file.sourcePath}>{file.name}</span>
@@ -1580,7 +1580,7 @@
               <button on:click={addExcludePattern} class="text-sm text-prism-400 hover:text-prism-300">+ Add</button>
             </div>
             <div class="flex flex-wrap gap-2">
-              {#each tempSettings.excludePatterns as pattern}
+              {#each tempSettings.excludePatterns as pattern (pattern)}
                 <span class="px-3 py-1 bg-gray-700 rounded-lg text-sm text-gray-300 flex items-center gap-2">
                   {pattern}
                   <button on:click={() => removeExcludePattern(pattern)} class="text-gray-500 hover:text-red-400">×</button>
