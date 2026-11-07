@@ -22,18 +22,38 @@ da zero**: questo branch (`rewrite`) sostituirà il ramo principale alla 1.0.
 - **Push**: consentito **solo** per il branch `rewrite` su `origin`, periodicamente (CI e
   backup). Mai force push, mai push di altri branch, mai merge sul ramo principale senza
   approvazione dell'utente.
-- **Autonomia**: si procede tappa dopo tappa senza fermarsi, con un report in
-  `docs/PROGRESS.md` a fine tappa. **Unica sosta obbligatoria**: a fine T3 (prima interfaccia
-  vera) per la revisione dell'utente. Le scelte tecniche (ADR proposte, librerie) si prendono in
-  autonomia sulla base di benchmark e prototipi, documentandole in un'ADR con i dati.
+- **Autonomia totale fino alla 1.0, senza soste** (decisione dell'utente, 2026-11-07
+  pomeriggio). Si procede tappa dopo tappa fino all'ultima voce della roadmap che non richiede
+  l'utente. La sosta di revisione di fine T3 è **annullata**: l'utente fa **una sola revisione
+  finale** (sera del 2026-11-07), guidata da `docs/REVIEW.md`. A fine tappa, report in
+  `docs/PROGRESS.md` come sempre, poi si continua subito.
+- **Non terminare il loop** (niente `ScheduleWakeup` con `stop: true`, niente "mi fermo e
+  aspetto l'utente") finché in roadmap resta lavoro fattibile. Se una voce è bloccata, annotala
+  in `docs/REVIEW.md` §3 e passa alla successiva indipendente. Il loop si chiude solo quando tutto
+  ciò che resta richiede l'utente, con `docs/REVIEW.md` completo.
+- **Decisioni: si prendono in autonomia e si registrano.** Sia quelle tecniche sia quelle di
+  prodotto non ancora prese (punti **[DA CONFERMARE]**, domande aperte del capitolo 8 della SPEC,
+  dettagli di interfaccia e di comportamento): scegli l'opzione più prudente e reversibile,
+  coerente con SPEC e ADR, e **registrala in `docs/REVIEW.md` §1** (decisione, alternative, come
+  cambiarla). Le scelte tecniche importanti restano anche in un'ADR con i dati.
+- **Ciò che richiede davvero l'utente** (certificato di firma Q7, merge sul ramo principale
+  Q11, test su PC pulito, collegamento fisico di dischi, giudizio estetico): prepara tutto il
+  possibile, elencalo in `docs/REVIEW.md` §2 e prosegui con il resto.
 - **Test per ogni criterio.** Ogni criterio `Fxx-ACn` implementato ha un test che ne cita l'ID,
-  oppure una voce nella checklist manuale della tappa.
-- **Mai indebolire un test** per farlo passare. Se la causa di un fallimento non è chiara,
-  fermati e segnalalo.
-- **Fermati e chiedi** sulle decisioni di prodotto non già prese (SPEC, punti
-  **[DA CONFERMARE]** e domande aperte del capitolo 8).
-- **A fine tappa** consegna all'utente: cosa è stato fatto, l'output dei controlli, cosa deve
-  verificare a mano.
+  oppure una voce nella checklist manuale della tappa (riportata anche in `docs/REVIEW.md` §4).
+- **Mai indebolire un test** per farlo passare. Se un fallimento non si spiega: nessun commit
+  con controlli rossi; salva il lavoro incompiuto come patch in `%LOCALAPPDATA%\PrismDev\wip\`,
+  torna all'ultimo stato verde, descrivi il problema in `docs/REVIEW.md` §3 e passa a una voce
+  indipendente.
+
+## Supervisione
+
+Una seconda sessione di Claude Code, non elevata, sorveglia il loop per conto dell'utente:
+controlla git, la CI, `docs/PROGRESS.md` e l'attività della sessione, e può aggiornare questo
+file o `docs/REVIEW.md` con nuove istruzioni. Non può mandarti messaggi diretti (una sessione
+elevata non li riceve), quindi **rileggi CLAUDE.md all'inizio di ogni iterazione** e segui
+sempre la versione più recente. I suoi commit toccano solo documenti; non modificare a mano le
+sue voci in `docs/REVIEW.md`, aggiungi le tue.
 
 ## Sicurezza dei dati (vedi `docs/TESTING.md` §1)
 
@@ -58,6 +78,11 @@ stata aperta la sessione; verificalo se conta). I test che richiedono l'amminist
 eseguono sempre con il runner descritto in `docs/TESTING.md` §4 (`schtasks /run /tn
 PrismDevAdminTests`). Con una shell elevata la `SandboxGuard` è ancora più importante: nessuna
 operazione distruttiva fuori dalle cartelle di test.
+
+Igiene dei comandi shell: mai comandi che leggono lo standard input senza riceverlo (per
+esempio `cat > file` senza heredoc o senza `< /dev/null`): restano bloccati fino al timeout (è
+successo il 2026-11-07 alle 15:21, 16 minuti persi). Timeout dei comandi al massimo 10 minuti,
+salvo build o benchmark lunghi noti; quelli lunghi in background.
 
 ## Convenzioni
 

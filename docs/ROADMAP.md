@@ -69,8 +69,8 @@ Criteri coperti: F02-AC3, F04-AC1, F05-AC1/AC2/AC4.
 - [ ] Test e2e con IPC simulato
 
 Criteri coperti: F01, F02, F03, F19, F21 (parziale).
-**Sosta obbligatoria**: a fine T3 lo sviluppo si ferma per la revisione dell'interfaccia da parte
-dell'utente; è l'unica sosta prevista prima della 1.0.
+**Sosta di revisione annullata** (decisione dell'utente, 2026-11-07): lo sviluppo prosegue fino
+alla 1.0 e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
 **Verifica utente**: aspetto e usabilità della schermata catalogo; avvio con Windows.
 
 ## T4 — Spazio

@@ -15,7 +15,7 @@ Lo sviluppo avviene sul PC dell'utente, che contiene dati reali. Per questo:
 | S3 | **Dischi reali solo in lettura.** Scansioni, letture MFT/USN, SMART e benchmark sui dischi reali sono solo letture. |
 | S4 | **Dati di sviluppo separati.** I cataloghi di sviluppo e di test stanno in `%LOCALAPPDATA%\PrismDev\`, mai nella cartella dati dell'app installata. I dati del vecchio Prism (`%APPDATA%\com.prism.diskanalyzer`) non si toccano. |
 | S5 | **Niente prove manuali distruttive su dischi reali.** Quando si prova l'app a mano (cancellazioni, pulizia, copia), lo si fa su cartelle di prova o sul disco virtuale di test. |
-| S6 | **Mai indebolire un test per farlo passare.** Se un test fallisce e la causa non è chiara, ci si ferma e si segnala. |
+| S6 | **Mai indebolire un test per farlo passare.** Se un test fallisce e la causa non è chiara, niente commit: si torna all'ultimo stato verde, si segnala il problema in `docs/REVIEW.md` §3 e si passa a un lavoro indipendente. |
 
 ## 2. Livelli di test
 
@@ -113,7 +113,7 @@ test usano sempre `PRISM_TEST_VOLUME` e mai una lettera fissa.
 - I flussi end-to-end si eseguono anche sull'app vera, pilotando WebView2 via WebDriver
   (`tauri-driver` + `msedgedriver`), oltre che nel browser con IPC simulato.
 - Per i controlli visivi lo sviluppo cattura screenshot della finestra e li esamina; il giudizio
-  estetico finale resta all'utente (sosta di revisione a fine T3).
+  estetico finale resta all'utente (revisione finale, `docs/REVIEW.md`).
 
 ## 5. Tracciabilità
 

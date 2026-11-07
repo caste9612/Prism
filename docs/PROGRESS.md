@@ -18,8 +18,11 @@
   sopravvive al riavvio: lo ricollega il runner stesso; la lettera di unità può cambiare.
 - **Decisioni in sospeso**: Q7 firma del codice (utente, entro T10), Q11 ramo principale (T10).
   ADR-0010 (indice di ricerca) e ADR-0013 (video) le decide lo sviluppo con benchmark e prototipi.
-- **Modalità di lavoro**: autonomia completa; unica sosta per la revisione a fine T3; push
-  consentito solo del branch `rewrite` (vedi CLAUDE.md).
+- **Modalità di lavoro** (aggiornata 2026-11-07, ~15:30): autonomia totale **senza soste**
+  fino alla 1.0; la sosta di fine T3 è annullata; le decisioni si prendono in autonomia e si
+  registrano in `docs/REVIEW.md`, che guida l'unica revisione dell'utente (stasera). Una
+  sessione di supervisione sorveglia il loop. Push consentito solo del branch `rewrite` (vedi
+  CLAUDE.md).
 
 ## Diario
 
