@@ -81,6 +81,13 @@ fn folder_path(mount: &Path, rel: &str) -> PathBuf {
     copy::to_path(mount, rel)
 }
 
+/// Whether `inner` is `outer` or inside it, comparing whole components without case (so
+/// `F:\Foto2` is not inside `F:\Foto`).
+pub fn nested(inner: &Path, outer: &Path) -> bool {
+    let lower = |p: &Path| PathBuf::from(p.to_string_lossy().to_lowercase());
+    lower(inner).starts_with(lower(outer))
+}
+
 /// What a copy needs, checked (F15-AC1).
 struct CopyPlan {
     source_volume: VolumeId,
@@ -286,10 +293,7 @@ impl AppState {
             dest_root.push(c);
         }
         // Copying a folder into itself would never end and is not a backup.
-        let lower = |p: &Path| p.to_string_lossy().to_lowercase();
-        if lower(&dest_root).starts_with(&lower(&source_root))
-            || lower(&source_root).starts_with(&lower(&dest_root))
-        {
+        if nested(&dest_root, &source_root) || nested(&source_root, &dest_root) {
             return Err(ApiError::new("copy_overlap", dest_root.display()));
         }
         // Development builds write only inside their sandbox (CLAUDE.md).
@@ -437,5 +441,22 @@ fn log_copies(state: &AppState, plan: &CopyPlan, report: &CopyReport) {
         .collect();
     if !records.is_empty() {
         let _ = state.store.write(move |w| store::log_actions(w, &records));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nesting_compares_whole_components() {
+        assert!(nested(Path::new(r"F:\Foto\2019"), Path::new(r"f:\foto")));
+        assert!(nested(Path::new(r"F:\Foto"), Path::new(r"F:\Foto")));
+        assert!(!nested(Path::new(r"F:\Foto2"), Path::new(r"F:\Foto")));
+        assert!(!nested(
+            Path::new(r"F:\prism-t6x"),
+            Path::new(r"F:\prism-t6")
+        ));
+        assert!(!nested(Path::new(r"G:\Foto"), Path::new(r"F:\Foto")));
     }
 }

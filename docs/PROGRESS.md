@@ -37,6 +37,15 @@
   contenuto, totali per stato usati come filtri, albero). 4 Vitest, 5 Playwright.
 - Dai test e2e: il percorso della destinazione si aggiornava solo uscendo dal campo, e
   l'anteprima restava quella vecchia; ora segue la digitazione.
+- Prova sull'app vera, solo su PRISMTEST (pilotata con UI Automation): sorgente
+  `F:\prism-t6`, backup `F:\prism-t7-backup` con una sola foto copiata; la verifica ha trovato
+  la foto per contenuto e due file mancanti in `Documenti`; anteprima (2 file, 2,7 MB, 4,3 GB
+  liberi), copia verificata con le date originali, nuova verifica: "Ogni file ha una copia"
+  (per metadati, finché l'analisi del contenuto non passa sulle copie). Ne sono venuti tre
+  miglioramenti: la verifica si ripete da sola dopo una copia (quando il catalogo della
+  destinazione è aggiornato); senza file mancanti l'albero vuoto non compare; il controllo
+  "destinazione dentro la sorgente" confronta componenti interi (`F:\prism-t6x` non è dentro
+  `F:\prism-t6`), con test.
 
 **Report di fine tappa T7**
 

@@ -34,8 +34,12 @@ const COMPARED: Item[] = [
 
 const tally = (items: Item[]): TallyView => ({ files: items.length, bytes: items.reduce((a, i) => a + i.size, 0) });
 
+/** The file the simulated copy fails on. */
+export const FAILING_COPY = 'Foto\\2023\\scan.pdf';
+
 export function mockBackup(volumes: () => VolumeView[]) {
   const reports = new Map<number, Report>();
+  const copied = new Set<string>();
   let next = 1;
   const keep = (r: Report) => {
     reports.set(next, r);
@@ -60,7 +64,13 @@ export function mockBackup(volumes: () => VolumeView[]) {
       if (destinations.some((d) => same(source, d))) throw { code: 'backup_overlap', message: '' };
       volume(source.volumeId);
       destinations.forEach((d) => volume(d.volumeId));
-      const items = MISSING.map(([rel, size]) => ({ rel, size, status: 'missing', other: null, evidence: null }));
+      const items = MISSING.filter(([rel]) => !copied.has(rel)).map(([rel, size]) => ({
+        rel,
+        size,
+        status: 'missing',
+        other: null,
+        evidence: null,
+      }));
       const id = keep({ kind: 'verify', source, items });
       return {
         reportId: id,
@@ -116,6 +126,11 @@ export function mockBackup(volumes: () => VolumeView[]) {
       const bytes = (t: TallyView[]) => t.reduce((a, x) => a + x.bytes, 0);
       view.folders.sort((x, y) => bytes(y.tallies) - bytes(x.tallies));
       return view;
+    },
+    /** The copy of a check is over: everything but the failing file now has a copy. */
+    copied(reportId: number) {
+      const r = get(reportId);
+      r.items.filter((i) => i.rel !== FAILING_COPY).forEach((i) => copied.add(i.rel));
     },
     preview(reportId: number, dest: SideInput): CopyPreviewView {
       const r = get(reportId);

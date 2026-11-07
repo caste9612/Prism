@@ -36,7 +36,9 @@
   // F13: check.
   let source = $state<SideInput>({ volumeId: 0, folder: '' });
   let destinations = $state<SideInput[]>([]);
-  let checked = $state<{ summary: VerifySummaryView; source: SideInput } | null>(null);
+  let checked = $state<{ summary: VerifySummaryView; source: SideInput; destinations: SideInput[] } | null>(null);
+  // After a copy the check runs again by itself, once the destination catalog is refreshed.
+  let recheck = $state(false);
   let busy = $state(false);
 
   // F14: comparison.
@@ -66,12 +68,14 @@
     return () => off?.();
   });
 
-  async function runCheck() {
+  async function runCheck(src: SideInput = source, dests: SideInput[] = destinations, keepOutcome = false) {
     busy = true;
     try {
-      const summary = await backend.backupVerify({ ...source }, destinations.map((d) => ({ ...d })));
-      checked = { summary, source: { ...source } };
-      copyOutcome = null;
+      const copySrc = { ...src };
+      const copyDests = dests.map((d) => ({ ...d }));
+      const summary = await backend.backupVerify(copySrc, copyDests);
+      checked = { summary, source: copySrc, destinations: copyDests };
+      if (!keepOutcome) copyOutcome = null;
     } catch (e) {
       onerror(errorMessage(e));
     } finally {
@@ -132,9 +136,18 @@
         if (copyJobId === id) {
           copyOutcome = r;
           copyJobId = null;
+          if (r && (r.copied > 0 || r.renamed > 0)) recheck = true;
         }
       });
     }
+  });
+
+  $effect(() => {
+    if (!recheck || !checked) return;
+    const refreshing = jobs.some((j) => j.kind === 'refresh' && (j.state === 'running' || j.state === 'queued'));
+    if (refreshing) return;
+    recheck = false;
+    void runCheck(checked.source, checked.destinations, true);
   });
 
   const statusLabels = $derived(STATUSES.map((s) => ({ key: s, label: t(`backup.status.${s}`) })));
@@ -181,7 +194,7 @@
           <Icon name="plus" size={14} /> {t('backup.addDestination')}
         </button>
         <span class="spacer"></span>
-        <button class="primary" onclick={runCheck} disabled={busy}>{busy ? t('backup.running') : t('backup.runVerify')}</button>
+        <button class="primary" onclick={() => runCheck()} disabled={busy}>{busy ? t('backup.running') : t('backup.runVerify')}</button>
       </div>
     </div>
 
@@ -245,14 +258,16 @@
         </div>
       {/if}
 
-      {#key checked.summary.reportId}
-        <ResultTree
-          reportId={checked.summary.reportId}
-          classes={[{ key: 'missing', label: t('backup.missingLabel') }]}
-          rootName={nameOf(checked.source)}
-          {onerror}
-        />
-      {/key}
+      {#if checked.summary.missing.files > 0}
+        {#key checked.summary.reportId}
+          <ResultTree
+            reportId={checked.summary.reportId}
+            classes={[{ key: 'missing', label: t('backup.missingLabel') }]}
+            rootName={nameOf(checked.source)}
+            {onerror}
+          />
+        {/key}
+      {/if}
     {/if}
   {:else}
     <div class="panel">

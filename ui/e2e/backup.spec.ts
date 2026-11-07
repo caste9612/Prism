@@ -66,6 +66,8 @@ test('F13-AC5, F15-AC2/AC5: copy of the missing files with preview and outcome',
   await expect(outcome).toContainText('Not copied: 1');
   await expect(outcome).toContainText('Access denied');
   await expect(outcome.getByRole('button', { name: 'Resume the copy' })).toBeVisible();
+  // The check runs again by itself: only the file that failed is still missing.
+  await expect(page.getByRole('status', { name: 'Result for Data' })).toContainText('Without a copy: 1 files, 1.2 MB');
 });
 
 test('F15-AC1: no copy from a disconnected source', async ({ page }) => {

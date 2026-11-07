@@ -10,7 +10,7 @@ import type { Backend, Unlisten } from './api';
 import { cardJob } from './catalog';
 import { mockCleanupScan, mockDeleteEntries } from './mock-cleanup';
 import { mockDeleteDuplicates, mockDuplicates } from './mock-duplicates';
-import { mockBackup } from './mock-backup';
+import { FAILING_COPY, mockBackup } from './mock-backup';
 import type { CopyResultView } from './bindings/CopyResultView';
 import { mockSearch } from './mock-search';
 import { mockHasEntry, mockLargestFiles, mockSpaceFolder, mockTypeStats } from './mock-space';
@@ -192,7 +192,8 @@ export function mockBackend(): Backend {
         job.done = Math.min(preview.bytes, job.done + step);
         if (job.done >= preview.bytes) {
           clearInterval(timer);
-          copyResults.set(job.id, { copied: preview.files - 1, renamed: 0, alreadyThere: 0, skipped: 0, failed: [{ path: 'Foto\\2023\\scan.pdf', error: 'Access denied (os error 5)' }], bytes: preview.bytes, interrupted: false });
+          backup.copied(reportId);
+          copyResults.set(job.id, { copied: preview.files - 1, renamed: 0, alreadyThere: 0, skipped: 0, failed: [{ path: FAILING_COPY, error: 'Access denied (os error 5)' }], bytes: preview.bytes, interrupted: false });
           job.state = 'done';
         }
         emitJobs();
