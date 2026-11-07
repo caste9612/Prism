@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 
-use prism_core::model::{EntryId, Volume, VolumeId};
+use prism_core::model::{EntryId, Volume};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -34,8 +34,11 @@ pub struct SimilarFileView {
     pub height: Option<u32>,
     #[ts(type = "number")]
     pub size: u64,
+    /// Length of a video.
+    #[ts(type = "number | null")]
+    pub duration_ms: Option<u64>,
     pub online: bool,
-    /// Bits different from the first image of the group (0: same print).
+    /// Bits different from the first of the group (per frame, on average, for videos).
     pub distance: u32,
 }
 
@@ -54,9 +57,9 @@ pub struct SimilarView {
     pub groups: Vec<SimilarGroupView>,
     #[ts(type = "number")]
     pub total_groups: u64,
-    /// Images not printed yet on the indexed disks: more groups may appear.
+    /// Images (or videos) not printed yet on the indexed disks: more groups may appear.
     #[ts(type = "number")]
-    pub pending_images: u64,
+    pub pending: u64,
 }
 
 /// Disk name, location and mount of a volume.
@@ -102,17 +105,6 @@ impl Thumbnails {
     }
 }
 
-/// Orders the members of a group: the largest resolution first (most likely the original),
-/// then by entry.
-pub fn order_members(members: &mut [(VolumeId, EntryId, Option<u32>, Option<u32>)]) {
-    members.sort_by_key(|(_, e, w, h)| {
-        (
-            std::cmp::Reverse(u64::from(w.unwrap_or(0)) * u64::from(h.unwrap_or(0))),
-            *e,
-        )
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,16 +117,5 @@ mod tests {
         }
         assert!(cache.get(EntryId(0)).is_none());
         assert!(cache.get(EntryId(THUMB_CACHE as i64 + 4)).is_some());
-    }
-
-    #[test]
-    fn largest_image_first() {
-        let mut m = vec![
-            (VolumeId(1), EntryId(5), Some(100), Some(100)),
-            (VolumeId(1), EntryId(3), Some(400), Some(300)),
-            (VolumeId(2), EntryId(1), None, None),
-        ];
-        order_members(&mut m);
-        assert_eq!(m.iter().map(|x| x.1.0).collect::<Vec<_>>(), [3, 5, 1]);
     }
 }

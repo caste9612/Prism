@@ -335,6 +335,29 @@ pub async fn similar_images(
     blocking(move || s.similar_images(max_distance, volume_id.map(VolumeId))).await
 }
 
+/// Groups of similar videos on every disk (F12), optionally with a copy on one volume.
+#[tauri::command]
+pub async fn similar_videos(
+    state: State<'_, Arc<AppState>>,
+    max_distance: u32,
+    volume_id: Option<i64>,
+) -> R<SimilarView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.similar_videos(max_distance, volume_id.map(VolumeId))).await
+}
+
+/// A JPEG thumbnail of the middle frame of a connected video, as raw bytes (F12).
+#[tauri::command]
+pub async fn video_thumbnail(
+    state: State<'_, Arc<AppState>>,
+    volume_id: i64,
+    entry_id: i64,
+) -> R<tauri::ipc::Response> {
+    let s = Arc::clone(&state);
+    let jpeg = blocking(move || s.video_thumbnail(VolumeId(volume_id), EntryId(entry_id))).await?;
+    Ok(tauri::ipc::Response::new(jpeg))
+}
+
 /// A JPEG thumbnail of a connected image, as raw bytes (F11-AC3).
 #[tauri::command]
 pub async fn image_thumbnail(

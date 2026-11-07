@@ -462,8 +462,8 @@
     "emptyLevel": "Niente qui con questi filtri."
   },
   "similar": {
-    "title": "Immagini simili",
-    "subtitle": "Foto e immagini che si somigliano anche se ridimensionate, ricompresse o ritoccate, su tutti i tuoi dischi.",
+    "title": "Simili",
+    "subtitle": "Foto, immagini e video che si somigliano anche se ridimensionati, ricodificati o ritoccati, su tutti i tuoi dischi.",
     "refresh": "Aggiorna",
     "loading": "Cerco le immagini simili…",
     "nothing": "Nessuna immagine simile con questa impostazione.",
@@ -481,6 +481,11 @@
     "noPreview": "Disco non collegato: nessuna anteprima",
     "open": "Mostra in Esplora risorse",
     "more": "Mostra altri gruppi",
-    "capped": "Sono mostrati i {count} gruppi più grandi."
+    "capped": "Sono mostrati i {count} gruppi più grandi.",
+    "tabImages": "Immagini",
+    "tabVideos": "Video",
+    "pendingVideos": "L'analisi del contenuto deve ancora leggere {count} video: potrebbero comparire altri gruppi.",
+    "summaryVideos": "{count} gruppi di video simili",
+    "videos": "{count} video"
   }
 }

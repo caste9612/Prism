@@ -129,11 +129,15 @@ Criteri coperti: F06-AC1…AC6, F10-AC1…AC5, F16-AC3/AC4, F19-AC2, F21-AC3.
 Criteri coperti: F13-AC1…AC5, F14-AC1…AC3, F15-AC1…AC5.
 **Verifica utente**: checklist T7 in `docs/REVIEW.md` §4 (copie solo verso il disco di test).
 
-## T8 — Media
+## T8 — Media  `[x]`
 
 - [x] Immagini simili con indice per distanza di Hamming, inclusi i RAW (F11)
-- [~] Prototipi e decisione per i video (ADR-0013, accettata: Media Foundation), poi video
-      simili (F12): decisione presa; impronte, job e schermata da fare
+- [x] Prototipi e decisione per i video (ADR-0013, accettata: Media Foundation), poi video
+      simili (F12)
+
+Criteri coperti: F11-AC1…AC4, F12-AC1…AC3 (F12-AC2 con i codec di Windows: HEVC solo con
+l'estensione dello Store, REVIEW L15).
+**Verifica utente**: checklist T8 in `docs/REVIEW.md` §4.
 
 ## T9 — Integrazione con il sistema
 

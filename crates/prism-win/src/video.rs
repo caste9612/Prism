@@ -105,7 +105,9 @@ fn output(reader: &IMFSourceReader, subtype: &GUID) -> Result<(), VideoError> {
     Ok(())
 }
 
-fn open(path: &Path) -> Result<(IMFSourceReader, Pixels), VideoError> {
+/// Opens the first video stream, as NV12 when `nv12` and the decoder offers it, otherwise as
+/// 32-bit RGB.
+fn open(path: &Path, nv12: bool) -> Result<(IMFSourceReader, Pixels), VideoError> {
     let mut attributes: Option<IMFAttributes> = None;
     // SAFETY: `attributes` receives a new attribute store.
     unsafe { MFCreateAttributes(&raw mut attributes, 1) }?;
@@ -117,7 +119,7 @@ fn open(path: &Path) -> Result<(IMFSourceReader, Pixels), VideoError> {
         reader.SetStreamSelection(VIDEO_STREAM, true)?;
         reader
     };
-    let pixels = if output(&reader, &MFVideoFormat_NV12).is_ok() {
+    let pixels = if nv12 && output(&reader, &MFVideoFormat_NV12).is_ok() {
         Pixels::Nv12
     } else {
         output(&reader, &MFVideoFormat_RGB32)?;
@@ -126,17 +128,10 @@ fn open(path: &Path) -> Result<(IMFSourceReader, Pixels), VideoError> {
     Ok((reader, pixels))
 }
 
-/// Luma of a locked frame: the Y plane of NV12, or the grey level of each RGB32 pixel.
-fn luma(
-    base: *const u8,
-    pitch: i32,
-    len: usize,
-    width: u32,
-    height: u32,
-    pixels: Pixels,
-) -> Vec<u8> {
-    let (w, h) = (width as usize, height as usize);
-    let mut out = vec![0u8; w * h];
+/// The rows of a locked frame, `row_len` bytes each, top row first.
+fn rows(base: *const u8, pitch: i32, len: usize, row_len: usize, height: u32) -> Vec<u8> {
+    let h = height as usize;
+    let mut out = vec![0u8; row_len * h];
     let step = pitch.unsigned_abs() as usize;
     for y in 0..h {
         // A negative pitch means the rows are stored bottom-up from `base`.
@@ -145,7 +140,6 @@ fn luma(
         } else {
             (y * step) as isize
         };
-        let row_len = if pixels == Pixels::Nv12 { w } else { w * 4 };
         // With a positive pitch the rows must lie inside the locked length; a negative pitch
         // comes from `Lock2D`, which guarantees `height` rows.
         if pitch >= 0 && offset as usize + row_len > len {
@@ -154,20 +148,40 @@ fn luma(
         // SAFETY: the caller locked a buffer of `len` bytes (positive pitch) or a 2D buffer
         // whose rows are `pitch` apart starting at `base`; each row read is `row_len` bytes.
         let row = unsafe { std::slice::from_raw_parts(base.offset(offset), row_len) };
-        let dst = &mut out[y * w..(y + 1) * w];
-        match pixels {
-            Pixels::Nv12 => dst.copy_from_slice(row),
-            Pixels::Rgb32 => {
-                for (d, p) in dst.iter_mut().zip(row.chunks_exact(4)) {
-                    // BT.601 weights, B G R order.
-                    let v =
-                        (u32::from(p[2]) * 77 + u32::from(p[1]) * 150 + u32::from(p[0]) * 29) >> 8;
-                    *d = v as u8;
-                }
-            }
-        }
+        out[y * row_len..(y + 1) * row_len].copy_from_slice(row);
     }
     out
+}
+
+/// The pixels of a decoded sample: one byte per pixel for NV12 (its luma plane), four for RGB32.
+fn copy_pixels(
+    sample: &IMFSample,
+    width: u32,
+    height: u32,
+    pixels: Pixels,
+) -> Result<Vec<u8>, VideoError> {
+    let row_len = width as usize * if pixels == Pixels::Nv12 { 1 } else { 4 };
+    // SAFETY: the sample is valid; its buffer is locked while read and unlocked right after.
+    unsafe {
+        let buffer: IMFMediaBuffer = sample.ConvertToContiguousBuffer()?;
+        if let Ok(two_d) = buffer.cast::<IMF2DBuffer>() {
+            let mut scan0: *mut u8 = std::ptr::null_mut();
+            let mut pitch = 0i32;
+            two_d.Lock2D(&raw mut scan0, &raw mut pitch)?;
+            let len = pitch.unsigned_abs() as usize * height as usize;
+            let out = rows(scan0, pitch, len, row_len, height);
+            two_d.Unlock2D()?;
+            Ok(out)
+        } else {
+            let mut data: *mut u8 = std::ptr::null_mut();
+            let mut len = 0u32;
+            buffer.Lock(&raw mut data, None, Some(&raw mut len))?;
+            let pitch = i32::try_from(row_len).unwrap_or(i32::MAX);
+            let out = rows(data, pitch, len as usize, row_len, height);
+            buffer.Unlock()?;
+            Ok(out)
+        }
+    }
 }
 
 fn copy_frame(
@@ -176,35 +190,110 @@ fn copy_frame(
     height: u32,
     pixels: Pixels,
 ) -> Result<Frame, VideoError> {
-    // SAFETY: the sample is valid; its buffer is locked while read and unlocked right after.
-    unsafe {
-        let buffer: IMFMediaBuffer = sample.ConvertToContiguousBuffer()?;
-        let luma = if let Ok(two_d) = buffer.cast::<IMF2DBuffer>() {
-            let mut scan0: *mut u8 = std::ptr::null_mut();
-            let mut pitch = 0i32;
-            two_d.Lock2D(&raw mut scan0, &raw mut pitch)?;
-            let len = pitch.unsigned_abs() as usize * height as usize;
-            let out = luma(scan0, pitch, len, width, height, pixels);
-            two_d.Unlock2D()?;
-            out
-        } else {
-            let mut data: *mut u8 = std::ptr::null_mut();
-            let mut len = 0u32;
-            buffer.Lock(&raw mut data, None, Some(&raw mut len))?;
-            let pitch = i32::try_from(if pixels == Pixels::Nv12 {
-                width
-            } else {
-                width * 4
+    let data = copy_pixels(sample, width, height, pixels)?;
+    let luma = match pixels {
+        Pixels::Nv12 => data,
+        // BT.601 weights, B G R order.
+        Pixels::Rgb32 => data
+            .chunks_exact(4)
+            .map(|p| {
+                ((u32::from(p[2]) * 77 + u32::from(p[1]) * 150 + u32::from(p[0]) * 29) >> 8) as u8
             })
-            .unwrap_or(i32::MAX);
-            let out = luma(data, pitch, len as usize, width, height, pixels);
-            buffer.Unlock()?;
-            out
-        };
-        Ok(Frame {
-            width,
-            height,
-            luma,
+            .collect(),
+    };
+    Ok(Frame {
+        width,
+        height,
+        luma,
+    })
+}
+
+/// Duration (100 ns units) and frame size of an open reader.
+fn describe(reader: &IMFSourceReader) -> Result<(u64, u32, u32), VideoError> {
+    // SAFETY: plain COM calls on a valid reader; the PROPVARIANT is owned here.
+    unsafe {
+        let d = reader
+            .GetPresentationAttribute(MF_SOURCE_READER_MEDIASOURCE.0 as u32, &MF_PD_DURATION)?;
+        let duration = u64::try_from(&d).map_err(|_| VideoError::NoDuration)?;
+        let current = reader.GetCurrentMediaType(VIDEO_STREAM)?;
+        let size = current.GetUINT64(&MF_MT_FRAME_SIZE)?;
+        Ok((duration, (size >> 32) as u32, (size & 0xFFFF_FFFF) as u32))
+    }
+}
+
+/// Seeks to `target` (100 ns units) and returns the first frame at or after it, decoding at
+/// most `max_after_seek` frames past the key frame the seek lands on.
+fn read_at(
+    reader: &IMFSourceReader,
+    target: i64,
+    max_after_seek: usize,
+) -> Result<Option<IMFSample>, VideoError> {
+    let position = PROPVARIANT::from(target);
+    // SAFETY: plain COM calls; the outputs are locals that outlive the calls.
+    unsafe {
+        reader.SetCurrentPosition(&GUID::zeroed(), &position)?;
+        let mut found = None;
+        for _ in 0..=max_after_seek {
+            let mut flags = 0u32;
+            let mut timestamp = 0i64;
+            let mut sample: Option<IMFSample> = None;
+            reader.ReadSample(
+                VIDEO_STREAM,
+                0,
+                None,
+                Some(&raw mut flags),
+                Some(&raw mut timestamp),
+                Some(&raw mut sample),
+            )?;
+            if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
+                break;
+            }
+            if let Some(s) = sample {
+                found = Some(s);
+                if timestamp >= target {
+                    break;
+                }
+            }
+        }
+        Ok(found)
+    }
+}
+
+/// A colour frame at `fraction` of the video, top row first, 4 bytes per pixel (B, G, R,
+/// unused): the thumbnail of a similar video (F12).
+///
+/// # Errors
+/// [`VideoError`] when the video cannot be opened or decoded.
+pub fn frame_bgrx(path: &Path, fraction: f64) -> Result<(u32, u32, Vec<u8>), VideoError> {
+    let _session = MfSession::start()?;
+    let (reader, pixels) = open(path, false)?;
+    let (duration, width, height) = describe(&reader)?;
+    let target = (duration as f64 * fraction.clamp(0.0, 1.0)) as i64;
+    let sample = read_at(&reader, target, 30)?.ok_or(VideoError::NoFrame)?;
+    Ok((width, height, copy_pixels(&sample, width, height, pixels)?))
+}
+
+/// The decoder of the video prints in the app (F12-AC3): frames at the points of the print,
+/// at the exact time (ADR-0013).
+pub struct MfVideoDecoder;
+
+impl prism_core::media::video::VideoDecoder for MfVideoDecoder {
+    fn print(&self, path: &Path) -> Result<prism_core::media::video::VideoPrint, String> {
+        let v = sample_frames(path, &prism_core::media::video::POINTS, 300)
+            .map_err(|e| e.to_string())?;
+        let frames: Vec<u64> = v
+            .frames
+            .iter()
+            .filter_map(|f| prism_core::media::dhash_luma(f.width, f.height, &f.luma))
+            .collect();
+        if frames.len() != prism_core::media::video::POINTS.len() {
+            return Err("some frames could not be decoded".to_owned());
+        }
+        Ok(prism_core::media::video::VideoPrint {
+            duration_ms: v.duration_ms,
+            width: v.width,
+            height: v.height,
+            frames,
         })
     }
 }
@@ -221,52 +310,15 @@ pub fn sample_frames(
     max_after_seek: usize,
 ) -> Result<VideoFrames, VideoError> {
     let _session = MfSession::start()?;
-    let (reader, pixels) = open(path)?;
-    // SAFETY: plain COM calls on a valid reader; the PROPVARIANT is owned here.
-    let (duration, width, height) = unsafe {
-        let d = reader
-            .GetPresentationAttribute(MF_SOURCE_READER_MEDIASOURCE.0 as u32, &MF_PD_DURATION)?;
-        let duration = u64::try_from(&d).map_err(|_| VideoError::NoDuration)?;
-        let current = reader.GetCurrentMediaType(VIDEO_STREAM)?;
-        let size = current.GetUINT64(&MF_MT_FRAME_SIZE)?;
-        (duration, (size >> 32) as u32, (size & 0xFFFF_FFFF) as u32)
-    };
+    let (reader, pixels) = open(path, true)?;
+    let (duration, width, height) = describe(&reader)?;
     if duration == 0 {
         return Err(VideoError::NoDuration);
     }
     let mut frames = Vec::with_capacity(fractions.len());
     for &f in fractions {
         let target = (duration as f64 * f.clamp(0.0, 1.0)) as i64;
-        let position = PROPVARIANT::from(target);
-        // SAFETY: plain COM calls; the outputs are locals that outlive the calls.
-        let frame = unsafe {
-            reader.SetCurrentPosition(&GUID::zeroed(), &position)?;
-            let mut found = None;
-            for _ in 0..=max_after_seek {
-                let mut flags = 0u32;
-                let mut timestamp = 0i64;
-                let mut sample: Option<IMFSample> = None;
-                reader.ReadSample(
-                    VIDEO_STREAM,
-                    0,
-                    None,
-                    Some(&raw mut flags),
-                    Some(&raw mut timestamp),
-                    Some(&raw mut sample),
-                )?;
-                if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
-                    break;
-                }
-                if let Some(s) = sample {
-                    found = Some(s);
-                    if timestamp >= target {
-                        break;
-                    }
-                }
-            }
-            found
-        };
-        if let Some(sample) = frame {
+        if let Some(sample) = read_at(&reader, target, max_after_seek)? {
             frames.push(copy_frame(&sample, width, height, pixels)?);
         }
     }
@@ -281,15 +333,23 @@ pub fn sample_frames(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Synthetic clips encoded with the encoders of Windows, for the tests of this crate and of the
+/// app (feature `test-support`).
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing {
+    use std::path::Path;
+
     use windows::Win32::Media::MediaFoundation::{
-        IMFSinkWriter, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE,
-        MF_MT_INTERLACE_MODE, MF_MT_PIXEL_ASPECT_RATIO, MFCreateMemoryBuffer, MFCreateSample,
-        MFCreateSinkWriterFromURL, MFVideoFormat_H264, MFVideoFormat_WMV3,
+        IMFMediaType, IMFSinkWriter, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE,
+        MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_PIXEL_ASPECT_RATIO,
+        MF_MT_SUBTYPE, MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample,
+        MFCreateSinkWriterFromURL, MFMediaType_Video, MFVideoFormat_RGB32,
         MFVideoInterlace_Progressive,
     };
+    pub use windows::Win32::Media::MediaFoundation::{MFVideoFormat_H264, MFVideoFormat_WMV3};
+    use windows::core::{GUID, HSTRING};
+
+    use super::MfSession;
 
     const FPS: u32 = 25;
     const SECONDS: u32 = 4;
@@ -314,7 +374,12 @@ mod tests {
     }
 
     /// Encodes the clip with the encoders of Windows (H.264 in MP4, or WMV9).
-    fn write_clip(path: &Path, w: u32, h: u32, bitrate: u32, subtype: &GUID, alt: bool) {
+    /// Encodes the clip (`alt` draws another one) at `w`×`h` and `bitrate`.
+    ///
+    /// # Panics
+    /// When Windows cannot encode it.
+    #[allow(clippy::unwrap_used)]
+    pub fn write_clip(path: &Path, w: u32, h: u32, bitrate: u32, subtype: &GUID, alt: bool) {
         let _session = MfSession::start().unwrap();
         // SAFETY: plain COM calls on valid interfaces; the buffer is locked while written.
         unsafe {
@@ -373,6 +438,12 @@ mod tests {
             writer.Finalize().unwrap();
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::{MFVideoFormat_H264, MFVideoFormat_WMV3, write_clip};
+    use super::*;
 
     fn prints(path: &Path) -> (u64, Vec<u64>) {
         let v = sample_frames(path, &[0.1, 0.3, 0.5, 0.7, 0.9], 300).unwrap();
@@ -420,5 +491,30 @@ mod tests {
         let text = dir.path().join("notes.mp4");
         std::fs::write(&text, b"not a video").unwrap();
         assert!(sample_frames(&text, &[0.5], 0).is_err());
+    }
+
+    // F12: the colour frame of the thumbnails and the decoder of the background job.
+    #[test]
+    fn colour_frames_and_the_print_decoder() {
+        use prism_core::media::video::VideoDecoder;
+
+        let dir = tempfile::tempdir().unwrap();
+        let clip = dir.path().join("clip.mp4");
+        write_clip(&clip, 320, 180, 500_000, &MFVideoFormat_H264, false);
+        let (w, h, bgrx) = frame_bgrx(&clip, 0.5).unwrap();
+        assert_eq!((w, h), (320, 180));
+        assert_eq!(bgrx.len(), 320 * 180 * 4);
+        // The synthetic gradient is not uniform: the frame is not empty.
+        assert!(
+            bgrx.chunks_exact(4).any(|p| p[0] > 100) && bgrx.chunks_exact(4).any(|p| p[0] < 100)
+        );
+        let print = MfVideoDecoder.print(&clip).unwrap();
+        assert_eq!(print.frames.len(), prism_core::media::video::POINTS.len());
+        assert_eq!((print.width, print.height), (320, 180));
+        assert!(
+            MfVideoDecoder
+                .print(&dir.path().join("missing.mp4"))
+                .is_err()
+        );
     }
 }

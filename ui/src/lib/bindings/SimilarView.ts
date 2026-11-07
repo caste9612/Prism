@@ -3,6 +3,6 @@ import type { SimilarGroupView } from "./SimilarGroupView";
 
 export type SimilarView = { groups: Array<SimilarGroupView>, totalGroups: number, 
 /**
- * Images not printed yet on the indexed disks: more groups may appear.
+ * Images (or videos) not printed yet on the indexed disks: more groups may appear.
  */
-pendingImages: number, };
+pending: number, };

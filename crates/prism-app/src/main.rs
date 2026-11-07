@@ -199,6 +199,8 @@ fn main() {
             commands::copy_result,
             commands::similar_images,
             commands::image_thumbnail,
+            commands::similar_videos,
+            commands::video_thumbnail,
             commands::reveal_entry,
             commands::remove_volume,
             commands::get_settings,

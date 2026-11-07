@@ -24,11 +24,13 @@ pub struct HashStatus {
     pub hashed: u64,
     pub images: u64,
     pub printed: u64,
+    pub videos: u64,
+    pub videos_printed: u64,
 }
 
 impl HashStatus {
     fn pending(&self) -> bool {
-        self.hashed < self.total || self.printed < self.images
+        self.hashed < self.total || self.printed < self.images || self.videos_printed < self.videos
     }
 }
 
@@ -90,6 +92,14 @@ impl HashingState {
             .sum()
     }
 
+    /// Videos still without a print on the volumes counted so far.
+    pub fn pending_videos(&self) -> u64 {
+        self.status()
+            .values()
+            .map(|(s, _)| s.videos.saturating_sub(s.videos_printed))
+            .sum()
+    }
+
     /// Whether hashing must stop now (between two files).
     pub fn should_pause(&self) -> bool {
         self.paused.load(Ordering::Relaxed)
@@ -103,14 +113,17 @@ pub fn refresh(state: &AppState, volume: VolumeId) {
         Ok((
             store::hash_progress(c, volume)?,
             media::print_progress(c, volume)?,
+            media::video::video_progress(c, volume)?,
         ))
     });
-    if let Ok(((total, hashed), (images, printed))) = counted {
+    if let Ok(((total, hashed), (images, printed), (videos, videos_printed))) = counted {
         let status = HashStatus {
             total,
             hashed,
             images,
             printed,
+            videos,
+            videos_printed,
         };
         state
             .hashing
@@ -234,6 +247,26 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                             "image prints finished"
                         ),
                         Err(e) => tracing::warn!(volume = id.0, error = %e, "image prints failed"),
+                    }
+                    // And of the videos, decoded by Windows (F12, ADR-0013).
+                    let videos = media::video::print_videos(
+                        &s.store,
+                        id,
+                        &root,
+                        &prism_win::video::MfVideoDecoder,
+                        &ctx.cancel,
+                        &pause,
+                        &ctx.progress,
+                    );
+                    match videos {
+                        Ok(p) => tracing::info!(
+                            volume = id.0,
+                            printed = p.printed,
+                            unreadable = p.unreadable,
+                            interrupted = p.interrupted,
+                            "video prints finished"
+                        ),
+                        Err(e) => tracing::warn!(volume = id.0, error = %e, "video prints failed"),
                     }
                 }
                 refresh(&s, id);

@@ -252,3 +252,102 @@ fn f11_thumbnails_fit_the_requested_size() {
     sb.fs.write(&sb.path("c.jpg"), b"not an image").unwrap();
     assert!(prism_core::media::thumbnail_jpeg(&sb.path("c.jpg"), 160).is_err());
 }
+
+/// Decodes "videos" written by the test: `VID<seed>` gives frames derived from the seed.
+struct FakeDecoder;
+
+impl prism_core::media::video::VideoDecoder for FakeDecoder {
+    fn print(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<prism_core::media::video::VideoPrint, String> {
+        let data = std::fs::read(path).map_err(|e| e.to_string())?;
+        let seed = data
+            .strip_prefix(b"VID")
+            .and_then(|r| r.first())
+            .ok_or("not a video")?;
+        let base = u64::from(*seed) * 0x0101_0101_0101_0101;
+        Ok(prism_core::media::video::VideoPrint {
+            duration_ms: 90_000,
+            width: 1280,
+            height: 720,
+            frames: (0..5).map(|i| base.rotate_left(i * 7)).collect(),
+        })
+    }
+}
+
+// F12-AC1/AC3: the background pass prints the videos (not other files), keeps the undecodable
+// ones marked, and the prints group the same content.
+#[test]
+fn f12_background_video_prints_and_groups() {
+    use prism_core::media::video::{groups, print_videos, video_progress};
+
+    let sb = Sandbox::new();
+    sb.fs.write(&sb.path("a.mp4"), b"VID1 original").unwrap();
+    sb.fs
+        .write(&sb.path("b.mkv"), b"VID1 copy, other size")
+        .unwrap();
+    sb.fs.write(&sb.path("c.avi"), b"VID9").unwrap();
+    sb.fs.write(&sb.path("broken.mp4"), b"garbage").unwrap();
+    sb.fs
+        .write(&sb.path("app.ts"), b"VID1 but TypeScript")
+        .unwrap();
+    let cat = TestCatalog::new();
+    let volume = cat.add_volume(&sb.root().to_string_lossy());
+    cat.index(volume, sb.root());
+
+    let progress = JobProgress::default();
+    let report = print_videos(
+        &cat.store,
+        volume,
+        sb.root(),
+        &FakeDecoder,
+        &CancelToken::new(),
+        &|| false,
+        &progress,
+    )
+    .unwrap();
+    assert_eq!((report.printed, report.unreadable), (3, 1));
+    assert_eq!(
+        cat.store.read(|c| video_progress(c, volume)).unwrap(),
+        (4, 4)
+    );
+    let videos = cat.store.read(store::valid_video_prints).unwrap();
+    assert_eq!(videos.len(), 3);
+    let input: Vec<(u64, &[u64])> = videos
+        .iter()
+        .map(|v| (v.duration_ms, v.frames.as_slice()))
+        .collect();
+    let found = groups(&input, 2.0);
+    assert_eq!(found.len(), 1);
+    let names: Vec<String> = found[0]
+        .iter()
+        .map(|&i| {
+            cat.store
+                .read(|c| store::entry(c, videos[i].entry))
+                .unwrap()
+                .unwrap()
+                .name
+        })
+        .collect();
+    assert_eq!(names, ["a.mp4", "b.mkv"]);
+
+    // A paused pass stops at once and saves nothing more.
+    sb.fs.write(&sb.path("d.mov"), b"VID5").unwrap();
+    cat.index(volume, sb.root());
+    let paused = print_videos(
+        &cat.store,
+        volume,
+        sb.root(),
+        &FakeDecoder,
+        &CancelToken::new(),
+        &|| true,
+        &progress,
+    )
+    .unwrap();
+    assert!(paused.interrupted);
+    assert_eq!(
+        cat.store.read(|c| video_progress(c, volume)).unwrap(),
+        (5, 4)
+    );
+}

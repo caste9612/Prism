@@ -4,8 +4,12 @@ export type SimilarFileView = { entryId: number, volumeId: number, disk: string,
 /**
  * Path relative to the volume root, name included.
  */
-path: string, fullPath: string, width: number | null, height: number | null, size: number, online: boolean, 
+path: string, fullPath: string, width: number | null, height: number | null, size: number, 
 /**
- * Bits different from the first image of the group (0: same print).
+ * Length of a video.
+ */
+durationMs: number | null, online: boolean, 
+/**
+ * Bits different from the first of the group (per frame, on average, for videos).
  */
 distance: number, };

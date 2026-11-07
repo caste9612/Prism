@@ -57,11 +57,11 @@ Archivio SQLite in modalità WAL, nella cartella dati dell'app. Lo schema è ver
 migrazioni SQL incorporate (`crates/prism-core/src/store/migrations/`) e `PRAGMA user_version`;
 una migrazione già pubblicata non si modifica, se ne aggiunge una nuova.
 
-**Schema in uso (versione 6)** — testo completo in `0001_initial.sql`,
+**Schema in uso (versione 7)** — testo completo in `0001_initial.sql`,
 `0002_volume_bus.sql` (aggiunge `bus_type`), `0003_entries_volume_index.sql` (indice sul solo
 volume al posto di `(volume_id, file_ref)`, ADR-0017) e `0004_actions_log.sql` (registro delle
-azioni, T4), `0005_content_hashes.sql` (hash del contenuto, T6) e `0006_image_prints.sql`
-(impronte delle immagini, T8):
+azioni, T4), `0005_content_hashes.sql` (hash del contenuto, T6), `0006_image_prints.sql`
+(impronte delle immagini, T8) e `0007_video_prints.sql` (impronte dei video, T8):
 
 ```sql
 volumes (
@@ -112,6 +112,11 @@ image_prints (entry_id PRIMARY KEY REFERENCES entries ON DELETE CASCADE,
               size, modified_at,      -- lo stato del file per cui l'impronta vale
               dhash,                  -- 64 bit; NULL se il file non si decodifica
               width, height, computed_at) STRICT   -- v6 (T8)
+
+video_prints (entry_id PRIMARY KEY REFERENCES entries ON DELETE CASCADE,
+              size, modified_at, duration_ms, width, height,
+              frames,                 -- 5 impronte da 8 byte; NULL se non si decodifica
+              computed_at) STRICT     -- v7 (T8)
 ```
 
 Le chiavi esterne sono attive sulla connessione di scrittura; `entries` non usa cascate (una
@@ -352,6 +357,18 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   gruppi con più immagini (la più grande per prima, con la distanza dalla prima) e
   `image_thumbnail` una miniatura JPEG di 192 px dei file collegati, come byte grezzi
   (`tauri::ipc::Response`), con una cache in memoria di 600 miniature.
+- **Video simili** (`prism-core::media::video`, `prism-win::video`, T8, F12, ADR-0013): Media
+  Foundation decodifica il primo flusso video (NV12, o RGB32 se il decoder non lo offre); al 10,
+  30, 50, 70 e 90 % della durata si salta e si decodifica fino al fotogramma del tempo esatto (al
+  massimo 300 fotogrammi oltre il fotogramma chiave), si tiene la luminanza e se ne calcola il
+  *difference hash*. L'impronta (durata, dimensioni, 5 hash) si salva in `video_prints` con la
+  stessa regola di validità delle altre. Il nucleo non chiama Windows: riceve il decodificatore
+  come `VideoDecoder` (`MfVideoDecoder` nell'app, uno finto nei test). Due video sono simili se
+  le durate differiscono al massimo di 2 s o del 3 % e la distanza media per fotogramma resta
+  entro la soglia; i gruppi si formano scorrendo i video ordinati per durata. Nell'app le
+  impronte dei video si calcolano nello stesso job, dopo quelle delle immagini; la miniatura è
+  il fotogramma a metà, a colori. Le passate di immagini e video condividono il ciclo
+  (`run_pass`: file invariato prima e dopo la lettura, salvataggio a gruppi, pausa).
 - **Verifica, confronto, copia** (`prism-core::backup`, T7): lavorano sul catalogo, quindi
   anche con i dischi scollegati. `store::subtree_files` legge i file sotto una cartella con il
   percorso relativo e l'hash completo se valido (una CTE ricorsiva sulle cartelle).

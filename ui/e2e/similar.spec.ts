@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test';
 async function openSimilar(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: 'Similar', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Similar images', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Similar', level: 1 })).toBeVisible();
 }
 
 test('F11-AC1/AC3: groups with previews side by side, resolution, size and disk', async ({ page }) => {
@@ -37,4 +37,18 @@ test('F11-AC1: the similarity threshold and the disk filter', async ({ page }) =
   await expect(page.getByText('1 groups of similar images')).toBeVisible();
   await slider.fill('0');
   await expect(page.getByText('No similar images with this setting.')).toBeVisible();
+});
+
+test('F12-AC1: similar videos with length, resolution and previews', async ({ page }) => {
+  await openSimilar(page);
+  await page.getByRole('tab', { name: 'Videos' }).click();
+  await expect(page.getByText('1 groups of similar videos')).toBeVisible();
+  const group = page.getByRole('article', { name: 'Vacanze 2019.mp4' });
+  await expect(group).toContainText('2 videos');
+  await expect(group).toContainText('12:34 · 1920×1080 · 4.2 GB');
+  await expect(group).toContainText('12:35 · 1280×720 · 1.1 GB · difference: 1');
+  await expect(group.getByRole('img', { name: 'Vacanze 2019.mp4' })).toBeVisible();
+  await expect(page.getByText('The content analysis still has 42 videos to read')).toBeVisible();
+  await page.getByRole('tab', { name: 'Images' }).click();
+  await expect(page.getByText('2 groups of similar images')).toBeVisible();
 });

@@ -180,7 +180,9 @@ fn background_hashing_runs_pauses_and_counts() {
             total: 4,
             hashed: 0,
             images: 0,
-            printed: 0
+            printed: 0,
+            videos: 0,
+            videos_printed: 0
         })
     );
     assert!(app.engine.jobs().is_empty());
@@ -208,7 +210,9 @@ fn background_hashing_runs_pauses_and_counts() {
             total: 4,
             hashed: 4,
             images: 0,
-            printed: 0
+            printed: 0,
+            videos: 0,
+            videos_printed: 0
         })
     );
     let card = app.volume_views().unwrap();
@@ -617,7 +621,7 @@ fn similar_images_after_the_background_job() {
 
     let view = app.similar_images(8, None).unwrap();
     assert_eq!(view.total_groups, 1);
-    assert_eq!(view.pending_images, 0);
+    assert_eq!(view.pending, 0);
     let files = &view.groups[0].files;
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].path, r"Foto\big.png");
@@ -647,4 +651,68 @@ fn similar_images_after_the_background_job() {
         "volume_offline"
     );
     assert_eq!(app.similar_images(8, None).unwrap().total_groups, 1);
+}
+
+// F12 in the app: the background job prints the videos after the images; the same clip encoded
+// twice forms a group, another clip does not; thumbnails come from the middle frame.
+#[test]
+fn similar_videos_after_the_background_job() {
+    use prism_core::jobs::JobState;
+    use prism_win::video::testing::{MFVideoFormat_H264, MFVideoFormat_WMV3, write_clip};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let disk = tmp.path().join("disk");
+    std::fs::create_dir_all(disk.join("Video")).unwrap();
+    write_clip(
+        &disk.join("Video").join("gita.mp4"),
+        640,
+        360,
+        2_000_000,
+        &MFVideoFormat_H264,
+        false,
+    );
+    write_clip(
+        &disk.join("gita piccola.wmv"),
+        320,
+        180,
+        400_000,
+        &MFVideoFormat_WMV3,
+        false,
+    );
+    write_clip(
+        &disk.join("altro.mp4"),
+        640,
+        360,
+        2_000_000,
+        &MFVideoFormat_H264,
+        true,
+    );
+
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let (volume, detected) = add_folder_volume(&store, &disk);
+    let app = Arc::new(state(store, true, tmp.path()));
+    app.online().insert(volume, detected);
+    let _ = crate::hash_jobs::tick(&app);
+    let job = app.engine.jobs()[0].id;
+    assert_eq!(app.engine.wait(job).unwrap().state, JobState::Done);
+    let status = app.hashing.progress(volume).unwrap();
+    assert_eq!((status.videos, status.videos_printed), (3, 3));
+
+    let view = app.similar_videos(6, None).unwrap();
+    assert_eq!(view.total_groups, 1);
+    let files = &view.groups[0].files;
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].path, r"Video\gita.mp4", "the largest first");
+    assert_eq!((files[0].width, files[0].height), (Some(640), Some(360)));
+    assert!(
+        files[0]
+            .duration_ms
+            .is_some_and(|d| (3_900..=4_100).contains(&d))
+    );
+    assert!(files[1].distance <= 2);
+    let thumb = app
+        .video_thumbnail(volume, EntryId(files[0].entry_id))
+        .unwrap();
+    let img = image::load_from_memory_with_format(&thumb, image::ImageFormat::Jpeg).unwrap();
+    assert_eq!(img.width(), crate::similar_views::THUMB_SIDE);
 }

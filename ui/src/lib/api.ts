@@ -61,6 +61,9 @@ export interface Backend {
   similarImages(maxDistance: number, volumeId: number | null): Promise<SimilarView>;
   /** A URL for the thumbnail of a connected image, or null. */
   imageThumbnail(volumeId: number, entryId: number): Promise<string | null>;
+  similarVideos(maxDistance: number, volumeId: number | null): Promise<SimilarView>;
+  /** A URL for the thumbnail of a connected video (its middle frame), or null. */
+  videoThumbnail(volumeId: number, entryId: number): Promise<string | null>;
   removeVolume(id: number): Promise<void>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
@@ -68,6 +71,16 @@ export interface Backend {
   onVolumesChanged(handler: () => void): Promise<Unlisten>;
   onSettingsChanged(handler: () => void): Promise<Unlisten>;
   onJobsChanged(handler: (jobs: JobView[]) => void): Promise<Unlisten>;
+}
+
+/** A thumbnail sent as raw JPEG bytes, as an object URL; null when it cannot be made. */
+async function thumbnail(command: string, volumeId: number, entryId: number): Promise<string | null> {
+  try {
+    const jpeg = await invoke<ArrayBuffer>(command, { volumeId, entryId });
+    return URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' }));
+  } catch {
+    return null;
+  }
 }
 
 const tauriBackend: Backend = {
@@ -100,14 +113,9 @@ const tauriBackend: Backend = {
   copyStart: (reportId, dest, renameOnConflict) => invoke('copy_start', { reportId, dest, renameOnConflict }),
   copyResult: (jobId) => invoke('copy_result', { jobId }),
   similarImages: (maxDistance, volumeId) => invoke('similar_images', { maxDistance, volumeId }),
-  imageThumbnail: async (volumeId, entryId) => {
-    try {
-      const jpeg = await invoke<ArrayBuffer>('image_thumbnail', { volumeId, entryId });
-      return URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' }));
-    } catch {
-      return null;
-    }
-  },
+  imageThumbnail: (volumeId, entryId) => thumbnail('image_thumbnail', volumeId, entryId),
+  similarVideos: (maxDistance, volumeId) => invoke('similar_videos', { maxDistance, volumeId }),
+  videoThumbnail: (volumeId, entryId) => thumbnail('video_thumbnail', volumeId, entryId),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),
   setSettings: (settings) => invoke('set_settings', { settings }),

@@ -154,6 +154,35 @@ pub fn thumbnail_jpeg(path: &Path, max: u32) -> Result<Vec<u8>, MediaError> {
     Ok(out)
 }
 
+/// A JPEG thumbnail of a decoded 32-bit frame (B, G, R, unused), for the similar videos.
+///
+/// # Errors
+/// [`MediaError::Decode`] when the frame is malformed or cannot be encoded.
+pub fn thumbnail_bgrx(
+    width: u32,
+    height: u32,
+    bgrx: &[u8],
+    max: u32,
+) -> Result<Vec<u8>, MediaError> {
+    let pixels = width as usize * height as usize;
+    if width == 0 || height == 0 || bgrx.len() < pixels * 4 {
+        return Err(MediaError::Decode("empty frame".to_owned()));
+    }
+    let rgb: Vec<u8> = bgrx
+        .chunks_exact(4)
+        .take(pixels)
+        .flat_map(|p| [p[2], p[1], p[0]])
+        .collect();
+    let img = image::RgbImage::from_raw(width, height, rgb)
+        .ok_or_else(|| MediaError::Decode("bad frame size".to_owned()))?;
+    let small = DynamicImage::ImageRgb8(img).thumbnail(max, max).to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 80)
+        .encode_image(&small)
+        .map_err(|e| MediaError::Decode(e.to_string()))?;
+    Ok(out)
+}
+
 /// What a printing run did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PrintReport {
@@ -201,80 +230,310 @@ pub fn print_volume(
         .into_iter()
         .filter(|s| !s.printed && is_printable(&s.name) && s.size <= MAX_IMAGE_BYTES)
         .collect();
-    progress.set_phase("prints");
+    run_pass(
+        store,
+        root,
+        &todo,
+        "prints",
+        cancel,
+        pause,
+        progress,
+        &|path| print_image(path).map_err(|e| e.to_string()),
+        &|batch: Vec<(store::PrintState, Option<ImagePrint>)>| {
+            let records: Vec<PrintRecord> = batch
+                .into_iter()
+                .map(|(s, p)| PrintRecord {
+                    entry: s.entry,
+                    size: s.size,
+                    modified: s.modified,
+                    dhash: p.map(|p| p.dhash),
+                    width: p.map(|p| p.width),
+                    height: p.map(|p| p.height),
+                })
+                .collect();
+            store.write(move |w| store::set_prints(w, &records, unix_millis_now()))
+        },
+    )
+}
+
+/// The path of a catalog file through `root`, with a cache of the folder paths.
+fn file_path(
+    store: &Store,
+    root: &Path,
+    folders: &mut HashMap<EntryId, PathBuf>,
+    s: &store::PrintState,
+) -> Result<Option<PathBuf>, StoreError> {
+    let Some(parent) = s.parent else {
+        return Ok(None);
+    };
+    let folder = match folders.get(&parent) {
+        Some(p) => p.clone(),
+        None => {
+            let mut p = root.to_path_buf();
+            for part in store
+                .read(|c| store::relative_path(c, parent))?
+                .split('\\')
+                .filter(|p| !p.is_empty())
+            {
+                p.push(names::decode(part));
+            }
+            folders.insert(parent, p.clone());
+            p
+        }
+    };
+    Ok(Some(folder.join(names::decode(&s.name))))
+}
+
+/// Files with their print, or `None` when they could not be decoded.
+type Batch<T> = Vec<(store::PrintState, Option<T>)>;
+
+/// One printing pass over `todo` (images or videos): each file is printed only if it still has
+/// the size and date of the catalog before and after being read (otherwise it is left for after
+/// the next update); results are saved in batches through `save`, an undecodable file with
+/// `None`.
+#[allow(clippy::too_many_arguments)]
+fn run_pass<T>(
+    store: &Store,
+    root: &Path,
+    todo: &[store::PrintState],
+    phase: &str,
+    cancel: &CancelToken,
+    pause: &dyn Fn() -> bool,
+    progress: &JobProgress,
+    compute: &dyn Fn(&Path) -> Result<T, String>,
+    save: &dyn Fn(Batch<T>) -> Result<(), StoreError>,
+) -> Result<PrintReport, MediaError> {
+    progress.set_phase(phase);
     progress.total.store(todo.len() as u64, Ordering::Relaxed);
     progress.done.store(0, Ordering::Relaxed);
     let mut report = PrintReport::default();
     let mut folders: HashMap<EntryId, PathBuf> = HashMap::new();
-    let mut pending: Vec<PrintRecord> = Vec::new();
-    let flush = |pending: &mut Vec<PrintRecord>| -> Result<(), MediaError> {
-        if !pending.is_empty() {
-            let batch = std::mem::take(pending);
-            store.write(move |w| store::set_prints(w, &batch, unix_millis_now()))?;
-        }
-        Ok(())
-    };
-    for s in &todo {
+    let mut pending: Batch<T> = Vec::new();
+    for s in todo {
         if cancel.is_cancelled() || pause() {
             report.interrupted = true;
             break;
         }
-        let Some(parent) = s.parent else { continue };
-        let folder = match folders.get(&parent) {
-            Some(p) => p.clone(),
-            None => {
-                let mut p = root.to_path_buf();
-                for part in store
-                    .read(|c| store::relative_path(c, parent))?
-                    .split('\\')
-                    .filter(|p| !p.is_empty())
-                {
-                    p.push(names::decode(part));
-                }
-                folders.insert(parent, p.clone());
-                p
-            }
+        let Some(path) = file_path(store, root, &mut folders, s)? else {
+            continue;
         };
-        let path = folder.join(names::decode(&s.name));
-        // The print belongs to the state of the file read now; a file that changed since the
-        // catalog was updated is left for after the next update.
         let unchanged = |p: &Path| {
             disk_meta(p)
                 .is_ok_and(|(is_dir, m)| !is_dir && m.size == s.size && m.modified == s.modified)
         };
-        if !unchanged(&path) {
-            report.changed += 1;
-        } else {
-            let result = print_image(&path);
-            if !unchanged(&path) {
-                report.changed += 1;
-            } else {
-                let (dhash, width, height) = match result {
-                    Ok(p) => {
+        if unchanged(&path) {
+            let result = compute(&path);
+            if unchanged(&path) {
+                let value = match result {
+                    Ok(v) => {
                         report.printed += 1;
-                        (Some(p.dhash), Some(p.width), Some(p.height))
+                        Some(v)
                     }
                     Err(e) => {
-                        tracing::debug!(path = %path.display(), error = %e, "image not printed");
+                        tracing::debug!(path = %path.display(), error = %e, "not printed");
                         report.unreadable += 1;
-                        (None, None, None)
+                        None
                     }
                 };
-                pending.push(PrintRecord {
-                    entry: s.entry,
-                    size: s.size,
-                    modified: s.modified,
-                    dhash,
-                    width,
-                    height,
-                });
-                if pending.len() >= 200 {
-                    flush(&mut pending)?;
+                pending.push((s.clone(), value));
+                if pending.len() >= 100 {
+                    save(std::mem::take(&mut pending))?;
                 }
+            } else {
+                report.changed += 1;
             }
+        } else {
+            report.changed += 1;
         }
         progress.done.fetch_add(1, Ordering::Relaxed);
     }
-    flush(&mut pending)?;
+    if !pending.is_empty() {
+        save(pending)?;
+    }
     Ok(report)
+}
+
+/// Videos (F12): extensions, prints and groups.
+pub mod video {
+    use std::path::Path;
+
+    use super::{MediaError, PrintReport, run_pass};
+    use crate::cancel::CancelToken;
+    use crate::jobs::JobProgress;
+    use crate::model::{VolumeId, unix_millis_now};
+    use crate::space;
+    use crate::store::{self, Store, StoreError, VideoPrintRecord};
+
+    /// Containers Prism tries to decode; what Windows cannot decode is marked as such
+    /// (ADR-0013). `.ts` is left out: on a developer's disk it is mostly TypeScript.
+    pub const VIDEO_EXTENSIONS: &[&str] = &[
+        "mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "asf", "mpg", "mpeg", "m2ts", "mts",
+        "3gp", "3g2",
+    ];
+    /// The points of the timeline whose frames make the print.
+    pub const POINTS: [f64; 5] = [0.1, 0.3, 0.5, 0.7, 0.9];
+
+    /// The print of a video: its duration, size and one print per sampled frame.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct VideoPrint {
+        pub duration_ms: u64,
+        pub width: u32,
+        pub height: u32,
+        pub frames: Vec<u64>,
+    }
+
+    /// Decodes the frames of a video at [`POINTS`] and prints them (Media Foundation in the app,
+    /// a fake in the tests).
+    pub trait VideoDecoder {
+        /// # Errors
+        /// A message when the video cannot be decoded.
+        fn print(&self, path: &Path) -> Result<VideoPrint, String>;
+    }
+
+    #[must_use]
+    pub fn is_video(stored_name: &str) -> bool {
+        VIDEO_EXTENSIONS.contains(&space::extension(stored_name).as_str())
+    }
+
+    /// Videos of a volume with and without a valid print (decoded or not).
+    ///
+    /// # Errors
+    /// SQLite errors.
+    pub fn video_progress(
+        conn: &rusqlite::Connection,
+        volume: VolumeId,
+    ) -> Result<(u64, u64), StoreError> {
+        let (mut total, mut done) = (0, 0);
+        for s in store::video_print_states(conn, volume)?
+            .iter()
+            .filter(|s| is_video(&s.name))
+        {
+            total += 1;
+            done += u64::from(s.printed);
+        }
+        Ok((total, done))
+    }
+
+    /// Prints the videos of a volume reached at `root` that have no valid print.
+    ///
+    /// # Errors
+    /// [`MediaError::Store`] if the catalog cannot be read or written.
+    pub fn print_videos(
+        store: &Store,
+        volume: VolumeId,
+        root: &Path,
+        decoder: &dyn VideoDecoder,
+        cancel: &CancelToken,
+        pause: &dyn Fn() -> bool,
+        progress: &JobProgress,
+    ) -> Result<PrintReport, MediaError> {
+        let todo: Vec<store::PrintState> = store
+            .read(|c| store::video_print_states(c, volume))?
+            .into_iter()
+            .filter(|s| !s.printed && is_video(&s.name))
+            .collect();
+        run_pass(
+            store,
+            root,
+            &todo,
+            "videoPrints",
+            cancel,
+            pause,
+            progress,
+            &|path| decoder.print(path),
+            &|batch: Vec<(store::PrintState, Option<VideoPrint>)>| {
+                let records: Vec<VideoPrintRecord> = batch
+                    .into_iter()
+                    .map(|(s, p)| VideoPrintRecord {
+                        entry: s.entry,
+                        size: s.size,
+                        modified: s.modified,
+                        duration_ms: p.as_ref().map(|p| p.duration_ms),
+                        width: p.as_ref().map(|p| p.width),
+                        height: p.as_ref().map(|p| p.height),
+                        frames: p.map(|p| p.frames),
+                    })
+                    .collect();
+                store.write(move |w| store::set_video_prints(w, &records, unix_millis_now()))
+            },
+        )
+    }
+
+    /// Mean Hamming distance of the frame prints, when both have the same number of frames.
+    #[must_use]
+    pub fn mean_distance(a: &[u64], b: &[u64]) -> Option<f64> {
+        if a.is_empty() || a.len() != b.len() {
+            return None;
+        }
+        let total: u32 = a.iter().zip(b).map(|(x, y)| (x ^ y).count_ones()).sum();
+        Some(f64::from(total) / a.len() as f64)
+    }
+
+    /// Whether two durations are close enough for the same content: 2 s or 3 %.
+    #[must_use]
+    pub fn close_durations(a: u64, b: u64) -> bool {
+        a.abs_diff(b) <= (a.max(b) * 3 / 100).max(2_000)
+    }
+
+    /// Groups of videos with close durations and frame prints within `max_mean` bits on average
+    /// (F12-AC1), joined transitively; positions in `videos` (duration, frame prints).
+    #[must_use]
+    pub fn groups(videos: &[(u64, &[u64])], max_mean: f64) -> Vec<Vec<usize>> {
+        let mut order: Vec<usize> = (0..videos.len()).collect();
+        order.sort_by_key(|&i| videos[i].0);
+        let mut parent: Vec<usize> = (0..videos.len()).collect();
+        fn find(parent: &mut [usize], mut x: usize) -> usize {
+            while parent[x] != x {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+            x
+        }
+        for (k, &i) in order.iter().enumerate() {
+            for &j in &order[k + 1..] {
+                if !close_durations(videos[i].0, videos[j].0) {
+                    break;
+                }
+                if mean_distance(videos[i].1, videos[j].1).is_some_and(|d| d <= max_mean) {
+                    let (a, b) = (find(&mut parent, i), find(&mut parent, j));
+                    if a != b {
+                        parent[a.max(b)] = a.min(b);
+                    }
+                }
+            }
+        }
+        let mut by_root: std::collections::HashMap<usize, Vec<usize>> =
+            std::collections::HashMap::new();
+        for i in 0..videos.len() {
+            let r = find(&mut parent, i);
+            by_root.entry(r).or_default().push(i);
+        }
+        let mut out: Vec<Vec<usize>> = by_root.into_values().filter(|g| g.len() > 1).collect();
+        out.sort_by_key(|g| g[0]);
+        out
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn durations_and_groups() {
+            assert!(close_durations(60_000, 61_500));
+            assert!(close_durations(600_000, 617_000));
+            assert!(!close_durations(60_000, 63_000));
+            let a = [1u64, 2, 3, 4, 5];
+            let near = [1u64, 3, 3, 4, 5]; // 1 bit in one frame
+            let far = [!1u64, !2, !3, !4, !5];
+            let videos = [
+                (100_000, &a[..]),
+                (100_900, &near[..]),
+                (100_000, &far[..]),
+                (300_000, &a[..]), // same frames, very different length
+            ];
+            assert_eq!(groups(&videos, 1.0), [vec![0, 1]]);
+            assert_eq!(mean_distance(&a, &near), Some(0.2));
+            assert_eq!(mean_distance(&a, &a[..3]), None);
+        }
+    }
 }

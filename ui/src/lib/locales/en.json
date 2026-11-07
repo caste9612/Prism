@@ -462,8 +462,8 @@
     "emptyLevel": "Nothing here with these filters."
   },
   "similar": {
-    "title": "Similar images",
-    "subtitle": "Photos and pictures that look the same even if resized, recompressed or slightly retouched, on all your disks.",
+    "title": "Similar",
+    "subtitle": "Photos, pictures and videos that look the same even if resized, re-encoded or slightly retouched, on all your disks.",
     "refresh": "Refresh",
     "loading": "Looking for similar images…",
     "nothing": "No similar images with this setting.",
@@ -481,6 +481,11 @@
     "noPreview": "Disk not connected: no preview",
     "open": "Show in Explorer",
     "more": "Show more groups",
-    "capped": "Showing the {count} largest groups."
+    "capped": "Showing the {count} largest groups.",
+    "tabImages": "Images",
+    "tabVideos": "Videos",
+    "pendingVideos": "The content analysis still has {count} videos to read: more groups may appear.",
+    "summaryVideos": "{count} groups of similar videos",
+    "videos": "{count} videos"
   }
 }

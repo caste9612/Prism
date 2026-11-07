@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Similar images (F11): groups of visually similar images on every disk, with thumbnails side
-  // by side (connected disks), resolution, size and where each copy is (F11-AC3); the
-  // similarity threshold is adjustable (F11-AC1).
+  // Similar images (F11) and videos (F12): groups of visually similar files on every disk, with
+  // thumbnails side by side (connected disks), resolution, size, length of the videos and where
+  // each copy is (F11-AC3); the similarity threshold is adjustable (F11-AC1).
   import type { SimilarFileView } from '../lib/bindings/SimilarFileView';
   import type { SimilarView } from '../lib/bindings/SimilarView';
   import type { VolumeView } from '../lib/bindings/VolumeView';
@@ -16,6 +16,7 @@
 
   const lang = $derived(language());
   const PAGE = 30;
+  let kind = $state<'images' | 'videos'>('images');
   let distance = $state(6);
   let volumeId = $state<number | null>(null);
   let view = $state<SimilarView | null>(null);
@@ -26,7 +27,7 @@
   async function load() {
     loading = true;
     try {
-      view = await backend.similarImages(distance, volumeId);
+      view = kind === 'images' ? await backend.similarImages(distance, volumeId) : await backend.similarVideos(distance, volumeId);
       shown = PAGE;
     } catch (e) {
       onerror(errorMessage(e));
@@ -45,7 +46,8 @@
     const io = new IntersectionObserver((entries) => {
       if (!entries.some((e) => e.isIntersecting)) return;
       io.disconnect();
-      void backend.imageThumbnail(file.volumeId, file.entryId).then((url) => {
+      const thumb = file.durationMs === null ? backend.imageThumbnail : backend.videoThumbnail;
+      void thumb(file.volumeId, file.entryId).then((url) => {
         thumbs = { ...thumbs, [file.entryId]: url };
       });
     });
@@ -63,12 +65,25 @@
 
   const details = (f: SimilarFileView) =>
     [
+      f.durationMs !== null ? length(f.durationMs) : null,
       f.width && f.height ? `${f.width}×${f.height}` : null,
       formatBytes(f.size, lang),
       f.distance > 0 ? t('similar.difference', { value: f.distance }) : null,
     ]
       .filter(Boolean)
       .join(' · ');
+  /** 3:07, or 1:02:03 for long videos. */
+  const length = (ms: number) => {
+    const s = Math.round(ms / 1000);
+    const two = (n: number) => String(n).padStart(2, '0');
+    return s >= 3600 ? `${Math.floor(s / 3600)}:${two(Math.floor(s / 60) % 60)}:${two(s % 60)}` : `${Math.floor(s / 60)}:${two(s % 60)}`;
+  };
+  function choose(k: 'images' | 'videos') {
+    if (kind === k) return;
+    kind = k;
+    view = null;
+    void load();
+  }
   const name = (f: SimilarFileView) => f.path.split('\\').pop() ?? f.path;
   const folder = (f: SimilarFileView) => f.path.split('\\').slice(0, -1).join('\\') || '\\';
   const catalogued = $derived(volumes.filter((v) => v.lastIndexedAt !== null));
@@ -82,6 +97,11 @@
     </div>
     <button onclick={load} disabled={loading}><Icon name="refresh" size={15} /> {t('similar.refresh')}</button>
   </header>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected={kind === 'images'} class:active={kind === 'images'} onclick={() => choose('images')}>{t('similar.tabImages')}</button>
+    <button role="tab" aria-selected={kind === 'videos'} class:active={kind === 'videos'} onclick={() => choose('videos')}>{t('similar.tabVideos')}</button>
+  </div>
 
   <div class="controls">
     <label class="threshold">
@@ -117,8 +137,8 @@
     </label>
   </div>
 
-  {#if view && view.pendingImages > 0}
-    <p class="pending" role="status">{t('similar.pending', { count: formatCount(view.pendingImages, lang) })}</p>
+  {#if view && view.pending > 0}
+    <p class="pending" role="status">{t(kind === 'images' ? 'similar.pending' : 'similar.pendingVideos', { count: formatCount(view.pending, lang) })}</p>
   {/if}
 
   {#if view === null}
@@ -126,10 +146,10 @@
   {:else if view.groups.length === 0}
     <p class="empty muted">{t('similar.nothing')}</p>
   {:else}
-    <p class="summary"><strong>{t('similar.summary', { count: formatCount(view.totalGroups, lang) })}</strong></p>
+    <p class="summary"><strong>{t(kind === 'images' ? 'similar.summary' : 'similar.summaryVideos', { count: formatCount(view.totalGroups, lang) })}</strong></p>
     {#each view.groups.slice(0, shown) as g (g.key)}
       <article class="group" aria-label={name(g.files[0]!)}>
-        <h2>{t('similar.images', { count: formatCount(g.files.length, lang) })}</h2>
+        <h2>{t(kind === 'images' ? 'similar.images' : 'similar.videos', { count: formatCount(g.files.length, lang) })}</h2>
         <ul class="tiles">
           {#each g.files as f (f.entryId)}
             <li class="tile" class:offline={!f.online}>
@@ -169,6 +189,24 @@
 </section>
 
 <style>
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tabs button {
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: none;
+    padding: 8px 14px;
+    color: var(--text-2);
+  }
+  .tabs button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
   .similar {
     display: flex;
     flex-direction: column;

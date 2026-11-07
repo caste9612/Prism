@@ -25,9 +25,27 @@ const GROUPS: Sample[][] = [
   ],
 ];
 
+const VIDEO_GROUPS: Sample[][] = [
+  [
+    [901, 2, 'Video\\Vacanze 2019.mp4', 1920, 1080, 4.2 * 1000 * MB, 0],
+    [902, 4, 'Archivio\\Video\\Vacanze 2019 (720p).mkv', 1280, 720, 1.1 * 1000 * MB, 1],
+  ],
+];
+const DURATIONS: Record<number, number> = { 901: 754_000, 902: 755_200 };
+
+export function mockSimilarVideos(volumes: VolumeView[], maxDistance: number, volumeId: number | null): SimilarView {
+  const view = build(VIDEO_GROUPS, volumes, maxDistance, volumeId);
+  view.groups.forEach((g) => g.files.forEach((f) => (f.durationMs = DURATIONS[f.entryId] ?? null)));
+  return { ...view, pending: 42 };
+}
+
 export function mockSimilar(volumes: VolumeView[], maxDistance: number, volumeId: number | null): SimilarView {
+  return build(GROUPS, volumes, maxDistance, volumeId);
+}
+
+function build(source: Sample[][], volumes: VolumeView[], maxDistance: number, volumeId: number | null): SimilarView {
   const byId = new Map(volumes.map((v) => [v.id, v]));
-  const groups = GROUPS.filter((g) => g.filter(([, , , , , , d]) => d <= maxDistance).length > 1)
+  const groups = source.filter((g) => g.filter(([, , , , , , d]) => d <= maxDistance).length > 1)
     .filter((g) => volumeId === null || g.some(([, v]) => v === volumeId))
     .map((g) => {
       const files: SimilarFileView[] = g
@@ -45,13 +63,14 @@ export function mockSimilar(volumes: VolumeView[], maxDistance: number, volumeId
             width,
             height,
             size,
+            durationMs: null,
             online: v?.online ?? false,
             distance,
           };
         });
       return { key: String(files[0]?.entryId ?? 0), files };
     });
-  return { groups, totalGroups: groups.length, pendingImages: 3_210 };
+  return { groups, totalGroups: groups.length, pending: 3_210 };
 }
 
 /** A placeholder thumbnail: a gradient whose colour follows the group. */

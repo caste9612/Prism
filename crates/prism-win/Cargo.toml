@@ -46,6 +46,8 @@ tempfile.workspace = true
 [features]
 # Tests that need administrator rights; run through the admin runner (docs/TESTING.md §4).
 admin-tests = []
+# Helpers for the tests of other crates (synthetic video clips).
+test-support = []
 
 [lints]
 workspace = true

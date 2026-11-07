@@ -5,10 +5,10 @@
 
 ## Stato attuale
 
-- **Tappa**: T7 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: T8 — media: immagini simili con indice per distanza di Hamming, RAW
-  compresi (F11, fatto); video simili (F12) con Media Foundation (ADR-0013, decisa).
-  Nessuna sosta.
+- **Tappa**: T8 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
+- **Prossimo passo**: T9 — integrazione con il sistema: salute dei dischi (SMART), menu
+  contestuale di Esplora risorse, diagnostica, scelta per le identità ambigue (L7), reset del
+  catalogo (F21-AC4). Nessuna sosta.
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -23,6 +23,29 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T8 completata: video simili
+
+- Schema v7: `video_prints`. `prism-core::media::video`: estensioni, passata in background con
+  un `VideoDecoder` (il nucleo resta senza Windows), gruppi per durata e distanza media; la
+  passata delle immagini e quella dei video condividono ora lo stesso ciclo.
+- `prism-win::video`: `MfVideoDecoder` per le impronte, `frame_bgrx` per le miniature a colori;
+  le clip di prova codificate con gli encoder di Windows sono disponibili anche ai test
+  dell'app (funzione `test-support`).
+- App: il job di background calcola le impronte dei video dopo quelle delle immagini; comandi
+  `similar_videos` e `video_thumbnail`. Interfaccia: scheda *Video* in *Simili*, con durata.
+- Test: unitari dei gruppi, passata con decodificatore finto, test dell'app con clip H.264 e
+  WMV vere (stessa clip in due formati raggruppata, l'altra no), e2e della scheda.
+
+**Report di fine tappa T8**
+
+- Fatto: immagini simili (impronte percettive, RAW dall'anteprima incorporata, BK-tree, soglia
+  regolabile, anteprime affiancate) e video simili (Media Foundation scelta con un prototipo e
+  misure sui video reali, 5 fotogrammi per video, durata e risoluzione, miniature).
+- Criteri coperti da test automatici: F11-AC1…AC4, F12-AC1…AC3.
+- Controlli: `scripts/check.ps1` verde.
+- Limiti: video HEVC solo con l'estensione di Windows (L15); unità di rete non analizzate (L13).
+- Verifica manuale per l'utente: checklist T8 in `docs/REVIEW.md` §4.
 
 ### 2026-11-07 — T8: prototipo video, ADR-0013 decisa (Media Foundation)
 
