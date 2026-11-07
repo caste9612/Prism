@@ -5,25 +5,39 @@
 
 ## Stato attuale
 
-- **Tappa**: T9 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: T10 — distribuzione e 1.0: installer (con registrazione delle voci del
-  menu di Esplora risorse e dell'attività pianificata), aggiornamenti, prestazioni finali,
-  documentazione utente. Firma del codice (Q7) e merge sul ramo principale (Q11) richiedono
-  l'utente.
-- **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
-  `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
-  `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
-  sopravvive al riavvio: lo ricollega il runner stesso; la lettera di unità può cambiare.
-- **Decisioni in sospeso**: Q7 firma del codice (utente, entro T10), Q11 ramo principale (T10).
-  ADR-0010 (indice di ricerca) e ADR-0013 (video, Media Foundation) decise con benchmark e
-  prototipi.
+- **Tappa**: T10 — tutto il lavoro che non richiede l'utente è fatto (2026-11-07). Il branch
+  `rewrite` è su GitHub con la CI verde.
+- **Prossimo passo**: la revisione dell'utente, guidata da `docs/REVIEW.md` §0: provare l'app
+  di sviluppo con le checklist (§4), poi chiavi degli aggiornamenti (U7) e firma del codice
+  (U1), prova dell'installer su un PC pulito (U3), merge sul ramo principale e 1.0 (U2).
+- **Bloccanti**: nessuno. Il resto della roadmap richiede l'utente.
+- **Decisioni in sospeso**: Q7 firma del codice (U1), Q11 ramo principale (U2).
 - **Modalità di lavoro** (aggiornata 2026-11-07, ~15:30): autonomia totale **senza soste**
-  fino alla 1.0; la sosta di fine T3 è annullata; le decisioni si prendono in autonomia e si
-  registrano in `docs/REVIEW.md`, che guida l'unica revisione dell'utente (stasera). Una
-  sessione di supervisione sorveglia il loop. Push consentito solo del branch `rewrite` (vedi
-  CLAUDE.md).
+  fino alla 1.0; le decisioni si prendono in autonomia e si registrano in `docs/REVIEW.md`, che
+  guida l'unica revisione dell'utente. Push consentito solo del branch `rewrite` (vedi
+  CLAUDE.md). Il runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo
+  rimuove (U6).
 
 ## Diario
+
+### 2026-11-07 — T10 completata (lavoro autonomo)
+
+**Report di fine tappa T10**
+
+- Fatto: installer NSIS con menu di Esplora risorse, attività di avvio e scelta di tenere il
+  catalogo (D46); aggiornamenti firmati, installati solo su conferma, e manifest firmato dallo
+  script di rilascio (D47); chiusura pulita del catalogo all'uscita (L16); NF2 e NF3 misurati
+  con 5,7 milioni di voci e memoria dell'analisi del contenuto ridotta (D48, L17); istantanea
+  `ScanTree` compatta (D49, L1); aggiornamento dal journal con elenchi parziali (D50, L4); file
+  compressi e sparsi verificati nel lettore MFT (L2); documentazione per l'utente nel README.
+- Criteri coperti: F22-AC1/AC2 (installer costruito e controllato nello script generato;
+  installazione da provare su un PC pulito), F22-AC3, F18-AC3 (agganci dell'installer), NF2,
+  NF3, NF4 (uscita pulita), NF6.
+- Controlli: `scripts/check.ps1` verde (ora anche clippy sui test elevati); test elevati
+  passati sul disco PRISMTEST; test lungo del journal passato; CI verde su GitHub.
+- Resta all'utente: U1 firma, U2 merge e 1.0, U3 prova su un PC pulito con la checklist T10,
+  U4 dischi fisici, U5 giudizio sull'interfaccia, U6 rimozione del runner, U7 chiavi e
+  pubblicazione degli aggiornamenti.
 
 ### 2026-11-07 — T10: file compressi e sparsi nel lettore MFT (L2)
 

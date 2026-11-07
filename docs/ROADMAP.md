@@ -171,3 +171,6 @@ F21-AC4.
 - [ ] Firma del codice con il certificato scelto dall'utente (Q7), ramo principale (Q11)
 - [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali
 - [ ] Merge di `rewrite` sul ramo principale e rilascio 1.0
+
+Stato (2026-11-07): fatto tutto ciò che non richiede l'utente; le voci aperte sono REVIEW U1,
+U2 e U3 (con U7 per gli aggiornamenti). **Verifica utente**: `docs/REVIEW.md` §0 e §4.

@@ -5,6 +5,24 @@
 > con le alternative e il modo di cambiarla. Chi aggiunge una voce la mette in fondo alla
 > tabella giusta, con data e tappa.
 
+## 0. In breve
+
+Tutte le funzioni della SPEC (F01–F22) sono implementate. Ogni criterio ha test automatici
+(`scripts/check.ps1`, CI su GitHub, test elevati sul disco virtuale PRISMTEST) o una voce delle
+checklist di §4 (NF8); molte sono state provate anche sull'app di sviluppo. L'installazione,
+gli aggiornamenti reali e i dischi fisici restano da provare (§2). Le decisioni prese senza di
+te sono in §1 (D1–D50), i limiti noti in §3. Restano le cose che solo tu puoi fare (§2), in
+quest'ordine:
+
+1. **Provare l'app** di sviluppo seguendo §4 (avvio e checklist T3–T9): è il momento per
+   cambiare una decisione di §1 o segnalare quello che non va (U4, U5).
+2. **Aggiornamenti e firma**: creare la coppia di chiavi degli aggiornamenti e scegliere dove
+   pubblicare le versioni (U7); scegliere il certificato di firma del codice (U1). Entrambi si
+   configurano senza toccare il codice.
+3. **Installer su un PC pulito** (U3): `scripts\build-installer.ps1`, poi la checklist T10.
+4. **Merge di `rewrite` sul ramo principale e rilascio 1.0** (U2), e rimozione del runner
+   amministratore da questa macchina (U6).
+
 ## 1. Decisioni prese in autonomia
 
 Decisioni già documentate prima dell'introduzione di questo file (dettagli nelle ADR):
@@ -72,7 +90,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | # | Cosa | Perché serve l'utente | Cosa è già pronto |
 |---|---|---|---|
 | U1 | Firma del codice (SPEC Q7) | Scelta e acquisto del certificato | Pronto: basta impostare `bundle.windows.signCommand` (o `certificateThumbprint`) in `crates/prism-app/tauri.conf.json` e rieseguire `scripts/build-installer.ps1` (ARCHITECTURE §8.1) |
-| U2 | Merge di `rewrite` sul ramo principale e rilascio 1.0 (Q11) | Approvazione | — |
+| U2 | Merge di `rewrite` sul ramo principale e rilascio 1.0 (Q11) | Approvazione | Branch `rewrite` su GitHub con la CI verde; ROADMAP completa per la parte autonoma. La 1.0 conviene pubblicarla dopo U3 e U7 (senza le chiavi le copie installate non riceverebbero aggiornamenti) |
 | U3 | Prova su un PC Windows 11 pulito (installer, avvio con Windows, aggiornamenti) | Serve un'altra macchina; l'installazione non si prova sulla macchina di sviluppo | `target\release\bundle\nsis\Prism_0.1.0_x64-setup.exe` da `scripts/build-installer.ps1`; checklist T10 in §4 |
 | U4 | Collegare e scollegare un disco esterno (T2, F02) | Azione fisica | Test automatico del cambio di lettera sul disco di test già passato |
 | U5 | Aspetto e usabilità dell'interfaccia | Giudizio estetico | — |
