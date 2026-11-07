@@ -40,14 +40,15 @@ function volume(v: Partial<VolumeView> & Pick<VolumeView, 'id' | 'name' | 'kind'
     lastSeenAt: null,
     job: null,
     hashes: null,
+    health: null,
     ...v,
   };
 }
 
 export function sampleVolumes(now = Date.now()): VolumeView[] {
   return [
-    volume({ id: 1, name: 'Windows', osLabel: 'Windows', kind: 'internal', mount: 'C:\\', capacity: 439 * GB, freeSpace: 184 * GB, indexedSize: 210 * GB, fileCount: 951_644, folderCount: 307_861, lastIndexedAt: now - 3 * 60_000, lastSeenAt: now, hashes: { total: 900_000, hashed: 412_000, running: true } }),
-    volume({ id: 2, name: 'Data', osLabel: 'Data', kind: 'internal', mount: 'D:\\', capacity: 977 * GB, freeSpace: 329 * GB, indexedSize: 612 * GB, fileCount: 544_808, folderCount: 76_107, lastIndexedAt: now - 2 * 3_600_000, lastSeenAt: now, hashes: { total: 500_000, hashed: 500_000, running: false } }),
+    volume({ id: 1, name: 'Windows', osLabel: 'Windows', kind: 'internal', mount: 'C:\\', capacity: 439 * GB, freeSpace: 184 * GB, indexedSize: 210 * GB, fileCount: 951_644, folderCount: 307_861, lastIndexedAt: now - 3 * 60_000, lastSeenAt: now, hashes: { total: 900_000, hashed: 412_000, running: true }, health: { status: 'good', unavailable: null, temperature: 42 } }),
+    volume({ id: 2, name: 'Data', osLabel: 'Data', kind: 'internal', mount: 'D:\\', capacity: 977 * GB, freeSpace: 329 * GB, indexedSize: 612 * GB, fileCount: 544_808, folderCount: 76_107, lastIndexedAt: now - 2 * 3_600_000, lastSeenAt: now, hashes: { total: 500_000, hashed: 500_000, running: false }, health: { status: 'warning', unavailable: null, temperature: 38 } }),
     volume({ id: 3, name: 'Backup Foto', userName: 'Backup Foto', location: 'cassetto 2', color: '#f59e0b', kind: 'external', mount: 'G:\\', online: false, capacity: 2000 * GB, freeSpace: 700 * GB, indexedSize: 1240 * GB, fileCount: 182_340, folderCount: 9_811, lastIndexedAt: now - 12 * DAY, lastSeenAt: now - 12 * DAY }),
     volume({ id: 4, name: 'NAS Big-Storage', userName: 'NAS Big-Storage', kind: 'network', fsType: null, mount: 'Y:\\', indexedSize: 634 * GB, fileCount: 187_683, folderCount: 12_400, lastIndexedAt: now - DAY, lastSeenAt: now }),
     volume({ id: 5, name: 'KINGSTON', osLabel: 'KINGSTON', kind: 'stick', fsType: 'exFAT', mount: 'H:\\', status: 'new', capacity: 64 * GB, freeSpace: 51 * GB, lastSeenAt: now }),
@@ -233,6 +234,43 @@ export function mockBackend(): Backend {
     }),
     exportDiagnostics: async () => 'C:\\Users\\me\\Downloads\\prism-diagnostics-20261107-193010.zip',
     ambiguousVolumes: async () => [...ambiguous],
+    diskHealth: async (volumeId) => {
+      const v = find(volumeId);
+      if (!v.online || !v.health) return null;
+      const day = 86_400_000;
+      return v.id === 2
+        ? {
+            model: 'WDC WD10EZEX-08WN4A0',
+            serial: 'WD-WCC6Y1234567',
+            bus: 'sata',
+            badge: v.health,
+            powerOnHours: 31_204,
+            wear: null,
+            reallocated: 8,
+            pending: 0,
+            mediaErrors: null,
+            availableSpare: null,
+            reasons: ['reallocated'],
+            history: [
+              { at: Date.now() - day, status: 'warning', temperature: 38, reallocated: 8, pending: 0, mediaErrors: null, wear: null },
+              { at: Date.now() - 30 * day, status: 'good', temperature: 36, reallocated: 0, pending: 0, mediaErrors: null, wear: null },
+            ],
+          }
+        : {
+            model: 'Samsung SSD 990 PRO 2TB',
+            serial: '0025_384A_41A2_9AD3.',
+            bus: 'nvme',
+            badge: v.health,
+            powerOnHours: 2_444,
+            wear: 1,
+            reallocated: null,
+            pending: null,
+            mediaErrors: 0,
+            availableSpare: 100,
+            reasons: [],
+            history: [{ at: Date.now() - 3_600_000, status: 'good', temperature: 42, reallocated: null, pending: null, mediaErrors: 0, wear: 1 }],
+          };
+    },
     resolveAmbiguous: async (key, volumeId) => {
       const a = ambiguous.find((x) => x.key === key);
       if (!a) throw { code: 'volume_not_found', message: key };

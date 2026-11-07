@@ -141,7 +141,7 @@ l'estensione dello Store, REVIEW L15).
 
 ## T9 — Integrazione con il sistema
 
-- [ ] SMART con storia e notifiche (F17)
+- [x] SMART con storia e notifiche (F17)
 - [ ] `prism-shell` e menu contestuale di Esplora risorse (F18)
 - [x] Diagnostica: log a rotazione, pacchetto diagnostico (F20)
 - [x] Finestra di scelta per le identità ambigue dei volumi (F02-AC3, REVIEW L7) e reset del

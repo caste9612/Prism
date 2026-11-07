@@ -114,3 +114,15 @@ test('F02-AC3: a disk that looks like two catalog disks waits for the user to sa
   await expect(backup).toContainText('Connected');
   await expect(backup).toContainText('K:\\');
 });
+
+test('F17-AC1/AC2: the health of a disk with its values and history', async ({ page }) => {
+  await expect(page.getByRole('article', { name: 'Windows' }).getByRole('button', { name: 'Health: good · 42 °C' })).toBeVisible();
+  await page.getByRole('article', { name: 'Data' }).getByRole('button', { name: /Health: needs attention/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Health of WDC WD10EZEX-08WN4A0' });
+  await expect(dialog).toContainText('Some damaged sectors have been replaced with spare ones.');
+  await expect(dialog).toContainText('Replaced sectors');
+  await expect(dialog).toContainText('31,204');
+  await expect(dialog.getByRole('row')).toHaveCount(3);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+});

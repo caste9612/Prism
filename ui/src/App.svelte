@@ -67,6 +67,8 @@
       newDiskTitle: t('notify.newDiskTitle'),
       newDisksTitle: t('notify.newDisksTitle'),
       newDiskBody: t('notify.newDiskBody'),
+      healthTitle: t('notify.healthTitle'),
+      healthBody: t('notify.healthBody'),
     });
   }
 

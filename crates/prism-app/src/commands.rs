@@ -16,6 +16,7 @@ use crate::cleanup_views::{CleanupResultView, CleanupView};
 use crate::diagnostics_state::DiagnosticsView;
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings, VolumeView};
 use crate::duplicates_views::{DupFilterInput, DuplicatesView, RuleInput};
+use crate::health_state::DiskHealthView;
 use crate::identity::AmbiguousView;
 use crate::search_views::SearchResultView;
 use crate::similar_views::SimilarView;
@@ -370,6 +371,16 @@ pub async fn image_thumbnail(
     let s = Arc::clone(&state);
     let jpeg = blocking(move || s.image_thumbnail(VolumeId(volume_id), EntryId(entry_id))).await?;
     Ok(tauri::ipc::Response::new(jpeg))
+}
+
+/// The health of the disk of a connected volume, with its history (F17).
+#[tauri::command]
+pub async fn disk_health(
+    state: State<'_, Arc<AppState>>,
+    volume_id: i64,
+) -> R<Option<DiskHealthView>> {
+    let s = Arc::clone(&state);
+    blocking(move || s.disk_health(VolumeId(volume_id))).await
 }
 
 /// Connected disks Prism cannot tell apart, waiting for the user's choice (F02-AC3).

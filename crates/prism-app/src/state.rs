@@ -66,6 +66,8 @@ pub struct AppState {
     pub thumbnails: crate::similar_views::Thumbnails,
     /// Connected volumes whose identity the user must choose (F02-AC3).
     pub identities: crate::identity::Identities,
+    /// Last health reading of each physical disk (F17).
+    pub health: crate::health_state::HealthState,
 }
 
 pub fn job_view(j: &JobInfo) -> JobView {
@@ -168,6 +170,7 @@ impl AppState {
                     last_indexed_at: v.last_indexed_at,
                     last_seen_at: v.last_seen_at,
                     job,
+                    health: detected.and_then(|d| self.health_badge(d)),
                     hashes: self.hashing.progress(v.id).map(|h| HashesView {
                         total: h.total,
                         hashed: h.hashed,

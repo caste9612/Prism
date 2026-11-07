@@ -24,6 +24,19 @@
 
 ## Diario
 
+### 2026-11-07 — T9: salute dei dischi (SMART)
+
+- Schema v8: `disk_health`. `prism-core::health`: interpretazione delle pagine NVMe e degli
+  attributi ATA, stato con i motivi, peggioramenti. `prism-win::health`: lettura con gli IOCTL
+  di Windows, motivo quando i dati non ci sono (USB, disco virtuale, diritti, disco che non li
+  fornisce).
+- App: thread orario, storia, notifica di peggioramento con i testi dell'interfaccia; comando
+  `disk_health`. Interfaccia: indicatore sulle schede e finestra con valori e storia.
+- Lettura reale (solo lettura) del disco di questa macchina: Samsung SSD 990 PRO, buono,
+  42 °C, 2.444 ore, usura 1 %, nessun errore; il disco virtuale PRISMTEST "non disponibile".
+- Errori miei trovati dai test prima del commit: l'indice del numero di disco nel comando SMART
+  (byte 12, non 11).
+
 ### 2026-11-07 — T9: scelta per le identità ambigue
 
 - `identity.rs` e `monitor::apply_detection`: i volumi ambigui restano in attesa con i loro

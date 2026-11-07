@@ -27,6 +27,8 @@ impl Default for NativeTexts {
             resume_hashing: "Resume content analysis".into(),
             jobs_idle: "No jobs in progress".into(),
             jobs_running: "Jobs in progress: {count}".into(),
+            health_title: "{name}: the disk health is getting worse".into(),
+            health_body: "Open Prism to see its details and copy your files elsewhere.".into(),
         }
     }
 }
@@ -49,6 +51,20 @@ pub struct Notices {
 impl Notices {
     pub fn set_texts(&mut self, texts: NativeTexts) {
         self.texts = Some(texts);
+    }
+
+    /// The notification of a disk whose health gets worse (F17-AC3).
+    pub fn health_notice(&self, name: &str) -> Notice {
+        let defaults = NativeTexts::default();
+        let texts = self
+            .texts
+            .as_ref()
+            .filter(|t| !t.health_title.is_empty())
+            .unwrap_or(&defaults);
+        Notice {
+            title: texts.health_title.replace("{name}", name),
+            body: texts.health_body.clone(),
+        }
     }
 
     /// A new disk was found.
@@ -121,6 +137,22 @@ mod tests {
 
     use super::*;
 
+    // F17-AC3: the notification of a disk getting worse, in the language of the interface.
+    #[test]
+    fn health_notice_texts() {
+        let mut n = Notices::default();
+        assert!(
+            n.health_notice("Samsung SSD")
+                .title
+                .starts_with("Samsung SSD: the disk health")
+        );
+        n.set_texts(italian());
+        assert_eq!(
+            n.health_notice("Samsung SSD").title,
+            "Samsung SSD: la salute del disco peggiora"
+        );
+    }
+
     fn italian() -> NativeTexts {
         NativeTexts {
             open: "Apri Prism".into(),
@@ -133,6 +165,8 @@ mod tests {
             resume_hashing: "Riprendi l'analisi del contenuto".into(),
             jobs_idle: "Nessuna attività in corso".into(),
             jobs_running: "Attività in corso: {count}".into(),
+            health_title: "{name}: la salute del disco peggiora".into(),
+            health_body: "Apri Prism per i dettagli e copia i tuoi file altrove.".into(),
         }
     }
 

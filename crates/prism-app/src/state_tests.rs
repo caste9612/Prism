@@ -41,6 +41,7 @@ fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
         backup: crate::backup_state::BackupState::default(),
         thumbnails: crate::similar_views::Thumbnails::default(),
         identities: crate::identity::Identities::default(),
+        health: crate::health_state::HealthState::default(),
     }
 }
 
@@ -855,4 +856,45 @@ fn ambiguous_disks_wait_for_the_users_choice() {
     assert_eq!(app.online().len(), 2);
     assert_eq!(app.store.read(store::volumes).unwrap().len(), 3);
     assert!(app.ambiguous_volumes().unwrap().is_empty());
+}
+
+// F17 in the app: the disk of a connected volume is read (the system disk of this machine, read
+// only); a reading is stored once and not again while nothing changes; the card shows a badge.
+#[test]
+fn disk_health_of_a_connected_volume() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let (volume, mut detected) = add_folder_volume(&store, tmp.path());
+    detected.disks = vec![0];
+    let app = state(store, true, tmp.path());
+    app.online().insert(volume, detected);
+
+    let (_, changed) = crate::health_state::tick(&app);
+    let Some(view) = app.disk_health(volume).unwrap() else {
+        // No physical disk 0 visible from here (unusual): nothing else to check.
+        return;
+    };
+    assert!(changed);
+    assert!(["good", "warning", "critical", "unavailable"].contains(&view.badge.status.as_str()));
+    let card = app.volume_views().unwrap();
+    assert_eq!(
+        card[0].health.as_ref().map(|h| h.status.clone()),
+        Some(view.badge.status.clone())
+    );
+    if view.badge.status == "unavailable" {
+        assert!(
+            view.badge.unavailable.is_some(),
+            "F17-AC4: the reason is said"
+        );
+        assert!(view.history.is_empty());
+    } else {
+        assert_eq!(view.history.len(), 1);
+        let _ = crate::health_state::tick(&app);
+        let again = app.disk_health(volume).unwrap().unwrap();
+        assert_eq!(
+            again.history.len(),
+            1,
+            "nothing changed: no new reading stored"
+        );
+    }
 }

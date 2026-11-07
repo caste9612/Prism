@@ -10,6 +10,7 @@ mod diagnostics_state;
 mod dto;
 mod duplicates_views;
 mod hash_jobs;
+mod health_state;
 mod identity;
 mod monitor;
 mod netprobe;
@@ -108,6 +109,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         backup: backup_state::BackupState::default(),
         thumbnails: similar_views::Thumbnails::default(),
         identities: identity::Identities::default(),
+        health: health_state::HealthState::default(),
         app_id,
         store,
         engine: JobEngine::start(4),
@@ -257,6 +259,7 @@ fn main() {
             commands::open_logs,
             commands::reset_catalog,
             commands::ambiguous_volumes,
+            commands::disk_health,
             commands::resolve_ambiguous,
             commands::diagnostics_preview,
             commands::export_diagnostics,

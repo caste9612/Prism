@@ -59,6 +59,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D41 | 2026-11-07 | T9 | Log: un file al giorno in `logs` nella cartella dati, 14 tenuti (`tracing-appender`, unica dipendenza nuova). Pacchetto diagnostico: `system.txt` più i log in uno ZIP non compresso scritto da Prism (niente libreria ZIP), mostrato prima di salvarlo, salvato in Download (in sviluppo nella cartella dati, sandbox) e poi indicato in Esplora risorse | Crate `zip` con compressione; scelta della cartella con un dialogo; log nel registro eventi di Windows | `prism-core::diagnostics`, `diagnostics_state.rs` | F20 |
 | D42 | 2026-11-07 | T9 | Reset del catalogo: richiede una casella "ho capito" oltre al pulsante; ferma i job, toglie volumi, voci, hash e impronte; restano impostazioni e registro delle azioni (le esclusioni per disco si azzerano perché riguardano dischi tolti); i dischi collegati vengono riproposti come nuovi | Conservare il registro delle azioni? Sì: è la storia di ciò che Prism ha fatto ai file; scrivere il nome del catalogo per confermare | `store::reset_catalog`, `SettingsView.svelte` | F21-AC4 |
 | D43 | 2026-11-07 | T9 | Identità ambigua: un riquadro per disco nella schermata *Dischi* con i dischi del catalogo che potrebbe essere (nome, posizione, capacità, ultima volta visto) e "È un altro disco"; la scelta si applica al rilevamento successivo (entro 2 s) e aggiorna il disco scelto con il GUID di quello collegato, così dopo viene riconosciuto da solo; una scelta per un disco già assegnato a un altro collegato si ripropone | Finestra modale; ricordare la scelta per sempre senza aggiornare il catalogo | `prism-app/src/identity.rs`, `monitor::apply_detection`, `CatalogView.svelte` | F02-AC3 |
+| D44 | 2026-11-07 | T9 | Salute dei dischi senza librerie né WMI: IOCTL di Windows (pagina di log NVMe, attributi e soglie SMART ATA, stato SMART). Si mandano solo comandi di lettura; per i dischi ATA l'handle si apre con accesso in lettura e scrittura perché gli IOCTL SMART lo richiedono, senza mai scrivere. Stato: critico se il disco lo segnala (avviso critico NVMe, soglia superata, SMART "in guasto", vita esaurita, riserva sotto soglia), attenzione per settori riallocati o in attesa, errori sui dati, usura ≥ 90 %, temperatura ≥ 65 °C. Lettura ogni ora, storia solo quando cambia qualcosa (non la temperatura) o una volta al giorno, 400 giorni; notifica quando lo stato peggiora o crescono settori ed errori | WMI (`MSFT_StorageReliabilityCounter`, meno dati sugli HDD); smartmontools incluso (licenza GPL); passthrough SAT per i dischi USB (rischioso con alcuni adattatori) | `prism-core::health`, `prism-win::health`, `health_state.rs` | F17 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -283,7 +284,12 @@ esempio `F:\prism-t6\Documenti` come sorgente e `F:\prism-t7` come destinazione.
 2. *Impostazioni* → *Catalogo* → *Azzera il catalogo…*: il pulsante resta disattivato finché
    non si spunta la casella; dopo l'azzeramento la schermata *Dischi* è vuota e i dischi
    collegati vengono riproposti come nuovi; nessun file sui dischi è toccato (F21-AC4).
-3. Identità ambigua (F02-AC3): copiare il file VHDX del disco PRISMTEST e collegare la copia
+3. Salute (F17): sulle schede dei dischi interni collegati compare "Salute: buona · 42 °C" (o
+   lo stato); un clic mostra modello, ore di funzionamento, usura, settori e la storia. Sulle
+   chiavette e i dischi USB e sul disco virtuale PRISMTEST: "Salute: non disponibile" con il
+   motivo (F17-AC1/AC4). La notifica di peggioramento (F17-AC3) si vede solo con un disco che
+   peggiora davvero: coperta dai test automatici.
+4. Identità ambigua (F02-AC3): copiare il file VHDX del disco PRISMTEST e collegare la copia
    mentre l'originale è nel catalogo e scollegato; compare "Quale disco è PRISMTEST?" con il
    disco del catalogo e "È un altro disco". Scegliendo il disco, la scheda torna collegata con
    la nuova lettera; scegliendo "un altro disco", compare come disco nuovo da indicizzare.

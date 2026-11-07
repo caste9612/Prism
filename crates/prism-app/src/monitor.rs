@@ -32,6 +32,8 @@ const DETECT_EVERY: Duration = Duration::from_secs(2);
 const JOURNAL_EVERY: Duration = Duration::from_secs(15);
 const HASH_START: Duration = Duration::from_secs(20);
 const HASH_EVERY: Duration = Duration::from_secs(30);
+const HEALTH_START: Duration = Duration::from_secs(10);
+const HEALTH_EVERY: Duration = Duration::from_secs(3600);
 
 pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
     let (a, s) = (app.clone(), Arc::clone(state));
@@ -57,6 +59,26 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
                     let _ = a.emit("volumes-changed", ());
                 }
                 std::thread::sleep(HASH_EVERY);
+            }
+        });
+    // Health of the disks (F17): read soon after the start, then every hour.
+    let (a, s) = (app.clone(), Arc::clone(state));
+    let _ = std::thread::Builder::new()
+        .name("prism-health".into())
+        .spawn(move || {
+            std::thread::sleep(HEALTH_START);
+            loop {
+                let (worse, changed) = crate::health_state::tick(&s);
+                for name in worse {
+                    let n = s.notices().health_notice(&name);
+                    if let Err(e) = prism_win::notify::show_toast(&s.app_id, &n.title, &n.body) {
+                        tracing::warn!(error = %e, "health notification not shown");
+                    }
+                }
+                if changed {
+                    let _ = a.emit("volumes-changed", ());
+                }
+                std::thread::sleep(HEALTH_EVERY);
             }
         });
     // Search indexes (ADR-0010): rebuilt from catalog events, at most every 30 s per volume.

@@ -185,7 +185,9 @@
   "notify": {
     "newDiskTitle": "Nuovo disco: {name}",
     "newDisksTitle": "{count} nuovi dischi trovati",
-    "newDiskBody": "Apri Prism per indicizzarlo o ignorarlo."
+    "newDiskBody": "Apri Prism per indicizzarlo o ignorarlo.",
+    "healthTitle": "{name}: la salute del disco peggiora",
+    "healthBody": "Apri Prism per i dettagli e copia i tuoi file altrove."
   },
   "space": {
     "title": "Spazio",
@@ -512,5 +514,42 @@
     "question": "Somiglia a più dischi del catalogo (per esempio un disco clonato). Quale è?",
     "isThis": "È {name}",
     "another": "È un altro disco"
+  },
+  "health": {
+    "open": "Salute del disco",
+    "title": "Salute di {model}",
+    "status": {
+      "good": "Salute: buona",
+      "warning": "Salute: da tenere d'occhio",
+      "critical": "Salute: critica",
+      "unavailable": "Salute: non disponibile"
+    },
+    "unavailable": {
+      "usb": "I dischi collegati via USB di solito non passano a Windows i dati sulla salute.",
+      "virtual": "È un disco virtuale: non ha dati sulla salute propri.",
+      "no_access": "Per leggere i dati sulla salute di questo disco Prism ha bisogno dei diritti di amministratore.",
+      "not_supported": "Questo disco non fornisce dati sulla salute a Windows."
+    },
+    "reason": {
+      "nvme_critical_warning": "Il disco segnala una condizione critica: copia i tuoi file altrove.",
+      "temperature": "Il disco è troppo caldo.",
+      "worn_out": "Il disco ha esaurito la vita prevista.",
+      "wear_high": "Il disco è vicino alla fine della vita prevista.",
+      "media_errors": "Il disco ha incontrato errori leggendo o scrivendo dati.",
+      "smart_failing": "Il disco segnala che potrebbe guastarsi presto: copia i tuoi file altrove.",
+      "attribute_failed": "Un valore di salute del disco è sotto il limite del produttore.",
+      "reallocated": "Alcuni settori danneggiati sono stati sostituiti con settori di riserva.",
+      "pending": "Alcuni settori sono illeggibili e in attesa di essere sostituiti."
+    },
+    "temperature": "Temperatura",
+    "hours": "Ore di funzionamento",
+    "wear": "Vita usata",
+    "spare": "Riserva rimasta",
+    "reallocated": "Settori sostituiti",
+    "pending": "Settori in attesa",
+    "mediaErrors": "Errori sui dati",
+    "history": "Storia",
+    "when": "Quando",
+    "state": "Stato"
   }
 }

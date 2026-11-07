@@ -59,7 +59,7 @@ impl VolumeSource for WinVolumeSource {
     }
 }
 
-fn wide(s: &str) -> Vec<u16> {
+pub(crate) fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
@@ -73,11 +73,11 @@ fn len_u32(buf: &[u16]) -> u32 {
 }
 
 /// An owned handle, closed on drop.
-struct Handle(HANDLE);
+pub(crate) struct Handle(pub(crate) HANDLE);
 
 impl Handle {
     /// Opens `path` with the given access; `None` on failure.
-    fn open(path: &str, access: u32, flags: u32) -> Option<Self> {
+    pub(crate) fn open(path: &str, access: u32, flags: u32) -> Option<Self> {
         let w = wide(path);
         // SAFETY: `w` is a NUL-terminated UTF-16 string that outlives the call; the security
         // attributes and template handle may be null.
@@ -258,7 +258,7 @@ fn serial64(guid_path: &str) -> Option<u64> {
 }
 
 /// Sends an IOCTL without input buffer issues; returns the bytes written into `out`.
-fn ioctl(device: &Handle, code: u32, input: &[u8], out: &mut [u64]) -> Option<usize> {
+pub(crate) fn ioctl(device: &Handle, code: u32, input: &[u8], out: &mut [u64]) -> Option<usize> {
     let mut returned = 0u32;
     let out_len = u32::try_from(size_of_val(out)).ok()?;
     let in_len = u32::try_from(input.len()).ok()?;

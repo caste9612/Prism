@@ -14,6 +14,7 @@
     onopen,
     onspace,
     onremove,
+    onhealth,
   }: {
     volume: VolumeView;
     onindex: (v: VolumeView) => void;
@@ -22,6 +23,7 @@
     onopen: (v: VolumeView) => void;
     onspace: (v: VolumeView) => void;
     onremove: (v: VolumeView) => void;
+    onhealth: (v: VolumeView) => void;
   } = $props();
 
   const lang = $derived(language());
@@ -90,6 +92,15 @@
     </p>
   {/if}
 
+  {#if volume.health}
+    {@const h = volume.health}
+    <!-- F17: health of the disk, with the details on click. -->
+    <button class="health {h.status}" onclick={() => onhealth(volume)} title={t('health.open')}>
+      <span class="dot" aria-hidden="true"></span>
+      {t(`health.status.${h.status}`)}{#if h.temperature !== null}{' · '}{h.temperature} °C{/if}
+    </button>
+  {/if}
+
   {#if volume.hashes && volume.hashes.total > 0}
     {@const h = volume.hashes}
     <!-- F06-AC5: how far the content analysis is on this disk. -->
@@ -156,6 +167,38 @@
 </article>
 
 <style>
+  .health {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: -6px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+  }
+  .health .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-3);
+  }
+  .health.good .dot {
+    background: var(--ok);
+  }
+  .health.warning .dot {
+    background: var(--warn);
+  }
+  .health.critical {
+    color: var(--danger);
+    border-color: var(--danger);
+  }
+  .health.critical .dot {
+    background: var(--danger);
+  }
   .hashes {
     margin: -6px 0 0;
     font-size: 12.5px;

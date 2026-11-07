@@ -185,7 +185,9 @@
   "notify": {
     "newDiskTitle": "New disk: {name}",
     "newDisksTitle": "{count} new disks found",
-    "newDiskBody": "Open Prism to index it or to ignore it."
+    "newDiskBody": "Open Prism to index it or to ignore it.",
+    "healthTitle": "{name}: the disk health is getting worse",
+    "healthBody": "Open Prism to see the details and copy your files elsewhere."
   },
   "space": {
     "title": "Space",
@@ -512,5 +514,42 @@
     "question": "It looks like more than one disk of the catalog (for example a cloned disk). Which one is it?",
     "isThis": "It is {name}",
     "another": "It is another disk"
+  },
+  "health": {
+    "open": "Health of the disk",
+    "title": "Health of {model}",
+    "status": {
+      "good": "Health: good",
+      "warning": "Health: needs attention",
+      "critical": "Health: critical",
+      "unavailable": "Health: not available"
+    },
+    "unavailable": {
+      "usb": "Disks connected by USB usually do not pass their health data to Windows.",
+      "virtual": "This is a virtual disk: it has no health data of its own.",
+      "no_access": "Prism needs administrator rights to read the health data of this disk.",
+      "not_supported": "This disk does not report health data to Windows."
+    },
+    "reason": {
+      "nvme_critical_warning": "The disk reports a critical condition: copy your files elsewhere.",
+      "temperature": "The disk is running hot.",
+      "worn_out": "The disk has used up its rated life.",
+      "wear_high": "The disk is near the end of its rated life.",
+      "media_errors": "The disk has met errors reading or writing data.",
+      "smart_failing": "The disk reports that it may fail soon: copy your files elsewhere.",
+      "attribute_failed": "A health value of the disk is below the manufacturer's limit.",
+      "reallocated": "Some damaged sectors have been replaced with spare ones.",
+      "pending": "Some sectors are unreadable and waiting to be replaced."
+    },
+    "temperature": "Temperature",
+    "hours": "Hours powered on",
+    "wear": "Life used",
+    "spare": "Spare capacity left",
+    "reallocated": "Replaced sectors",
+    "pending": "Sectors waiting",
+    "mediaErrors": "Data errors",
+    "history": "History",
+    "when": "When",
+    "state": "Status"
   }
 }

@@ -2,6 +2,7 @@
   // Home screen = disk catalog (F01), with the prompts for new disks (F02) and for the disks
   // Prism cannot tell apart (F02-AC3).
   import type { AmbiguousView } from '../lib/bindings/AmbiguousView';
+  import type { DiskHealthView } from '../lib/bindings/DiskHealthView';
   import type { LabelsInput } from '../lib/bindings/LabelsInput';
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { backend, errorMessage } from '../lib/api';
@@ -11,6 +12,7 @@
   import Dialog from './Dialog.svelte';
   import Icon from './Icon.svelte';
   import LabelsDialog from './LabelsDialog.svelte';
+  import HealthDialog from './HealthDialog.svelte';
   import VolumeCard from './VolumeCard.svelte';
 
   let {
@@ -22,6 +24,14 @@
   let dismissed = $state(new Set<number>());
   let editing = $state<VolumeView | null>(null);
   let removing = $state<VolumeView | null>(null);
+  let health = $state<DiskHealthView | null>(null);
+  async function showHealth(v: VolumeView) {
+    try {
+      health = await backend.diskHealth(v.id);
+    } catch (e) {
+      onerror(errorMessage(e));
+    }
+  }
 
   const groups = $derived(visibleVolumes(volumes));
   const prompts = $derived(newVolumePrompts(volumes, dismissed));
@@ -172,7 +182,7 @@
     <h2 class="section">{t('catalog.onlineSection')}</h2>
     <div class="grid">
       {#each groups.online as v (v.id)}
-        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onopen={open} {onspace} onremove={(x) => (removing = x)} />
+        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onopen={open} {onspace} onremove={(x) => (removing = x)} onhealth={showHealth} />
       {/each}
     </div>
   {/if}
@@ -181,11 +191,13 @@
     <h2 class="section">{t('catalog.offlineSection')}</h2>
     <div class="grid">
       {#each groups.offline as v (v.id)}
-        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onopen={open} {onspace} onremove={(x) => (removing = x)} />
+        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onopen={open} {onspace} onremove={(x) => (removing = x)} onhealth={showHealth} />
       {/each}
     </div>
   {/if}
 </section>
+
+<HealthDialog {health} onclose={() => (health = null)} />
 
 <LabelsDialog volume={editing} onsave={saveLabels} onclose={() => (editing = null)} />
 

@@ -13,6 +13,7 @@
 mod catalog;
 mod check;
 mod hashes;
+mod health;
 mod ops;
 mod prints;
 pub mod schema;
@@ -30,6 +31,7 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 pub use catalog::*;
 pub use check::{SnapshotEntry, check_consistency, snapshot};
 pub use hashes::*;
+pub use health::*;
 pub use ops::WriteOp;
 pub use prints::*;
 

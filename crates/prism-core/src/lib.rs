@@ -21,6 +21,7 @@ pub mod duplicates;
 pub mod exclusion;
 pub mod fileops;
 pub mod hashing;
+pub mod health;
 pub mod indexer;
 pub mod jobs;
 pub mod media;

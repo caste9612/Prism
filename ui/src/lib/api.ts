@@ -10,6 +10,7 @@ import type { CompareSummaryView } from './bindings/CompareSummaryView';
 import type { CopyPreviewView } from './bindings/CopyPreviewView';
 import type { CopyResultView } from './bindings/CopyResultView';
 import type { DiagnosticsView } from './bindings/DiagnosticsView';
+import type { DiskHealthView } from './bindings/DiskHealthView';
 import type { CleanupView } from './bindings/CleanupView';
 import type { DupFilterInput } from './bindings/DupFilterInput';
 import type { DuplicatesView } from './bindings/DuplicatesView';
@@ -73,6 +74,7 @@ export interface Backend {
   /** Empties the catalog; returns the number of disks removed. */
   resetCatalog(): Promise<number>;
   ambiguousVolumes(): Promise<AmbiguousView[]>;
+  diskHealth(volumeId: number): Promise<DiskHealthView | null>;
   /** Which catalog disk an ambiguous disk is, or null for a new one. */
   resolveAmbiguous(key: string, volumeId: number | null): Promise<void>;
   removeVolume(id: number): Promise<void>;
@@ -132,6 +134,7 @@ const tauriBackend: Backend = {
   exportDiagnostics: () => invoke('export_diagnostics'),
   resetCatalog: () => invoke('reset_catalog'),
   ambiguousVolumes: () => invoke('ambiguous_volumes'),
+  diskHealth: (volumeId) => invoke('disk_health', { volumeId }),
   resolveAmbiguous: (key, volumeId) => invoke('resolve_ambiguous', { key, volumeId }),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),

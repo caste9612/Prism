@@ -46,6 +46,8 @@ pub struct VolumeView {
     pub job: Option<JobView>,
     /// Content hashes of the volume, once counted (F06-AC5).
     pub hashes: Option<HashesView>,
+    /// Health of the disk of a connected local volume, once read (F17).
+    pub health: Option<crate::health_state::HealthBadgeView>,
 }
 
 /// How far the content hashes of a volume are (F06-AC5).
@@ -107,6 +109,11 @@ pub struct NativeTexts {
     pub jobs_idle: String,
     #[serde(default)]
     pub jobs_running: String,
+    /// Notification of a disk whose health gets worse (F17-AC3), with `{name}`.
+    #[serde(default)]
+    pub health_title: String,
+    #[serde(default)]
+    pub health_body: String,
 }
 
 /// User labels of a volume (F03).

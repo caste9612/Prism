@@ -9,4 +9,8 @@ export type NativeTexts = { open: string, search: string, quit: string, newDiskT
 /**
  * Tray status line (F19-AC2): no job, or `{count}` jobs.
  */
-jobsIdle: string, jobsRunning: string, };
+jobsIdle: string, jobsRunning: string, 
+/**
+ * Notification of a disk whose health gets worse (F17-AC3), with `{name}`.
+ */
+healthTitle: string, healthBody: string, };

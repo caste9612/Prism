@@ -57,11 +57,12 @@ Archivio SQLite in modalità WAL, nella cartella dati dell'app. Lo schema è ver
 migrazioni SQL incorporate (`crates/prism-core/src/store/migrations/`) e `PRAGMA user_version`;
 una migrazione già pubblicata non si modifica, se ne aggiunge una nuova.
 
-**Schema in uso (versione 7)** — testo completo in `0001_initial.sql`,
+**Schema in uso (versione 8)** — testo completo in `0001_initial.sql`,
 `0002_volume_bus.sql` (aggiunge `bus_type`), `0003_entries_volume_index.sql` (indice sul solo
 volume al posto di `(volume_id, file_ref)`, ADR-0017) e `0004_actions_log.sql` (registro delle
 azioni, T4), `0005_content_hashes.sql` (hash del contenuto, T6), `0006_image_prints.sql`
-(impronte delle immagini, T8) e `0007_video_prints.sql` (impronte dei video, T8):
+(impronte delle immagini, T8), `0007_video_prints.sql` (impronte dei video, T8) e
+`0008_disk_health.sql` (salute dei dischi, T9):
 
 ```sql
 volumes (
@@ -117,6 +118,11 @@ video_prints (entry_id PRIMARY KEY REFERENCES entries ON DELETE CASCADE,
               size, modified_at, duration_ms, width, height,
               frames,                 -- 5 impronte da 8 byte; NULL se non si decodifica
               computed_at) STRICT     -- v7 (T8)
+
+disk_health (disk_key,                 -- "modello|numero di serie" del disco fisico
+             at, status, temperature, power_on_hours, wear, reallocated, pending,
+             media_errors, spare, reasons,
+             PRIMARY KEY (disk_key, at)) STRICT   -- v8 (T9)
 ```
 
 Le chiavi esterne sono attive sulla connessione di scrittura; `entries` non usa cascate (una
@@ -617,6 +623,15 @@ Prism gira elevato, quindi la superficie d'attacco della webview va ridotta al m
 - `tracing` con log su file a rotazione giornaliera e conservazione limitata (F20, T9):
   `tracing-appender` scrive `prism.AAAA-MM-GG.log` in `logs` nella cartella dati (in sviluppo
   `%LOCALAPPDATA%\PrismDev\app\logs`) e ne tiene 14; la console resta per lo sviluppo.
+- Salute dei dischi (F17, T9): `prism-win::health` legge identità e bus del disco fisico
+  (`IOCTL_STORAGE_QUERY_PROPERTY`), per NVMe la pagina di log della salute
+  (`StorageDeviceProtocolSpecificProperty`), per ATA/SATA attributi, soglie e stato SMART
+  (`SMART_RCV_DRIVE_DATA`, `SMART_SEND_DRIVE_COMMAND`); USB e dischi virtuali risultano "non
+  disponibile" con il motivo. `prism-core::health` interpreta i dati (stato buono, attenzione,
+  critico con i motivi; peggioramento tra due letture). Nell'app (`health_state.rs`) un thread
+  legge ogni ora i dischi dei volumi locali collegati, salva una lettura in `disk_health` quando
+  cambia qualcosa (non la temperatura) o una volta al giorno, tiene 400 giorni e mostra una
+  notifica quando un disco peggiora o è critico la prima volta che lo si vede.
 - Pacchetto diagnostico (`prism-core::diagnostics`, `prism-app/src/diagnostics_state.rs`):
   `system.txt` (versione, Windows, diritti, contatori del catalogo, impostazioni, dischi, job in
   corso) e i log, in uno ZIP senza compressione scritto da Prism stesso (nessuna libreria in
