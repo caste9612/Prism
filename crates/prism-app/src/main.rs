@@ -25,6 +25,7 @@ mod state;
 #[cfg(test)]
 mod state_tests;
 mod tray;
+mod updates;
 mod watchers;
 
 use std::collections::HashMap;
@@ -135,6 +136,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(Arc::clone(&state));
     tray::create(app.handle(), state.settings().hashing_paused)?;
     monitor::spawn(app.handle(), &state);
+    // F22-AC3: updates, when this build is configured for them.
+    let update_state = Arc::new(updates::UpdateState::default());
+    app.manage(Arc::clone(&update_state));
+    updates::spawn(app.handle(), update_state);
     shell_requests::spawn(app.handle(), &state);
     // F19-AC3: keep the task in line with the setting and with the current location of the
     // program (it may have moved or been updated). Off the startup path.
@@ -206,12 +211,14 @@ fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
 }
 
 fn main() {
-    let _logs = init_logging();
-    let result = tauri::Builder::default()
+    let mut logs = init_logging();
+    let app = tauri::Builder::default()
         // F19-AC4: starting Prism again brings the running instance to the front.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
         }))
+        // F22-AC3: signed updates (checked only by builds with a key and an address).
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // F07-AC1: the global shortcut shows or hides the search window.
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -263,6 +270,9 @@ fn main() {
             commands::ambiguous_volumes,
             commands::disk_health,
             commands::locate_path,
+            commands::update_status,
+            commands::check_updates,
+            commands::install_update,
             commands::resolve_ambiguous,
             commands::diagnostics_preview,
             commands::export_diagnostics,
@@ -273,8 +283,26 @@ fn main() {
             commands::set_settings,
             commands::set_native_texts,
         ])
-        .run(tauri::generate_context!());
-    if let Err(e) = result {
-        tracing::error!(error = %e, "Prism stopped with an error");
+        .build(tauri::generate_context!());
+    match app {
+        // Tauri ends the process at the end of the event loop without dropping anything: the
+        // catalog and the log file are closed here.
+        Ok(app) => app.run(move |handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                close_catalog(handle);
+                drop(logs.take());
+            }
+        }),
+        Err(e) => tracing::error!(error = %e, "Prism stopped with an error"),
+    }
+}
+
+/// Records a clean exit of the catalog (NF4) on "Quit" and before an update is installed: in
+/// both cases the process ends without dropping the managed state, and the next start would
+/// otherwise check the whole catalog.
+pub fn close_catalog(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<Arc<AppState>>() {
+        let clean = state.store.close(std::time::Duration::from_secs(5));
+        tracing::info!(clean, "catalog closed");
     }
 }

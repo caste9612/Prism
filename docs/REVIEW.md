@@ -62,6 +62,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D44 | 2026-11-07 | T9 | Salute dei dischi senza librerie né WMI: IOCTL di Windows (pagina di log NVMe, attributi e soglie SMART ATA, stato SMART). Si mandano solo comandi di lettura; per i dischi ATA l'handle si apre con accesso in lettura e scrittura perché gli IOCTL SMART lo richiedono, senza mai scrivere. Stato: critico se il disco lo segnala (avviso critico NVMe, soglia superata, SMART "in guasto", vita esaurita, riserva sotto soglia), attenzione per settori riallocati o in attesa, errori sui dati, usura ≥ 90 %, temperatura ≥ 65 °C. Lettura ogni ora, storia solo quando cambia qualcosa (non la temperatura) o una volta al giorno, 400 giorni; notifica quando lo stato peggiora o crescono settori ed errori | WMI (`MSFT_StorageReliabilityCounter`, meno dati sugli HDD); smartmontools incluso (licenza GPL); passthrough SAT per i dischi USB (rischioso con alcuni adattatori) | `prism-core::health`, `prism-win::health`, `health_state.rs` | F17 |
 | D45 | 2026-11-07 | T9 | Menu di Esplora risorse: `prism-shell.exe` non elevato manda la richiesta a Prism con una named pipe per utente (accesso esplicito all'utente stesso, integrità media, client remoti rifiutati); se Prism non è avviato lo avvia con l'attività pianificata `Prism`, che ora resta sempre registrata nelle build di rilascio e ha solo il trigger di accesso legato all'opzione "Avvia con Windows". Voci: *Analizza con Prism* e *Cerca duplicati qui* su cartelle, unità e sfondo di una cartella, registrate dall'installer per l'utente (`HKCU`) | Due attività (accesso e su richiesta); messaggi finestra o file di richiesta al posto della pipe; voci in `HKLM` per tutti gli utenti | `prism-win::pipe`, `shell_menu`, `crates/prism-shell`, `autostart::apply` | F18, ADR-0003 |
 | D46 | 2026-11-07 | T10 | Installer NSIS di Tauri per tutta la macchina (serve l'elevazione per l'attività con i privilegi più alti, che comunque Prism chiede), italiano e inglese, WebView2 con il bootstrapper; `prism-shell.exe` aggiunto da un aggancio NSIS (non come risorsa di Tauri: renderebbe obbligatorio compilarlo prima di ogni `cargo build`) e chiamato con `--install`/`--uninstall`; la scelta di tenere il catalogo è la casella "Elimina i dati dell'applicazione" della disinstallazione di Tauri | MSI (WiX); installazione per utente (niente attività elevata); finestra di domanda propria per il catalogo | `tauri.conf.json`, `windows/installer-hooks.nsh`, `scripts/build-installer.ps1` | F22-AC1/AC2 |
+| D47 | 2026-11-07 | T10 | Aggiornamenti con `tauri-plugin-updater`: chiave pubblica e indirizzo del manifest fissati alla compilazione (`PRISM_UPDATE_PUBKEY`, `PRISM_UPDATE_URL`) e non in `tauri.conf.json`, così finché l'utente non sceglie chiavi e luogo di pubblicazione nessuna build si collega; controllo un minuto dopo l'avvio e poi ogni 24 ore, download in sottofondo, installazione solo dopo conferma con riavvio; `latest.json` scritto e firmato da `build-installer.ps1`, pensato per GitHub Releases | Chiave nel file di configurazione (una chiave di prova finirebbe nel repository); installazione automatica alla chiusura senza chiedere; un servizio di aggiornamento proprio | `prism-app::updates`, `SettingsView.svelte`, `scripts/build-installer.ps1` | F22-AC3, NF6 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -73,6 +74,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | U4 | Collegare e scollegare un disco esterno (T2, F02) | Azione fisica | Test automatico del cambio di lettera sul disco di test già passato |
 | U5 | Aspetto e usabilità dell'interfaccia | Giudizio estetico | — |
 | U6 | Rimuovere il runner amministratore a fine sviluppo | Riduce la superficie d'attacco | `scripts/admin/uninstall-admin-runner.ps1` |
+| U7 | Chiavi e pubblicazione degli aggiornamenti (F22-AC3) | La chiave privata firma ogni versione: va creata e custodita dall'utente (persa la chiave, le copie installate non accettano più aggiornamenti); il luogo di pubblicazione è una scelta dell'utente | Pronto: `npx tauri signer generate -w <file>` dalla cartella `ui`; poi `scripts/build-installer.ps1 -Notes "..."` con `PRISM_UPDATE_PUBKEY`, `PRISM_UPDATE_URL`, `TAURI_SIGNING_PRIVATE_KEY` (e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`); pubblicare installer, `.sig` e `latest.json` nella release `v<versione>` (ARCHITECTURE §8.1) |
 
 ## 3. Problemi aperti e limiti noti
 
@@ -94,6 +96,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | L13 | 2026-11-07 | Le unità di rete non vengono analizzate in background (D30) | Un file presente sul NAS e su un disco locale non risulta duplicato; la verifica dei backup su NAS (T7) dovrà leggere i file al momento | Accettato; valutare in T7 un'analisi su richiesta per singola unità di rete |
 | L14 | 2026-11-07 | Verifica e confronto tengono in memoria tutti i file dei due lati (~100 B per file) e non si annullano; i risultati si perdono alla chiusura di Prism; lasciando la schermata durante una copia il job continua ma l'esito non viene più mostrato | Su due dischi da un milione di file ~200 MB per qualche secondo; l'esito di una copia lasciata si vede solo nel registro delle azioni | Accettato per la 1.0; miglioramenti: risultati su disco, job annullabili, esito delle copie nella schermata dei job |
 | L15 | 2026-11-07 | I video HEVC (H.265) si decodificano solo se Windows ha l'estensione "HEVC Video Extensions" dello Store (ADR-0013) | Senza estensione i video HEVC non entrano nei video simili; vengono contati come non leggibili | Accettato; da dire nella documentazione utente, valutare ffmpeg solo se serve |
+| L16 | 2026-11-07 | Uscendo con *Esci* Prism non registrava la chiusura pulita del catalogo: Tauri termina il processo senza rilasciare lo stato (trovato preparando gli aggiornamenti, che fanno lo stesso) | Ogni avvio dopo un'uscita normale rifaceva `PRAGMA quick_check` su tutto il catalogo (secondi su cataloghi grandi) e il WAL restava pieno | **Risolto** (2026-11-07, T10): `Store::close` all'uscita e prima di installare un aggiornamento, con test. Sulla macchina di sviluppo il tray non è automatizzabile (la barra delle applicazioni è sostituita da YasbBar): da confermare con la checklist T3, punto 7 |
 
 ## 4. Come provare l'app
 
@@ -140,6 +143,8 @@ cargo run -p prism-app --features custom-protocol
    (F01-AC5).
 7. Chiudere la finestra: Prism resta nell'area di notifica; clic sull'icona per riaprire, menu
    *Esci* per uscire (F19-AC1). Avviarlo di nuovo porta la finestra in primo piano (F19-AC4).
+   Dopo *Esci*, al nuovo avvio il log non riporta "previous session did not close cleanly"
+   (NF4, L16).
 8. *Impostazioni*: lingua (Italiano/English/come Windows) e tema (chiaro/scuro/come Windows)
    cambiano subito, anche le voci del tray.
 9. Scollegare un disco esterno: entro 5 s passa tra i "Non collegati" con i dati dell'ultima
@@ -313,3 +318,7 @@ esempio `F:\prism-t6\Documenti` come sorgente e `F:\prism-t7` come destinazione.
 5. Disinstallazione: le voci del menu e l'attività spariscono; lasciando vuota la casella
    "Elimina i dati dell'applicazione" il catalogo resta in `%LOCALAPPDATA%\com.prism.catalog`
    e una nuova installazione lo ritrova (F22-AC2).
+6. Aggiornamenti (dopo U7): installata una versione costruita con le chiavi e pubblicata una
+   versione successiva, entro un minuto dall'avvio *Impostazioni › Aggiornamenti* dice "Prism
+   x è pronto da installare"; *Installa e riavvia…* chiede conferma, poi Prism si chiude, si
+   aggiorna e riparte con il catalogo intatto (F22-AC3). *Annulla* lascia tutto com'è.

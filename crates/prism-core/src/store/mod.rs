@@ -176,6 +176,15 @@ fn open_reader(path: &Path) -> Result<Connection, StoreError> {
 
 const SESSION_KEY: &str = "session_open";
 
+/// Marks the session closed cleanly and folds the WAL back into the database.
+fn mark_closed(conn: &mut Connection) {
+    let _ = conn.execute(
+        "UPDATE settings SET value = '0' WHERE key = ?1",
+        [SESSION_KEY],
+    );
+    let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+}
+
 impl Store {
     /// Opens (or creates) the catalog at `path`, applies pending migrations and recovers from
     /// an unclean shutdown: volumes left in `indexing` become `reindex_needed` (F04-AC6, NF4)
@@ -348,6 +357,19 @@ impl Store {
         rx
     }
 
+    /// Records a clean close and checkpoints the WAL, waiting at most `timeout` for the writer.
+    /// For the application exit: the process ends without dropping the store, which would
+    /// otherwise leave the session marked open and make the next start check the whole catalog
+    /// (NF4). The store stays usable; returns whether the close was recorded in time.
+    pub fn close(&self, timeout: Duration) -> bool {
+        let (done_tx, done_rx) = crossbeam_channel::bounded(1);
+        let job: WriterJob = Box::new(move |conn: &mut Connection| {
+            mark_closed(conn);
+            let _ = done_tx.send(());
+        });
+        self.send(false, job).is_ok() && done_rx.recv_timeout(timeout).is_ok()
+    }
+
     fn send(&self, bulk: bool, job: WriterJob) -> Result<(), StoreError> {
         let lane = if bulk {
             &self.inner.bulk_tx
@@ -368,13 +390,7 @@ impl Drop for Inner {
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
         if let Some(tx) = &self.prio_tx {
-            let _ = tx.send(Box::new(|conn: &mut Connection| {
-                let _ = conn.execute(
-                    "UPDATE settings SET value = '0' WHERE key = ?1",
-                    [SESSION_KEY],
-                );
-                let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
-            }));
+            let _ = tx.send(Box::new(mark_closed));
         }
         self.prio_tx = None;
         self.bulk_tx = None;

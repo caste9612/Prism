@@ -254,6 +254,31 @@ fn nf4_unclean_shutdown_is_detected_and_checked() {
     assert!(reopened.read(check_consistency).unwrap().is_empty());
 }
 
+// NF4: the application exits without dropping the store (Tauri ends the process): an explicit
+// close records the clean exit, and the store keeps working until then.
+#[test]
+fn nf4_explicit_close_records_a_clean_exit_without_drop() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("catalog.db");
+    let store = Store::open(&path).unwrap();
+    let v = add_volume(&store, "X:");
+    insert_chain(&store, v, 3, 1);
+    assert_eq!(session_flag(&path), "1");
+    assert!(store.close(Duration::from_secs(10)));
+    assert_eq!(session_flag(&path), "0", "clean exit recorded");
+    assert_eq!(
+        std::fs::metadata(path.with_extension("db-wal")).map_or(0, |m| m.len()),
+        0,
+        "WAL folded back into the catalog"
+    );
+    // Still usable afterwards (jobs may finish while the process ends).
+    add_volume(&store, "Y:");
+    // The process ends here: nothing is dropped.
+    std::mem::forget(store);
+    let reopened = Store::open(&path).unwrap();
+    assert_eq!(reopened.read(volumes).unwrap().len(), 2);
+}
+
 // NF4: after an unclean shutdown, a damaged catalog is reported instead of being used.
 #[test]
 fn nf4_damaged_catalog_is_refused_after_unclean_shutdown() {

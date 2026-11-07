@@ -36,3 +36,17 @@ test('F21-AC4: the catalog is reset only after an explicit confirmation', async 
   await page.getByRole('button', { name: 'Disks', exact: true }).click();
   await expect(page.getByText('No disks yet.')).toBeVisible();
 });
+
+test('F22-AC3: a downloaded update is installed only after the user confirms', async ({ page }) => {
+  await openSettings(page);
+  await expect(page.getByText('Prism 1.0.1 is ready to install.')).toBeVisible();
+  await expect(page.getByText('Fixes for the backup check.')).toBeVisible();
+  await page.getByRole('button', { name: 'Install and restart…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Install Prism 1.0.1?' });
+  await expect(dialog).toContainText('Prism closes, installs the new version and starts again.');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('Prism 1.0.1 is ready to install.')).toBeVisible();
+  await page.getByRole('button', { name: 'Install and restart…' }).click();
+  await page.getByRole('dialog', { name: 'Install Prism 1.0.1?' }).getByRole('button', { name: 'Install and restart' }).click();
+  await expect(page.getByText('Prism is up to date.')).toBeVisible();
+});

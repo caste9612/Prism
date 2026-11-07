@@ -172,7 +172,10 @@
     "cancelled": "Annullato.",
     "thumbnail_failed": "Non è stato possibile creare l'anteprima.",
     "export_failed": "Non è stato possibile salvare il pacchetto diagnostico.",
-    "not_in_catalog": "Quella cartella non è su un disco del catalogo collegato ora."
+    "not_in_catalog": "Quella cartella non è su un disco del catalogo collegato ora.",
+    "updates_not_configured": "Questa copia di Prism non controlla gli aggiornamenti.",
+    "no_update": "Non c'è nessun aggiornamento da installare.",
+    "update_failed": "Non è stato possibile installare l'aggiornamento."
   },
   "tray": {
     "open": "Apri Prism",
@@ -557,5 +560,19 @@
       "warning": "da tenere d'occhio",
       "critical": "critica"
     }
+  },
+  "updates": {
+    "title": "Aggiornamenti",
+    "notConfigured": "Questa copia di Prism non controlla gli aggiornamenti (versione di sviluppo).",
+    "upToDate": "Prism è aggiornato.",
+    "checking": "Controllo degli aggiornamenti…",
+    "downloading": "Scarico Prism {version} in sottofondo…",
+    "ready": "Prism {version} è pronto da installare.",
+    "failed": "L'ultimo controllo degli aggiornamenti non è riuscito: Prism riproverà.",
+    "install": "Installa e riavvia…",
+    "checkNow": "Controlla ora",
+    "confirmTitle": "Installare Prism {version}?",
+    "confirm": "Prism si chiude, installa la nuova versione e riparte. Le attività in corso si fermano e riprendono dopo.",
+    "installNow": "Installa e riavvia"
   }
 }

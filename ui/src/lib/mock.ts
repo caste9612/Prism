@@ -3,6 +3,7 @@
 // emit events, labels and settings are kept in memory.
 import type { AmbiguousView } from './bindings/AmbiguousView';
 import type { AppInfo } from './bindings/AppInfo';
+import type { UpdateView } from './bindings/UpdateView';
 import type { JobView } from './bindings/JobView';
 import type { LabelsInput } from './bindings/LabelsInput';
 import type { Settings } from './bindings/Settings';
@@ -67,6 +68,16 @@ export function mockBackend(): Backend {
     hashingExcluded: [],
   };
   const deletedCopies = new Set<number>();
+  // A newer version already downloaded, waiting for the user's confirmation (F22-AC3).
+  let update: UpdateView = {
+    enabled: true,
+    checking: false,
+    available: '1.0.1',
+    notes: 'Fixes for the backup check.',
+    ready: true,
+    error: null,
+    lastCheck: Date.now() - 3_600_000,
+  };
   // A clone of "Backup Foto" (same serial number, another capacity): Prism asks which disk it is.
   let ambiguous: AmbiguousView[] = [
     {
@@ -245,6 +256,15 @@ export function mockBackend(): Backend {
       (window as unknown as Record<string, unknown>).__prismShellRequest = (action: string, path: string) => h({ action, path });
       return Promise.resolve(() => {});
     },
+    updateStatus: async () => ({ ...update }),
+    checkUpdates: async () => {
+      update = { ...update, lastCheck: Date.now() };
+      return { ...update };
+    },
+    installUpdate: async () => {
+      update = { ...update, available: null, ready: false, notes: null };
+    },
+    onUpdateChanged: async () => () => {},
     diskHealth: async (volumeId) => {
       const v = find(volumeId);
       if (!v.online || !v.health) return null;

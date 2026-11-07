@@ -23,6 +23,7 @@ use crate::shell_requests::LocatedView;
 use crate::similar_views::SimilarView;
 use crate::space_views::{LargeFileView, SpaceFolderView, TypeStatsView};
 use crate::state::{AppState, IndexKind, access_path, job_view};
+use crate::updates::{UpdateState, UpdateView};
 use crate::{search_window, tray};
 
 type R<T> = Result<T, ApiError>;
@@ -372,6 +373,25 @@ pub async fn image_thumbnail(
     let s = Arc::clone(&state);
     let jpeg = blocking(move || s.image_thumbnail(VolumeId(volume_id), EntryId(entry_id))).await?;
     Ok(tauri::ipc::Response::new(jpeg))
+}
+
+/// What the settings show about updates (F22-AC3).
+#[tauri::command]
+pub fn update_status(updates: State<'_, Arc<UpdateState>>) -> UpdateView {
+    updates.snapshot()
+}
+
+/// Checks for an update now.
+#[tauri::command]
+pub async fn check_updates(app: AppHandle, updates: State<'_, Arc<UpdateState>>) -> R<UpdateView> {
+    crate::updates::check_now(&app, &updates).await?;
+    Ok(updates.snapshot())
+}
+
+/// Installs the downloaded update after the user confirmed it; Prism restarts.
+#[tauri::command]
+pub fn install_update(app: AppHandle, updates: State<'_, Arc<UpdateState>>) -> R<()> {
+    crate::updates::install(&app, &updates)
 }
 
 /// The catalog folder of a path on a connected disk, for the Explorer menu (F18-AC1).

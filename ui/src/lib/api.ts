@@ -29,6 +29,7 @@ import type { SimilarView } from './bindings/SimilarView';
 import type { Settings } from './bindings/Settings';
 import type { SpaceFolderView } from './bindings/SpaceFolderView';
 import type { TypeStatsView } from './bindings/TypeStatsView';
+import type { UpdateView } from './bindings/UpdateView';
 import type { VerifySummaryView } from './bindings/VerifySummaryView';
 import type { VolumeView } from './bindings/VolumeView';
 import { t } from './i18n.svelte';
@@ -80,6 +81,11 @@ export interface Backend {
   /** The catalog folder of a path on a connected disk (Explorer menu, F18). */
   locatePath(path: string): Promise<LocatedView>;
   onShellRequest(handler: (r: ShellRequest) => void): Promise<Unlisten>;
+  updateStatus(): Promise<UpdateView>;
+  checkUpdates(): Promise<UpdateView>;
+  /** Installs the downloaded update; Prism closes and starts again. */
+  installUpdate(): Promise<void>;
+  onUpdateChanged(handler: () => void): Promise<Unlisten>;
   /** Which catalog disk an ambiguous disk is, or null for a new one. */
   resolveAmbiguous(key: string, volumeId: number | null): Promise<void>;
   removeVolume(id: number): Promise<void>;
@@ -142,6 +148,10 @@ const tauriBackend: Backend = {
   diskHealth: (volumeId) => invoke('disk_health', { volumeId }),
   locatePath: (path) => invoke('locate_path', { path }),
   onShellRequest: (handler) => listen<ShellRequest>('shell-request', (e) => handler(e.payload)),
+  updateStatus: () => invoke('update_status'),
+  checkUpdates: () => invoke('check_updates'),
+  installUpdate: () => invoke('install_update'),
+  onUpdateChanged: (handler) => listen('update-changed', () => handler()),
   resolveAmbiguous: (key, volumeId) => invoke('resolve_ambiguous', { key, volumeId }),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),

@@ -172,7 +172,10 @@
     "cancelled": "Cancelled.",
     "thumbnail_failed": "The preview could not be made.",
     "export_failed": "The diagnostic package could not be saved.",
-    "not_in_catalog": "That folder is not on a disk of the catalog that is connected now."
+    "not_in_catalog": "That folder is not on a disk of the catalog that is connected now.",
+    "updates_not_configured": "This copy of Prism does not check for updates.",
+    "no_update": "There is no update to install.",
+    "update_failed": "The update could not be installed."
   },
   "tray": {
     "open": "Open Prism",
@@ -557,5 +560,19 @@
       "warning": "attention",
       "critical": "critical"
     }
+  },
+  "updates": {
+    "title": "Updates",
+    "notConfigured": "This copy of Prism does not check for updates (development build).",
+    "upToDate": "Prism is up to date.",
+    "checking": "Checking for updates…",
+    "downloading": "Downloading Prism {version} in the background…",
+    "ready": "Prism {version} is ready to install.",
+    "failed": "The last check for updates did not succeed: Prism will try again.",
+    "install": "Install and restart…",
+    "checkNow": "Check now",
+    "confirmTitle": "Install Prism {version}?",
+    "confirm": "Prism closes, installs the new version and starts again. The jobs in progress stop and resume afterwards.",
+    "installNow": "Install and restart"
   }
 }

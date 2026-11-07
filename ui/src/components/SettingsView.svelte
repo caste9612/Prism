@@ -5,6 +5,8 @@
   import type { Settings } from '../lib/bindings/Settings';
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import type { DiagnosticsView } from '../lib/bindings/DiagnosticsView';
+  import type { UpdateView } from '../lib/bindings/UpdateView';
+  import { onMount } from 'svelte';
   import { backend, errorMessage } from '../lib/api';
   import { formatBytes, formatCount } from '../lib/format';
   import Dialog from './Dialog.svelte';
@@ -30,6 +32,34 @@
   let diagnostics = $state<DiagnosticsView | null>(null);
   let exported = $state<string | null>(null);
   let resetting = $state(false);
+  let updates = $state<UpdateView | null>(null);
+  let confirmUpdate = $state(false);
+
+  onMount(() => {
+    let off: (() => void) | undefined;
+    const read = () => void backend.updateStatus().then((u) => (updates = u), () => {});
+    read();
+    void backend.onUpdateChanged(read).then((f) => (off = f));
+    return () => off?.();
+  });
+
+  async function checkNow() {
+    try {
+      updates = await backend.checkUpdates();
+    } catch (e) {
+      onerror(errorMessage(e));
+    }
+  }
+
+  async function installNow() {
+    confirmUpdate = false;
+    try {
+      await backend.installUpdate();
+      updates = await backend.updateStatus();
+    } catch (e) {
+      onerror(errorMessage(e));
+    }
+  }
   let resetUnderstood = $state(false);
 
   async function openLogs() {
@@ -182,6 +212,39 @@
     {/if}
   </div>
 
+  {#if updates}
+    <div class="group">
+      <h2>{t('updates.title')}</h2>
+      {#if !updates.enabled}
+        <p class="muted hint">{t('updates.notConfigured')}</p>
+      {:else}
+        <p aria-live="polite">
+          {#if updates.ready && updates.available}
+            {t('updates.ready', { version: updates.available })}
+          {:else if updates.available}
+            {t('updates.downloading', { version: updates.available })}
+          {:else if updates.checking}
+            {t('updates.checking')}
+          {:else}
+            {t('updates.upToDate')}
+          {/if}
+        </p>
+        {#if updates.notes && updates.available}
+          <p class="muted hint">{updates.notes}</p>
+        {/if}
+        {#if updates.error}
+          <p class="warn">{t('updates.failed')}</p>
+        {/if}
+        <div class="buttons">
+          {#if updates.ready}
+            <button class="primary" onclick={() => (confirmUpdate = true)}>{t('updates.install')}</button>
+          {/if}
+          <button onclick={checkNow} disabled={updates.checking}>{t('updates.checkNow')}</button>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   <div class="group">
     <h2>{t('settings.diagnostics')}</h2>
     <p class="muted hint">{t('settings.diagnosticsHint')}</p>
@@ -226,6 +289,14 @@
   {#snippet actions()}
     <button onclick={() => (diagnostics = null)}>{t('actions.cancel')}</button>
     <button class="primary" onclick={exportPackage}>{t('settings.exportNow')}</button>
+  {/snippet}
+</Dialog>
+
+<Dialog open={confirmUpdate} title={t('updates.confirmTitle', { version: updates?.available ?? '' })} onclose={() => (confirmUpdate = false)}>
+  <p>{t('updates.confirm')}</p>
+  {#snippet actions()}
+    <button onclick={() => (confirmUpdate = false)}>{t('actions.cancel')}</button>
+    <button class="primary" onclick={installNow}>{t('updates.installNow')}</button>
   {/snippet}
 </Dialog>
 

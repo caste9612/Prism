@@ -520,8 +520,10 @@ Implementazione (`store::Store`, T1):
 - Un job dello scrittore che va in panico annulla la propria transazione senza fermare lo
   scrittore.
 - All'apertura: migrazioni, volumi `indexing` → `reindex_needed`, e `PRAGMA quick_check` se la
-  sessione precedente non si è chiusa in modo pulito (indicatore in `settings`). Alla chiusura:
-  checkpoint del WAL.
+  sessione precedente non si è chiusa in modo pulito (indicatore in `settings`). Alla chiusura
+  (`Store::close`, che l'app chiama all'uscita e prima di installare un aggiornamento perché
+  Tauri termina il processo senza rilasciare lo stato; oppure al rilascio dello `Store`):
+  indicatore azzerato e checkpoint del WAL.
 - `check_consistency` verifica gli invarianti (genitori, radici, aggregati ricalcolati da zero,
   raggiungibilità, nomi temporanei): usata dai test e dalla diagnostica.
 
@@ -650,6 +652,24 @@ installer NSIS (`target\release\bundle\nsis\Prism_<versione>_x64-setup.exe`):
 
 La firma del codice (Q7) si aggiunge con `bundle.windows.signCommand` (o
 `certificateThumbprint`) in `tauri.conf.json`, senza modifiche al codice.
+
+### Aggiornamenti (F22-AC3)
+
+`crates/prism-app/src/updates.rs` usa `tauri-plugin-updater`: un controllo un minuto dopo
+l'avvio e poi ogni 24 ore; se c'è una versione più recente la scarica in sottofondo e la tiene
+in memoria. *Impostazioni › Aggiornamenti* mostra la versione pronta e le sue note e la
+installa solo dopo la conferma dell'utente: l'installer NSIS parte in modalità `passive` e
+Prism riparte. Prima di installare, il plugin verifica la firma del pacchetto (minisign) con
+la chiave pubblica; un pacchetto con una firma sbagliata non viene installato.
+
+La chiave pubblica e l'indirizzo del manifest `latest.json` si danno **alla compilazione**
+(`PRISM_UPDATE_PUBKEY`, `PRISM_UPDATE_URL`, solo `https://`); in `tauri.conf.json` la chiave
+resta vuota. Una build senza queste variabili non si collega mai e le impostazioni lo dicono.
+Con `TAURI_SIGNING_PRIVATE_KEY` impostata, `scripts\build-installer.ps1` firma l'installer
+(`.sig`) e scrive `latest.json` accanto: si pubblicano tutti e tre nella release
+`v<versione>`, e l'indirizzo pensato è
+`https://github.com/caste9612/Prism/releases/latest/download/latest.json` (REVIEW U7). È
+l'unica connessione in uscita di Prism (NF6).
 
 ## 9. Errori, log, diagnostica
 

@@ -25,6 +25,33 @@
 
 ## Diario
 
+### 2026-11-07 — T10: aggiornamenti automatici (F22-AC3)
+
+- `crates/prism-app/src/updates.rs` con `tauri-plugin-updater`: controllo un minuto dopo
+  l'avvio e ogni 24 ore, download in sottofondo, installazione solo dopo conferma
+  (*Impostazioni › Aggiornamenti*: stato, note, *Controlla ora*, *Installa e riavvia…*).
+  Chiave pubblica e indirizzo di `latest.json` si danno alla compilazione: senza, la build
+  non si collega mai (REVIEW D47, U7).
+- `scripts/build-installer.ps1`: con `TAURI_SIGNING_PRIVATE_KEY` firma l'installer e scrive
+  `latest.json` (senza BOM) per la release `v<versione>`.
+- Prove: unità (configurazione), e2e (conferma, *Annulla*), app di sviluppo reale (le
+  impostazioni dicono che la build non controlla; nel log "automatic updates not configured").
+  Costruzione completa con una chiave di prova nella cartella temporanea: firma verificata con
+  `minisign-verify` (lo stesso controllo del plugin), installer alterato rifiutato, indirizzo
+  compilato in `prism.exe`; poi ricostruito l'installer senza chiavi (5,5 MB: +1 MB per lo
+  stack di rete del plugin).
+- Errori trovati: `update` era già il nome della funzione delle impostazioni (pagina rotta in
+  e2e); un secondo `role="status"` rompeva il test della diagnostica (ora `aria-live`); la CLI
+  di Tauri controlla la firma appena creata con la chiave pubblica della configurazione, che è
+  vuota: lo script la passa in un file di configurazione aggiuntivo solo per quella build.
+- Problema trovato e risolto (REVIEW L16): l'aggiornamento chiude Prism con
+  `process::exit`, e lo stesso fa Tauri alla fine del ciclo degli eventi (*Esci*): lo `Store`
+  non veniva mai rilasciato, quindi ogni avvio dopo un'uscita normale rifaceva il controllo di
+  integrità del catalogo. Ora `Store::close` (test `nf4_explicit_close_records_a_clean_exit_without_drop`)
+  si chiama su `RunEvent::Exit` e nel `on_before_exit` dell'aggiornamento; anche il file di
+  log viene chiuso all'uscita. Il tray non si raggiunge con l'automazione su questa macchina
+  (YasbBar al posto della barra delle applicazioni): verifica nella checklist T3.
+
 ### 2026-11-07 — T10: installer
 
 - `crates/prism-app/tauri.conf.json`: pacchetto NSIS per tutta la macchina, italiano e inglese,
