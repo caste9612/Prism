@@ -15,7 +15,7 @@ e si aggiorna lo stato di quella vecchia ("Sostituita da ADR-NNNN").
 | [0007](0007-aggiornamenti-usn-e-sorveglianza.md) | Aggiornamenti: journal USN, sorveglianza, riconciliazione | Accettata |
 | [0008](0008-accesso-al-database.md) | Accesso al database: uno scrittore, molti lettori | Accettata |
 | [0009](0009-motore-dei-job.md) | Motore dei job ed eventi verso l'interfaccia | Accettata |
-| [0010](0010-indice-di-ricerca.md) | Indice di ricerca | **Proposta** |
+| [0010](0010-indice-di-ricerca.md) | Indice di ricerca | Accettata (indice in memoria) |
 | [0011](0011-hash-e-invalidazione.md) | Hash del contenuto in background e invalidazione | Accettata |
 | [0012](0012-eliminazione-sicura.md) | Eliminazione sicura | Accettata |
 | [0013](0013-video-simili.md) | Decodifica video per i video simili | **Proposta** |

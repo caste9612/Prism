@@ -6,6 +6,7 @@
 
 mod bench;
 mod format;
+mod search_bench;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -90,6 +91,15 @@ enum Command {
     /// What the guided cleanup would propose on a volume, from the catalog, with timings (F09).
     /// Read-only: nothing is deleted.
     Cleanup { path: PathBuf },
+    /// Measure the search index options of ADR-0010 on the catalog (read-only on the disks).
+    SearchBench {
+        /// Load the catalog this many times (simulates a larger catalog).
+        #[arg(long, default_value_t = 1)]
+        copies: usize,
+        /// Also build and measure an FTS5 trigram index (in the bench folder, then removed).
+        #[arg(long)]
+        fts: bool,
+    },
     /// Catalog size and counters.
     Stats,
     /// Check the consistency of the catalog.
@@ -230,6 +240,11 @@ fn run(store: &Store, command: &Command) -> CliResult {
             space(store, path, opts)
         }
         Command::Cleanup { path } => cleanup(store, path),
+        Command::SearchBench { copies, fts } => {
+            let dir = dev_data_dir()?.join("bench");
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            search_bench::run(store, &dir, *copies, *fts)
+        }
         Command::Stats => stats(store),
         Command::Check => check(store),
         Command::Bench { .. } => Ok(()),

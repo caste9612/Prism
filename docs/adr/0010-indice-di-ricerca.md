@@ -1,6 +1,6 @@
 # ADR-0010 — Indice di ricerca
 
-- **Stato**: **Proposta** (decisione dopo i benchmark, entro T5)
+- **Stato**: **Accettata** (2026-11-07, dopo i benchmark)
 - **Data**: 2026-11-07
 
 ## Contesto
@@ -28,5 +28,28 @@ Benchmark su un catalogo reale (C:, D: e dischi di rete dell'utente) e uno sinte
 
 ## Decisione
 
-Da prendere. Il parser dei filtri e l'API di ricerca si progettano indipendenti dall'indice,
-così la scelta non blocca il resto del lavoro.
+**Opzione A: indice in memoria** (decisa il 2026-11-07 con i benchmark di
+`docs/benchmarks/2026-11-07-t5-search.md`, catalogo reale di C: con 1.374.926 voci e una
+simulazione da 5,5 milioni).
+
+| | A. In memoria | B. FTS5 trigram |
+|---|---|---|
+| Costruzione (C:) | 0,57 s, all'avvio e dopo i cambi | 17,5 s, e ogni scrittura del catalogo più lenta |
+| Spazio | 60 B per voce in RAM (78 MiB per C:, ~300 MB per 5 milioni) | +127 B per voce su disco (oltre l'obiettivo NF2 di 250 B per voce in tutto) |
+| Primi 1000 risultati | ≤ 1 ms su C:, ≤ 3 ms su 5,5 milioni (p95) | 0,1–0,7 ms |
+| Tutti i risultati di una query comune | 0,5–2 ms tipico; 15 ms per una sola lettera su C:, 77 ms su 5,5 milioni | 19–33 ms per "windows"/"microsoft" su C: |
+| 1–2 caratteri | sì | no (servirebbe un ripiego) |
+
+L'interfaccia chiede i primi risultati (con un conteggio limitato), quindi F07-AC3 (50 ms p95
+su 5 milioni di voci) è rispettato con ampio margine. La memoria rientra in NF3. FTS5 avrebbe
+rallentato di circa 5 volte l'indicizzazione e superato il budget di spazio su disco.
+
+Struttura (`prism-core::search::index::VolumeIndex`, uno per volume): nomi normalizzati
+(`names::fold`) in un unico buffer separati da un byte nullo, cercati con `memchr::memmem`
+(SIMD) anche su più thread; accanto, per posizione, id della voce, genitore, tipo, dimensione e
+data di modifica per i filtri. I percorsi si ricostruiscono risalendo i genitori.
+
+**Aggiornamento**: per ora l'indice di un volume si ricostruisce in background quando il
+catalogo di quel volume cambia, al massimo ogni 30 s (i risultati possono essere indietro di
+quel tanto; REVIEW L11). L'aggiornamento incrementale dalle operazioni di scrittura è un
+miglioramento successivo.

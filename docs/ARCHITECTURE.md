@@ -253,11 +253,16 @@ dimensioni condivise da altri file (possibili duplicati), poi gli altri. Due liv
 `quick` (inizio e fine del file) e `full` (BLAKE3 completo). Un hash vale solo per la coppia
 (`size`, `modified_at`) con cui è stato calcolato.
 
-### 4.4 Ricerca (ADR-0010, *proposta*)
+### 4.4 Ricerca (ADR-0010)
 
 Indice dei nomi di **tutti** i volumi, online e offline, con ricerca per sottostringa e filtri.
-Due candidati da misurare con benchmark (T1–T5): indice in memoria (stile Everything) oppure
-FTS5 con tokenizer `trigram`. Il parser dei filtri (F07-AC5) è indipendente dall'indice scelto.
+Scelto con i benchmark l'**indice in memoria** (`prism-core::search::index::VolumeIndex`, uno
+per volume): nomi normalizzati in un buffer unico cercati con `memchr::memmem`, più genitore,
+tipo, dimensione e data per i filtri; 60 B per voce, costruzione 0,57 s per 1,37 milioni di
+voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
+(`docs/benchmarks/2026-11-07-t5-search.md`). Si ricostruisce in background quando il catalogo
+del volume cambia (al massimo ogni 30 s). Il parser dei filtri (F07-AC5) è indipendente
+dall'indice.
 
 ### 4.5 Duplicati, simili, backup
 

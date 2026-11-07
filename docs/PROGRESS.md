@@ -23,6 +23,18 @@
 
 ## Diario
 
+### 2026-11-07 — T5: decisione sull'indice di ricerca (ADR-0010)
+
+- `prism-core::search::index::VolumeIndex`: nomi normalizzati in un buffer unico cercati con
+  `memchr::memmem`, anche su più thread; genitore, tipo, dimensione e data per i filtri. Test
+  F07-AC2 (sottostringa senza maiuscole: "port" trova "report" e "passport").
+- `prism-cli search-bench [--copies N] [--fts]`: misure su C: (1,37 milioni di voci) e su 5,5
+  milioni simulati. Indice in memoria: 0,57 s di costruzione, 60 B per voce (da 97 B
+  restituendo la capacità inutilizzata dei vettori), primi 1000 risultati ≤ 3 ms. FTS5 trigram:
+  17,5 s di costruzione, +127 B per voce su disco, niente ricerche sotto i 3 caratteri.
+- ADR-0010 accettata: indice in memoria (D26); ricostruzione in background con ritardo massimo
+  di ~30 s (L11). Benchmark in `docs/benchmarks/2026-11-07-t5-search.md`.
+
 ### 2026-11-07 — T4 completata: schermata Pulizia e guardia dell'app di sviluppo
 
 - App: comandi `cleanup_scan` (categorie per ogni disco collegato e indicizzato, Cestino per
