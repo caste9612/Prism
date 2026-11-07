@@ -25,6 +25,15 @@
 
 ## Diario
 
+### 2026-11-07 — T10: memoria durante l'indicizzazione (L1)
+
+- `ScanTree` compatta (D49): nodi da 64 byte e nomi in un unico buffer; `ScanNode` è ora una
+  vista per valore con gli stessi campi (cambiati solo tre `&*` nel riconciliatore e nei
+  test). Il lettore MFT alloca l'istantanea una volta sola. Nuovo test sui valori dei nodi.
+- Indicizzazione completa di C: (1,5 milioni di voci): picco da 426,7 a 333,6 MiB con la MFT
+  (e 0,6 s più veloce), da 347,0 a 248,8 MiB con il walker; il confronto con il codice
+  precedente è fatto sulla stessa macchina subito prima. L1 ridotto; il resto dopo la 1.0.
+
 ### 2026-11-07 — T10: prestazioni finali, NF2 e NF3
 
 - `prism-cli replicate --entries N`: aggiunge copie non collegate dei volumi a un catalogo di

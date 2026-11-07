@@ -160,11 +160,12 @@ F21-AC4.
 - [x] Aggiornamenti automatici firmati (F22-AC3): controllo, download in sottofondo,
       installazione su conferma, manifest firmato da `build-installer.ps1`; chiavi e luogo di
       pubblicazione dall'utente (REVIEW U7)
-- [ ] Prestazioni finali: NF2 (byte per voce) e NF3 (memoria con 5 milioni di voci) misurati
+- [x] Prestazioni finali: NF2 (byte per voce) e NF3 (memoria con 5 milioni di voci) misurati
       sull'app; memoria durante l'indicizzazione (REVIEW L1)
   - [x] NF2 e NF3 misurati con 5,7 milioni di voci (`prism-cli replicate`, `mem-bench`);
         memoria dell'analisi del contenuto ridotta (D48)
-  - [ ] Memoria durante l'indicizzazione (L1)
+  - [x] Memoria durante l'indicizzazione ridotta del 22–28% con un'istantanea compatta (D49);
+        la scrittura senza istantanea resta per dopo la 1.0 (L1)
 - [ ] Documentazione per l'utente nel README: installazione, funzioni, privacy, disinstallazione
 - [ ] Firma del codice con il certificato scelto dall'utente (Q7), ramo principale (Q11)
 - [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali

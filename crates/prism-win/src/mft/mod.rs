@@ -642,7 +642,13 @@ fn build_tree(
         .cursor_for(request.relative)
         .ok_or_else(|| ScanError::RootExcluded(request.root.to_path_buf()))?;
 
-    let mut builder = ScanTreeBuilder::new(t.meta(start, true));
+    // A whole volume: the snapshot is allocated once for every name of the MFT (no spare room
+    // from a growing buffer, REVIEW L1). Names take about one byte per UTF-16 unit.
+    let mut builder = if request.relative.is_empty() {
+        ScanTreeBuilder::with_capacity(t.meta(start, true), t.names.len() + 1, t.arena.len())
+    } else {
+        ScanTreeBuilder::new(t.meta(start, true))
+    };
     stats.dirs = 1;
     let mut queue: VecDeque<(NodeId, u64, RuleCursor)> = VecDeque::new();
     queue.push_back((ScanTree::ROOT, start, cursor));

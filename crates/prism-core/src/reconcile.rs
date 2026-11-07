@@ -309,7 +309,7 @@ impl Run<'_> {
                     continue;
                 }
                 let c = tree.node(n);
-                if let Some(&i) = by_name.get(&*c.name)
+                if let Some(&i) = by_name.get(c.name)
                     && !matched[i]
                     && existing[i].is_dir == c.is_dir
                     && refs_compatible(existing[i].meta.file_ref, c.meta.file_ref)
@@ -367,10 +367,10 @@ impl Run<'_> {
         let mut final_name: Vec<Option<&str>> = vec![None; existing.len()];
         for (k, p) in plan.iter().enumerate() {
             if let Plan::Existing(i) = p {
-                final_name[*i] = Some(&*tree.node(kids[k]).name);
+                final_name[*i] = Some(tree.node(kids[k]).name);
             }
         }
-        let taken: HashSet<&str> = kids.iter().map(|&n| &*tree.node(n).name).collect();
+        let taken: HashSet<&str> = kids.iter().map(|&n| tree.node(n).name).collect();
         let mut parked = vec![false; existing.len()];
         let mut changed = is_new;
         for (i, e) in existing.iter().enumerate() {

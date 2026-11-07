@@ -208,6 +208,9 @@ Ogni enumeratore produce uno `ScanTree`: istantanea completa di una cartella e d
 contenuto, con le esclusioni già applicate. Le cartelle non leggibili (accesso negato, errore a
 metà, scomparse) sono marcate `Unreadable`: la riconciliazione **non** elimina dal catalogo i
 figli che non ha visto.
+L'istantanea tiene ogni voce in 64 byte (metadati con valori riservati al posto degli
+`Option`) e tutti i nomi in un unico buffer; il lettore MFT la alloca una volta sola (REVIEW
+D49, L1).
 
 **Reconciler** (`reconcile::reconcile`), visita in ampiezza; per ogni cartella abbina i figli
 scansionati a quelli del catalogo: (1) per riferimento al file nella stessa cartella,

@@ -116,7 +116,7 @@ fn f04_ac5_exclusions_are_applied_by_the_walker() {
     assert_eq!(defaults.stats.excluded, 2);
     let names: Vec<&str> = defaults
         .children(ScanTree::ROOT)
-        .map(|n| &*defaults.node(n).name)
+        .map(|n| defaults.node(n).name)
         .collect();
     assert_eq!(names.len(), 1, "{names:?}");
     assert!(names.contains(&"Users"));
