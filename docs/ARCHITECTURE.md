@@ -621,12 +621,35 @@ Prism gira elevato, quindi la superficie d'attacco della webview va ridotta al m
 
 - CSP restrittiva, nessun contenuto remoto, nessun plugin `fs` o `shell` generico in Tauri.
 - I comandi che agiscono su file ricevono **identificativi del catalogo**, non percorsi liberi;
-  i percorsi scelti dall'utente (es. cartella di destinazione per la copia) passano da dialoghi
-  nativi e vengono validati nel backend.
+  i percorsi scritti dall'utente (la cartella di destinazione della copia, REVIEW D36) vengono
+  validati nel backend (disco collegato, non dentro la sorgente, sandbox in sviluppo). La pipe
+  del menu di Esplora risorse accetta solo `analyze`/`duplicates` con un percorso, che serve
+  soltanto a scegliere cosa mostrare.
 - File e cartelle si aprono **senza** privilegi di amministratore (tramite la shell del
   desktop), per non lanciare programmi dell'utente come amministratore.
 - Il trascinamento da Esplora risorse verso Prism è bloccato da Windows (UIPI): è una
   conseguenza accettata dell'esecuzione elevata.
+
+## 8.1 Installazione (T10, F22)
+
+`scripts\build-installer.ps1` compila `prism-shell` e poi, con la CLI di Tauri, l'app e il suo
+installer NSIS (`target\release\bundle\nsis\Prism_<versione>_x64-setup.exe`):
+
+- installazione per tutta la macchina (l'installer è elevato e può registrare l'attività
+  pianificata con i privilegi più alti), lingue italiano e inglese, WebView2 installato con il
+  bootstrapper di Microsoft se manca (F22-AC1);
+- `crates\prism-app\windows\installer-hooks.nsh`: dopo l'installazione copia
+  `prism-shell.exe` accanto a `prism.exe` e lo esegue con `--install` (voci del menu di Esplora
+  risorse per l'utente, nella lingua di Windows, e attività `Prism` con avvio all'accesso);
+  prima della disinstallazione `--uninstall` le toglie (F18-AC3, F22-AC2);
+- la disinstallazione di Tauri chiede se cancellare i dati dell'applicazione: se la casella
+  resta vuota il catalogo resta (F22-AC2);
+- le scorciatoie del menu Start e del desktop hanno l'AppUserModelID `com.prism.catalog`, lo
+  stesso delle notifiche della versione di rilascio: un clic su una notifica apre Prism
+  (REVIEW L9, da verificare su un PC pulito).
+
+La firma del codice (Q7) si aggiunge con `bundle.windows.signCommand` (o
+`certificateThumbprint`) in `tauri.conf.json`, senza modifiche al codice.
 
 ## 9. Errori, log, diagnostica
 

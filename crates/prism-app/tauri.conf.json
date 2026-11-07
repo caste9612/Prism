@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../../ui/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm --prefix ../../ui run dev",
-    "beforeBuildCommand": "npm --prefix ../../ui run build"
+    "beforeDevCommand": "npm --prefix ../ui run dev",
+    "beforeBuildCommand": "npm --prefix ../ui run build"
   },
   "app": {
     "windows": [
@@ -27,7 +27,35 @@
     }
   },
   "bundle": {
-    "active": false,
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"]
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "publisher": "caste9612",
+    "copyright": "© 2026 caste9612",
+    "category": "Utility",
+    "shortDescription": "The catalog of all your disks",
+    "longDescription": "Prism keeps a catalog of all your disks, connected or not: search, space, duplicates, backups and disk health.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": [
+          "English",
+          "Italian"
+        ],
+        "displayLanguageSelector": false,
+        "installerHooks": "./windows/installer-hooks.nsh"
+      }
+    }
   }
 }

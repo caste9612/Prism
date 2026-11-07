@@ -50,6 +50,16 @@ pub fn windows_version() -> String {
         .to_owned()
 }
 
+/// Whether Windows shows its interface in Italian (the language of the Explorer menu entries
+/// written by the installer).
+#[must_use]
+pub fn ui_is_italian() -> bool {
+    // SAFETY: no arguments; returns the user's UI language identifier.
+    let lang = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
+    // Primary language identifier of Italian: 0x10.
+    lang & 0x3FF == 0x10
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

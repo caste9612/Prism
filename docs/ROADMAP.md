@@ -154,8 +154,9 @@ F21-AC4.
 
 ## T10 — Distribuzione e 1.0
 
-- [ ] Installer: attività pianificata, menu contestuale, WebView2, disinstallazione (F22),
-      identificativo e attivatore delle notifiche (REVIEW L9)
+- [x] Installer: attività pianificata, menu contestuale, WebView2, disinstallazione (F22),
+      identificativo e attivatore delle notifiche (REVIEW L9): costruito e controllato nello
+      script generato; l'installazione si prova su un PC pulito (REVIEW U3)
 - [ ] Aggiornamenti automatici firmati (F22-AC3)
 - [ ] Firma del codice con il certificato scelto dall'utente (Q7), ramo principale (Q11)
 - [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali

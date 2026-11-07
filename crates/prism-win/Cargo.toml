@@ -28,6 +28,7 @@ windows = { workspace = true, features = [
 ] }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_NetworkManagement_WNet",
     "Win32_Security",
     "Win32_Security_Authorization",

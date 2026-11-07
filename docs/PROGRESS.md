@@ -25,6 +25,18 @@
 
 ## Diario
 
+### 2026-11-07 — T10: installer
+
+- `crates/prism-app/tauri.conf.json`: pacchetto NSIS per tutta la macchina, italiano e inglese,
+  WebView2 con il bootstrapper; agganci `windows/installer-hooks.nsh` che copiano
+  `prism-shell.exe` e lo eseguono con `--install`/`--uninstall` (menu di Esplora risorse nella
+  lingua di Windows e attività pianificata). `scripts/build-installer.ps1`.
+- Installer costruito: `Prism_0.1.0_x64-setup.exe`, 4,5 MB. Controllato lo script generato
+  (agganci inseriti, casella dei dati dell'applicazione, AppUserModelID sulle scorciatoie).
+  Non eseguito sulla macchina di sviluppo: la prova è REVIEW U3 con la checklist T10.
+- Errore trovato alla prima costruzione: il comando dell'interfaccia di Tauri gira dalla
+  cartella `crates`, non da `crates/prism-app`; percorso corretto.
+
 ### 2026-11-07 — T9 completata: menu di Esplora risorse
 
 - `prism-win::pipe` (named pipe con accesso esplicito all'utente non elevato),

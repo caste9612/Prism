@@ -61,14 +61,15 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D43 | 2026-11-07 | T9 | Identità ambigua: un riquadro per disco nella schermata *Dischi* con i dischi del catalogo che potrebbe essere (nome, posizione, capacità, ultima volta visto) e "È un altro disco"; la scelta si applica al rilevamento successivo (entro 2 s) e aggiorna il disco scelto con il GUID di quello collegato, così dopo viene riconosciuto da solo; una scelta per un disco già assegnato a un altro collegato si ripropone | Finestra modale; ricordare la scelta per sempre senza aggiornare il catalogo | `prism-app/src/identity.rs`, `monitor::apply_detection`, `CatalogView.svelte` | F02-AC3 |
 | D44 | 2026-11-07 | T9 | Salute dei dischi senza librerie né WMI: IOCTL di Windows (pagina di log NVMe, attributi e soglie SMART ATA, stato SMART). Si mandano solo comandi di lettura; per i dischi ATA l'handle si apre con accesso in lettura e scrittura perché gli IOCTL SMART lo richiedono, senza mai scrivere. Stato: critico se il disco lo segnala (avviso critico NVMe, soglia superata, SMART "in guasto", vita esaurita, riserva sotto soglia), attenzione per settori riallocati o in attesa, errori sui dati, usura ≥ 90 %, temperatura ≥ 65 °C. Lettura ogni ora, storia solo quando cambia qualcosa (non la temperatura) o una volta al giorno, 400 giorni; notifica quando lo stato peggiora o crescono settori ed errori | WMI (`MSFT_StorageReliabilityCounter`, meno dati sugli HDD); smartmontools incluso (licenza GPL); passthrough SAT per i dischi USB (rischioso con alcuni adattatori) | `prism-core::health`, `prism-win::health`, `health_state.rs` | F17 |
 | D45 | 2026-11-07 | T9 | Menu di Esplora risorse: `prism-shell.exe` non elevato manda la richiesta a Prism con una named pipe per utente (accesso esplicito all'utente stesso, integrità media, client remoti rifiutati); se Prism non è avviato lo avvia con l'attività pianificata `Prism`, che ora resta sempre registrata nelle build di rilascio e ha solo il trigger di accesso legato all'opzione "Avvia con Windows". Voci: *Analizza con Prism* e *Cerca duplicati qui* su cartelle, unità e sfondo di una cartella, registrate dall'installer per l'utente (`HKCU`) | Due attività (accesso e su richiesta); messaggi finestra o file di richiesta al posto della pipe; voci in `HKLM` per tutti gli utenti | `prism-win::pipe`, `shell_menu`, `crates/prism-shell`, `autostart::apply` | F18, ADR-0003 |
+| D46 | 2026-11-07 | T10 | Installer NSIS di Tauri per tutta la macchina (serve l'elevazione per l'attività con i privilegi più alti, che comunque Prism chiede), italiano e inglese, WebView2 con il bootstrapper; `prism-shell.exe` aggiunto da un aggancio NSIS (non come risorsa di Tauri: renderebbe obbligatorio compilarlo prima di ogni `cargo build`) e chiamato con `--install`/`--uninstall`; la scelta di tenere il catalogo è la casella "Elimina i dati dell'applicazione" della disinstallazione di Tauri | MSI (WiX); installazione per utente (niente attività elevata); finestra di domanda propria per il catalogo | `tauri.conf.json`, `windows/installer-hooks.nsh`, `scripts/build-installer.ps1` | F22-AC1/AC2 |
 
 ## 2. Cose che richiedono l'utente
 
 | # | Cosa | Perché serve l'utente | Cosa è già pronto |
 |---|---|---|---|
-| U1 | Firma del codice (SPEC Q7) | Scelta e acquisto del certificato | Da preparare in T10: firma configurabile senza modifiche al codice |
+| U1 | Firma del codice (SPEC Q7) | Scelta e acquisto del certificato | Pronto: basta impostare `bundle.windows.signCommand` (o `certificateThumbprint`) in `crates/prism-app/tauri.conf.json` e rieseguire `scripts/build-installer.ps1` (ARCHITECTURE §8.1) |
 | U2 | Merge di `rewrite` sul ramo principale e rilascio 1.0 (Q11) | Approvazione | — |
-| U3 | Prova su un PC Windows 11 pulito (installer, avvio con Windows, aggiornamenti) | Serve un'altra macchina | — |
+| U3 | Prova su un PC Windows 11 pulito (installer, avvio con Windows, aggiornamenti) | Serve un'altra macchina; l'installazione non si prova sulla macchina di sviluppo | `target\release\bundle\nsis\Prism_0.1.0_x64-setup.exe` da `scripts/build-installer.ps1`; checklist T10 in §4 |
 | U4 | Collegare e scollegare un disco esterno (T2, F02) | Azione fisica | Test automatico del cambio di lettera sul disco di test già passato |
 | U5 | Aspetto e usabilità dell'interfaccia | Giudizio estetico | — |
 | U6 | Rimuovere il runner amministratore a fine sviluppo | Riduce la superficie d'attacco | `scripts/admin/uninstall-admin-runner.ps1` |
@@ -85,7 +86,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | L6 | 2026-11-07 | Nell'app, i volumi non NTFS (exFAT, FAT) e le unità di rete non si aggiornano da soli mentre sono collegati: solo alla riconnessione o con *Aggiorna* (la sorveglianza delle cartelle esiste in `prism-win::watch` ma non è ancora collegata all'app) | Catalogo di chiavette e NAS meno fresco | **Risolto** (2026-11-07): sorveglianza cartelle collegata nell'app per FAT/exFAT/ReFS e unità di rete; da provare con una chiavetta (checklist T3, punto 10) |
 | L7 | 2026-11-07 | Identità ambigua di un volume (F02-AC3): nessuna finestra di scelta ancora (D13) | Caso raro (due dischi clonati); il disco non compare finché non si risolve | **Risolto** (2026-11-07, T9): riquadro "Quale disco è…?" nella schermata *Dischi* con i candidati e "È un altro disco" (D43) |
 | L8 | 2026-11-07 | Disco nuovo collegato mentre la finestra è nascosta nel tray: nessuna notifica di Windows ancora, solo il riquadro alla riapertura | F02-AC1 parziale | **Risolto** (2026-11-07): notifica di Windows, una sola per più dischi trovati insieme (D19); il clic sulla notifica non apre ancora Prism (L9) |
-| L9 | 2026-11-07 | Il clic su una notifica di Prism la chiude soltanto: aprire Prism dalla notifica richiede un attivatore COM registrato dall'installer | Si riapre Prism dall'icona nel tray | Da fare in T10 (installer) |
+| L9 | 2026-11-07 | Il clic su una notifica di Prism la chiude soltanto: aprire Prism dalla notifica richiede un attivatore COM registrato dall'installer | Si riapre Prism dall'icona nel tray | **Atteso risolto** con l'installer (T10): le scorciatoie hanno l'AppUserModelID delle notifiche, così Windows apre Prism al clic; da verificare nella prova U3 |
 | S1 | 2026-11-07 | (Supervisione) L'app di debug elimina senza `SandboxGuard` (`prism-app/src/state.rs`, guardia `None`) mentre lo sviluppo la pilota con i cataloghi di C: e D:; nessuna eliminazione reale avvenuta finora | Rischio di eliminare file veri durante le prove dell'app | Istruzione in CLAUDE.md (Sicurezza dei dati): guardia obbligatoria nelle build di debug, con test |
 | L10 | 2026-11-07 | Risposta a S1 | — | **Fatto** (2026-11-07): nelle build di debug `AppState::deletion_guard` limita ogni eliminazione al volume PRISMTEST (trovato dall'etichetta), a `%TEMP%` e a `%LOCALAPPDATA%\PrismDev`; la release non ha guardia. Test `state_tests::debug_build_refuses_deletions_outside_the_sandbox` (eliminazione in una cartella fuori sandbox → rifiutata, file intatto, registro vuoto). Nelle prove sull'app vera non è mai stata avviata un'eliminazione (solo schermate in lettura) |
 | L11 | 2026-11-07 | L'indice di ricerca di un volume si ricostruisce per intero quando il suo catalogo cambia, al massimo ogni 30 s | Risultati in ritardo fino a ~30 s dopo un cambio; ~0,6 s di CPU per ricostruzione su un volume da 1,4 milioni di voci | Accettato per la 1.0; miglioramento: aggiornamento incrementale dalle operazioni di scrittura |
@@ -298,3 +299,17 @@ esempio `F:\prism-t6\Documenti` come sorgente e `F:\prism-t7` come destinazione.
    mentre l'originale è nel catalogo e scollegato; compare "Quale disco è PRISMTEST?" con il
    disco del catalogo e "È un altro disco". Scegliendo il disco, la scheda torna collegata con
    la nuova lettera; scegliendo "un altro disco", compare come disco nuovo da indicizzare.
+
+### Checklist T10 (installazione, su un PC pulito)
+
+1. `Prism_0.1.0_x64-setup.exe`: l'installazione chiede l'elevazione, installa WebView2 se manca,
+   crea le scorciatoie (F22-AC1).
+2. Al riavvio o al nuovo accesso Prism parte nascosto nel tray (F19-AC3); in *Impostazioni*
+   l'opzione si spegne e al riavvio non parte più.
+3. Clic destro su una cartella o un'unità: *Analizza con Prism* e *Cerca duplicati qui*, con
+   Prism chiuso e aperto, senza richiesta UAC (F18).
+4. Un disco nuovo collegato con la finestra nascosta mostra una notifica; il clic apre Prism
+   (L9).
+5. Disinstallazione: le voci del menu e l'attività spariscono; lasciando vuota la casella
+   "Elimina i dati dell'applicazione" il catalogo resta in `%LOCALAPPDATA%\com.prism.catalog`
+   e una nuova installazione lo ritrova (F22-AC2).
