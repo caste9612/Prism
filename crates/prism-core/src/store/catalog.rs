@@ -7,8 +7,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::{StoreError, StoreEvent, WriteTx};
 use crate::model::{
-    BusType, DirStats, EntryId, EntryMeta, EntryRecord, FileTime, Volume, VolumeId, VolumeInfo,
-    VolumeKind, VolumeLabels, VolumeStatus, unix_millis_now,
+    BusType, DirStats, EntryId, EntryMeta, EntryRecord, FileTime, UsnPosition, Volume, VolumeId,
+    VolumeInfo, VolumeKind, VolumeLabels, VolumeStatus, unix_millis_now,
 };
 use crate::names;
 
@@ -27,7 +27,7 @@ pub(crate) fn from_db(v: i64) -> u64 {
 
 const VOLUME_COLS: &str = "id, kind, fs_type, fs_serial, volume_guid, unc_path, os_label, \
     capacity, free_space, user_name, location, notes, color, status, last_mount, \
-    first_seen_at, last_seen_at, last_indexed_at, bus_type";
+    first_seen_at, last_seen_at, last_indexed_at, bus_type, usn_journal_id, usn_next";
 
 fn volume_from_row(row: &Row<'_>) -> rusqlite::Result<Volume> {
     let kind: String = row.get(1)?;
@@ -66,6 +66,16 @@ fn volume_from_row(row: &Row<'_>) -> rusqlite::Result<Volume> {
         first_seen_at: row.get(15)?,
         last_seen_at: row.get(16)?,
         last_indexed_at: row.get(17)?,
+        usn: match (
+            row.get::<_, Option<i64>>(19)?,
+            row.get::<_, Option<i64>>(20)?,
+        ) {
+            (Some(journal_id), Some(next_usn)) => Some(UsnPosition {
+                journal_id: from_db(journal_id),
+                next_usn,
+            }),
+            _ => None,
+        },
     })
 }
 
@@ -204,6 +214,30 @@ pub fn set_volume_status(
         return Err(StoreError::NotFound(format!("volume {id}")));
     }
     wtx.notify(StoreEvent::VolumeChanged { volume: id });
+    Ok(())
+}
+
+/// Records (or clears) the change-journal position up to which the volume's catalog is up to
+/// date (ADR-0007). Cleared whenever the catalog can no longer be updated from the journal.
+///
+/// # Errors
+/// [`StoreError::NotFound`] if the volume does not exist; SQLite errors.
+pub fn set_usn_position(
+    wtx: &mut WriteTx<'_>,
+    id: VolumeId,
+    position: Option<UsnPosition>,
+) -> Result<(), StoreError> {
+    let changed = wtx
+        .conn()
+        .prepare_cached("UPDATE volumes SET usn_journal_id = ?2, usn_next = ?3 WHERE id = ?1")?
+        .execute(params![
+            id.0,
+            position.map(|p| to_db(p.journal_id)),
+            position.map(|p| p.next_usn)
+        ])?;
+    if changed == 0 {
+        return Err(StoreError::NotFound(format!("volume {id}")));
+    }
     Ok(())
 }
 

@@ -5,9 +5,11 @@
 
 ## Stato attuale
 
-- **Tappa**: T2 in corso — rilevamento volumi (ADR-0016) e lettore MFT (ADR-0017, "go") fatti.
-- **Prossimo passo**: T2 — journal USN: lettura, applicazione tramite il reconciler, gestione
-  del journal non valido (ADR-0007), con la `FileRefMap` per le ricerche per riferimento.
+- **Tappa**: T2 in corso — rilevamento volumi (ADR-0016), lettore MFT (ADR-0017, "go") e
+  lettura del journal USN fatti.
+- **Prossimo passo**: T2 — applicazione del journal al catalogo secondo ADR-0018: reconciler
+  con più bersagli e `Listing::NotListed`, costruzione degli elenchi superficiali, test di
+  equivalenza (file system simulato con riferimenti e disco di test PRISMTEST).
 - **Da fare in T2**: istantanea `ScanTree` compatta (memoria massima ~315 B per voce durante
   l'indicizzazione con MFT: per 5 milioni di voci sarebbe ~1,5 GB); lettore MFT completo
   (`$MFT` con `$ATTRIBUTE_LIST` nel record 0, file compressi/sparsi verificati);
@@ -22,6 +24,27 @@
   consentito solo del branch `rewrite` (vedi CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T2: lettura del journal USN
+
+- `prism-win::usn`: stato del journal, verifica della posizione salvata (journal ricreato o
+  sovrascritto → riconciliazione completa), lettura dei record con parser puro per
+  `USN_RECORD_V2`/`V3` (4 test su buffer sintetici).
+- `prism-win::mft::fetch_file`: stato attuale di un singolo file via
+  `FSCTL_GET_NTFS_FILE_RECORD` (coerente con la cache), con i record di estensione;
+  `entry_meta` condiviso con la lettura completa, così i metadati sono identici.
+- **Scoperta**: con 41 hard link la `$ATTRIBUTE_LIST` non sta nel record (non residente). Ora
+  si legge dai cluster del disco; se non è ancora coerente (il file system non l'ha scritta)
+  si ottiene `FetchError::Stale` ("riprova"), mai dati sbagliati.
+- Catalogo: posizione del journal per volume (`Volume::usn`, `set_usn_position`).
+- **ADR-0018**: progetto dell'applicazione del journal (file toccati letti con `fetch_file`,
+  elenchi superficiali delle cartelle toccate, una sola esecuzione del reconciler con più
+  bersagli, ripiego sulla riconciliazione completa). Prism non crea journal sui dischi
+  dell'utente.
+- Test elevato tramite il runner (passato): creazione, rinomina (stesso riferimento),
+  cancellazione e hard link visti nel journal; il recupero del file con 41 nomi dà, nome per
+  nome, gli stessi metadati della lettura completa della MFT. Il journal è stato creato solo su
+  PRISMTEST (C:, D:, E: hanno già il proprio).
 
 ### 2026-11-07 — T2: lettore MFT, decisione "go"
 

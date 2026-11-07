@@ -548,6 +548,7 @@ mod tests {
                 first_seen_at: 0,
                 last_seen_at: None,
                 last_indexed_at: None,
+                usn: None,
             })
             .collect();
         let matches = match_volumes(&second, &catalog);

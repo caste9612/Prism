@@ -51,7 +51,9 @@ misura: 108–129 B per voce senza indice di ricerca), NF4 (parziale).
       (`$ATTRIBUTE_LIST`), hard link, ADS, confronto con il walker sul disco di test; restano
       `$MFT` con `$ATTRIBUTE_LIST` nel record 0, verifica di file compressi/sparsi
 - [ ] Istantanea `ScanTree` compatta (memoria massima oggi ~315 B per voce, NF3)
-- [ ] Journal USN: lettura, applicazione tramite `Reconciler`, gestione journal non valido
+- [~] Journal USN: lettura, posizione salvata, gestione journal non valido e recupero dei
+      singoli file fatti (ADR-0018); resta l'applicazione tramite il `Reconciler` (più
+      bersagli, cartelle non elencate) con i test di equivalenza
 - [ ] Sorveglianza cartelle per i volumi non NTFS
 
 Criteri coperti: F02-AC3, F04-AC1, F05-AC1/AC2/AC4.

@@ -23,3 +23,4 @@ e si aggiorna lo stato di quella vecchia ("Sostituita da ADR-NNNN").
 | [0015](0015-dettagli-modello-dati-t1.md) | Dettagli del modello dati decisi in T1 | Accettata |
 | [0016](0016-abbinamento-volumi-e-unita-di-rete.md) | Abbinamento dei volumi e unità di rete in un processo elevato | Accettata |
 | [0017](0017-lettore-mft.md) | Lettore MFT: "go" e ricerche per riferimento senza indice SQL | Accettata |
+| [0018](0018-applicazione-journal-usn.md) | Applicazione del journal USN al catalogo | Accettata |

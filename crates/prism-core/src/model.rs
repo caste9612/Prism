@@ -301,6 +301,15 @@ pub struct Volume {
     pub first_seen_at: i64,
     pub last_seen_at: Option<i64>,
     pub last_indexed_at: Option<i64>,
+    /// Position in the NTFS change journal up to which the catalog is up to date (ADR-0007).
+    pub usn: Option<UsnPosition>,
+}
+
+/// A position in the change journal of an NTFS volume.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UsnPosition {
+    pub journal_id: u64,
+    pub next_usn: i64,
 }
 
 /// A catalog entry with its position in the tree.

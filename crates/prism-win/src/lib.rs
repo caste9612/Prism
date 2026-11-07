@@ -7,6 +7,8 @@
 #![cfg(windows)]
 #![allow(unsafe_code)]
 
+pub(crate) mod ioctl;
 pub mod mft;
 pub mod process;
+pub mod usn;
 pub mod volumes;

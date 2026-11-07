@@ -102,6 +102,26 @@ fn volume_roundtrip_and_labels() {
     ));
 }
 
+#[test]
+fn usn_position_roundtrip() {
+    let (_dir, store) = temp_store();
+    let id = add_volume(&store, "C:");
+    assert_eq!(store.read(|c| volume(c, id)).unwrap().unwrap().usn, None);
+    let pos = crate::model::UsnPosition {
+        journal_id: 0x01DB_42D5_FC01_83FD,
+        next_usn: 0x9_E500_2958,
+    };
+    store
+        .write(move |w| set_usn_position(w, id, Some(pos)))
+        .unwrap();
+    assert_eq!(
+        store.read(|c| volume(c, id)).unwrap().unwrap().usn,
+        Some(pos)
+    );
+    store.write(move |w| set_usn_position(w, id, None)).unwrap();
+    assert_eq!(store.read(|c| volume(c, id)).unwrap().unwrap().usn, None);
+}
+
 // ADR-0008 / NF1 / F04-AC7: readers never wait for the writer, even while a write transaction
 // is open.
 #[test]

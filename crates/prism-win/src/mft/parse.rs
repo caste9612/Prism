@@ -225,6 +225,39 @@ pub struct ParsedRecord {
     /// Allocated bytes of all data streams (unnamed and alternate) found in this record.
     pub allocated: u64,
     pub has_attribute_list: bool,
+    /// For a resident `$ATTRIBUTE_LIST`: file references of the records that hold attributes
+    /// of this file, without duplicates (the base record itself is usually among them).
+    pub extension_records: Vec<u64>,
+    /// The `$ATTRIBUTE_LIST` is itself non-resident (many hard links, very fragmented files):
+    /// its content must be read from the clusters in `attribute_list_data`.
+    pub attribute_list_nonresident: bool,
+    /// Run list and data size of a non-resident `$ATTRIBUTE_LIST`.
+    pub attribute_list_data: Option<(Vec<Run>, u64)>,
+}
+
+/// File references of the records listed in an `$ATTRIBUTE_LIST` value, without duplicates
+/// (the caller drops the record itself).
+///
+/// # Errors
+/// [`ParseError::Truncated`] if an entry is malformed (for instance, stale clusters read from
+/// the disk while the list was being changed).
+pub fn attribute_list_holders(list: &[u8]) -> Result<Vec<u64>, ParseError> {
+    // Entries: type u32, length u16, name length u8, name offset u8, starting VCN u64,
+    // reference of the record holding the attribute u64, attribute id u16, name.
+    let mut holders = Vec::new();
+    let mut pos = 0usize;
+    while pos + 24 <= list.len() {
+        let entry_len = usize::from(u16_at(list, pos + 4)?);
+        if entry_len < 24 || pos + entry_len > list.len() {
+            return Err(ParseError::Truncated(pos));
+        }
+        let holder = u64_at(list, pos + 16)?;
+        if !holders.contains(&holder) {
+            holders.push(holder);
+        }
+        pos += entry_len;
+    }
+    Ok(holders)
 }
 
 const ATTR_STANDARD_INFORMATION: u32 = 0x10;
@@ -236,12 +269,47 @@ const ATTR_END: u32 = 0xFFFF_FFFF;
 /// Mask applied to a file record number taken from a file reference.
 pub const RECORD_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
 
-/// Parses one file record. Applies the fixups in place. Returns `None` for records that are
-/// not in use or not initialized.
+/// Parses one file record read raw from the disk. Applies the fixups in place. Returns `None`
+/// for records that are not in use or not initialized.
 ///
 /// # Errors
 /// [`ParseError`] for damaged records (the caller skips them).
 pub fn parse_record(record: &mut [u8]) -> Result<Option<ParsedRecord>, ParseError> {
+    parse_record_with(record, false)
+}
+
+/// Like [`parse_record`] for a record returned by `FSCTL_GET_NTFS_FILE_RECORD`, which may come
+/// with the fixups already applied: they are applied only if every stride still carries the
+/// update sequence number; a mix of the two is reported as damage.
+///
+/// # Errors
+/// [`ParseError`] for damaged records.
+pub fn parse_fetched_record(record: &mut [u8]) -> Result<Option<ParsedRecord>, ParseError> {
+    parse_record_with(record, true)
+}
+
+fn fixups_pending(record: &[u8]) -> Result<bool, ParseError> {
+    let usa_offset = usize::from(u16_at(record, 4)?);
+    let usa_count = usize::from(u16_at(record, 6)?);
+    let usn = u16_at(record, usa_offset)?;
+    let strides: Vec<bool> = (1..usa_count)
+        .map(|i| i * 512)
+        .filter(|end| *end <= record.len())
+        .map(|end| u16_at(record, end - 2).map(|v| v == usn))
+        .collect::<Result<_, _>>()?;
+    match (strides.iter().all(|m| *m), strides.iter().any(|m| *m)) {
+        (true, _) => Ok(true),
+        (false, false) => Ok(false),
+        (false, true) => Err(ParseError::Fixup(
+            strides.iter().position(|m| !m).unwrap_or(0),
+        )),
+    }
+}
+
+fn parse_record_with(
+    record: &mut [u8],
+    fixups_maybe_applied: bool,
+) -> Result<Option<ParsedRecord>, ParseError> {
     if record.get(0..4) != Some(b"FILE".as_slice()) {
         return Ok(None); // free (zeroed) or "BAAD" record
     }
@@ -249,7 +317,9 @@ pub fn parse_record(record: &mut [u8]) -> Result<Option<ParsedRecord>, ParseErro
     if flags & 0x0001 == 0 {
         return Ok(None);
     }
-    apply_fixups(record)?;
+    if !fixups_maybe_applied || fixups_pending(record)? {
+        apply_fixups(record)?;
+    }
     let base_ref = u64_at(record, 32)?;
     let mut out = ParsedRecord {
         sequence: u16_at(record, 16)?,
@@ -282,7 +352,17 @@ pub fn parse_record(record: &mut [u8]) -> Result<Option<ParsedRecord>, ParseErro
                     attrs: u32_at(v, 32)?,
                 });
             }
-            ATTR_ATTRIBUTE_LIST => out.has_attribute_list = true,
+            ATTR_ATTRIBUTE_LIST => {
+                out.has_attribute_list = true;
+                if non_resident {
+                    out.attribute_list_nonresident = true;
+                    let runs_off = usize::from(u16_at(attr, 32)?);
+                    let runs = parse_runlist(attr.get(runs_off..).ok_or(ParseError::RunList)?)?;
+                    out.attribute_list_data = Some((runs, u64_at(attr, 48)?));
+                } else {
+                    out.extension_records = attribute_list_holders(resident_value(attr)?)?;
+                }
+            }
             ATTR_FILE_NAME if !non_resident => {
                 let v = resident_value(attr)?;
                 let chars = usize::from(u8_at(v, 64)?);
@@ -488,8 +568,19 @@ pub(crate) mod tests {
             self.attrs.extend_from_slice(&a);
         }
 
-        pub(crate) fn attribute_list(mut self) -> Self {
-            self.push_attr(ATTR_ATTRIBUTE_LIST, &[], &[0u8; 32]);
+        /// A resident attribute list with one entry per record holding attributes.
+        pub(crate) fn attribute_list(mut self, holders: &[u64]) -> Self {
+            let mut v = Vec::new();
+            for (i, h) in holders.iter().enumerate() {
+                let mut e = vec![0u8; 32];
+                e[0..4].copy_from_slice(&ATTR_FILE_NAME.to_le_bytes());
+                e[4..6].copy_from_slice(&32u16.to_le_bytes());
+                e[7] = 26; // name offset (no name)
+                e[16..24].copy_from_slice(&h.to_le_bytes());
+                e[24..26].copy_from_slice(&u16::try_from(i).unwrap().to_le_bytes());
+                v.extend_from_slice(&e);
+            }
+            self.push_attr(ATTR_ATTRIBUTE_LIST, &[], &v);
             self
         }
 
@@ -573,13 +664,31 @@ pub(crate) mod tests {
         let p = parse_record(&mut r).unwrap().unwrap();
         assert_eq!(p.base, Some(1234 | (9 << 48)));
         assert!(p.standard.is_none());
-        let mut with_list = RecordBuilder::new(true).attribute_list().build();
-        assert!(
-            parse_record(&mut with_list)
-                .unwrap()
-                .unwrap()
-                .has_attribute_list
+        let mut with_list = RecordBuilder::new(true)
+            .attribute_list(&[40 | (2 << 48), 41 | (2 << 48), 40 | (2 << 48)])
+            .build();
+        let p = parse_record(&mut with_list).unwrap().unwrap();
+        assert!(p.has_attribute_list);
+        assert!(!p.attribute_list_nonresident);
+        assert_eq!(p.extension_records, vec![40 | (2 << 48), 41 | (2 << 48)]);
+    }
+
+    #[test]
+    fn attribute_list_entries() {
+        let mut list = Vec::new();
+        for holder in [7u64 | (1 << 48), 9 | (1 << 48), 7 | (1 << 48)] {
+            let mut e = vec![0u8; 32];
+            e[4..6].copy_from_slice(&32u16.to_le_bytes());
+            e[16..24].copy_from_slice(&holder.to_le_bytes());
+            list.extend_from_slice(&e);
+        }
+        assert_eq!(
+            attribute_list_holders(&list).unwrap(),
+            vec![7 | (1 << 48), 9 | (1 << 48)]
         );
+        // Stale clusters (zeroed tail) are an error, not an empty list.
+        list.extend_from_slice(&[0u8; 32]);
+        assert!(attribute_list_holders(&list).is_err());
     }
 
     #[test]

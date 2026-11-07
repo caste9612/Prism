@@ -1,6 +1,6 @@
 # ADR-0007 — Aggiornamenti: journal USN, sorveglianza cartelle, riconciliazione
 
-- **Stato**: Accettata
+- **Stato**: Accettata; applicazione del journal dettagliata in ADR-0018
 - **Data**: 2026-11-07
 
 ## Contesto

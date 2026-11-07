@@ -75,7 +75,7 @@ const IN_USE: u32 = 1 << 16;
 const IS_DIR: u32 = 1 << 17;
 const NONE: u32 = u32::MAX;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Detail {
     created: u64,
     modified: u64,
@@ -246,24 +246,12 @@ impl Table {
     }
 
     fn meta(&self, n: u64, counts_allocation: bool) -> EntryMeta {
-        let d = self.detail(n);
-        let is_dir = self.is_dir(n);
-        let mut attrs = d.attrs & !NTFS_INTERNAL_FLAGS;
-        if is_dir {
-            attrs |= ATTR_DIRECTORY;
-        }
-        if attrs == 0 {
-            attrs = ATTR_NORMAL;
-        }
-        let time = |t: u64| (t != 0).then(|| FileTime(i64::try_from(t).unwrap_or(i64::MAX)));
-        EntryMeta {
-            size: if is_dir { 0 } else { d.size },
-            alloc_size: (!is_dir).then_some(if counts_allocation { d.allocated } else { 0 }),
-            created: time(d.created),
-            modified: time(d.modified),
-            attrs,
-            file_ref: Some(self.reference(n)),
-        }
+        entry_meta(
+            self.is_dir(n),
+            &self.detail(n),
+            self.reference(n),
+            counts_allocation,
+        )
     }
 
     /// Whether name `name` of its record carries the allocation of a hard-linked file: the
@@ -284,6 +272,206 @@ impl Table {
         self.names_of(u64::from(me.child))
             .all(|other| key(other) >= mine)
     }
+}
+
+/// The catalog metadata of a file record, shared by the full MFT read and by single-file
+/// fetches (USN updates), so both produce exactly the same values (F05-AC3).
+fn entry_meta(is_dir: bool, d: &Detail, reference: u64, counts_allocation: bool) -> EntryMeta {
+    let mut attrs = d.attrs & !NTFS_INTERNAL_FLAGS;
+    if is_dir {
+        attrs |= ATTR_DIRECTORY;
+    }
+    if attrs == 0 {
+        attrs = ATTR_NORMAL;
+    }
+    let time = |t: u64| (t != 0).then(|| FileTime(i64::try_from(t).unwrap_or(i64::MAX)));
+    EntryMeta {
+        size: if is_dir { 0 } else { d.size },
+        alloc_size: (!is_dir).then_some(if counts_allocation { d.allocated } else { 0 }),
+        created: time(d.created),
+        modified: time(d.modified),
+        attrs,
+        file_ref: Some(reference),
+    }
+}
+
+/// One file read through its own MFT records (base and extensions), as needed to apply a
+/// change journal entry. Same semantics as the full MFT read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileState {
+    /// File reference (record number and sequence).
+    pub file_ref: u64,
+    pub is_dir: bool,
+    /// Every non-DOS name: (parent folder reference, UTF-16 name).
+    pub names: Vec<(u64, Vec<u16>)>,
+    detail: Detail,
+}
+
+impl FileState {
+    fn from_parts(file_ref: u64, parts: Vec<ParsedRecord>) -> Self {
+        let mut state = Self {
+            file_ref,
+            is_dir: false,
+            names: Vec::new(),
+            detail: Detail::default(),
+        };
+        for (i, p) in parts.into_iter().enumerate() {
+            if i == 0 {
+                state.is_dir = p.is_dir;
+            }
+            if let Some(si) = p.standard {
+                state.detail.created = si.created;
+                state.detail.modified = si.modified;
+                state.detail.attrs = si.attrs;
+            }
+            if let Some(size) = p.data_size {
+                state.detail.size = size;
+            }
+            state.detail.allocated = state.detail.allocated.saturating_add(p.allocated);
+            state.names.extend(
+                p.names
+                    .into_iter()
+                    .filter(|n| n.namespace != NAMESPACE_DOS)
+                    .map(|n| (n.parent, n.name)),
+            );
+        }
+        state
+    }
+
+    /// Catalog metadata for name `index` (only the primary name of a hard-linked file counts
+    /// the allocated space, as in the full read).
+    #[must_use]
+    pub fn meta(&self, index: usize) -> EntryMeta {
+        let key = |i: usize| {
+            self.names
+                .get(i)
+                .map(|(p, n)| (p & RECORD_MASK, n.as_slice()))
+        };
+        let mine = key(index);
+        let primary = self.is_dir || (0..self.names.len()).all(|o| key(o) >= mine);
+        entry_meta(self.is_dir, &self.detail, self.file_ref, primary)
+    }
+
+    /// Stored form of name `index` (see `prism_core::names`).
+    #[must_use]
+    pub fn name(&self, index: usize) -> String {
+        self.names
+            .get(index)
+            .map(|(_, n)| names::encode_wide(n))
+            .unwrap_or_default()
+    }
+}
+
+/// Errors when fetching a single file record.
+#[derive(Debug, thiserror::Error)]
+pub enum FetchError {
+    #[error("FSCTL_GET_NTFS_FILE_RECORD failed with Windows error {0}")]
+    Io(u32),
+    #[error("damaged file record: {0}")]
+    Parse(#[from] ParseError),
+    /// The non-resident attribute list read from the disk is not consistent yet (the file
+    /// system has not written it back from its cache): try again later.
+    #[error("the attribute list of file {0:#x} is not on the disk yet: retry later")]
+    Stale(u64),
+}
+
+/// Reads a non-resident `$ATTRIBUTE_LIST` from the volume clusters. The clusters are read
+/// from the disk, which can lag the file-system cache: a list that does not parse is
+/// reported as an error, never used.
+fn read_attribute_list(
+    volume: &File,
+    runs: &[parse::Run],
+    size: u64,
+) -> Result<Vec<u64>, ParseError> {
+    let mut boot = vec![0u8; 4096];
+    read_exact_at(volume, &mut boot, 0).map_err(|_| ParseError::Truncated(0))?;
+    let geo = parse::parse_boot_sector(&boot)?;
+    let cluster = geo.bytes_per_cluster;
+    let mut data = Vec::new();
+    for run in runs {
+        let lcn = run.lcn.ok_or(ParseError::RunList)?;
+        let len = usize::try_from(run.clusters * cluster).map_err(|_| ParseError::RunList)?;
+        if len > 16 << 20 {
+            return Err(ParseError::RunList);
+        }
+        let mut buf = vec![0u8; len];
+        read_exact_at(volume, &mut buf, lcn * cluster).map_err(|_| ParseError::Truncated(0))?;
+        data.extend_from_slice(&buf);
+    }
+    let size = usize::try_from(size).map_err(|_| ParseError::RunList)?;
+    parse::attribute_list_holders(data.get(..size).ok_or(ParseError::Truncated(size))?)
+}
+
+/// Reads one file — its base record and the extension records listed in its attribute
+/// list — through the file system (so cached, not yet written changes are seen).
+///
+/// Returns `None` if the file no longer exists (record free, reused by another file, or an
+/// extension record).
+///
+/// # Errors
+/// [`FetchError`] on I/O errors, damaged records, or a non-resident attribute list.
+pub fn fetch_file(volume: &File, file_ref: u64) -> Result<Option<FileState>, FetchError> {
+    let number = file_ref & RECORD_MASK;
+    let sequence = u16::try_from(file_ref >> 48).unwrap_or(0);
+    let Some(mut base) = fetch_record(volume, number)? else {
+        return Ok(None);
+    };
+    let Some(parsed) = parse::parse_fetched_record(&mut base)? else {
+        return Ok(None);
+    };
+    if parsed.base.is_some() || parsed.sequence != sequence {
+        return Ok(None);
+    }
+    let holders = match &parsed.attribute_list_data {
+        Some((runs, size)) => {
+            read_attribute_list(volume, runs, *size).map_err(|_| FetchError::Stale(file_ref))?
+        }
+        None => parsed.extension_records.clone(),
+    };
+    let extensions: Vec<u64> = holders
+        .into_iter()
+        .filter(|r| r & RECORD_MASK != number)
+        .collect();
+    let mut parts = vec![parsed];
+    for ext in extensions {
+        let Some(mut raw) = fetch_record(volume, ext & RECORD_MASK)? else {
+            continue;
+        };
+        if let Some(p) = parse::parse_fetched_record(&mut raw)?
+            && p.base.map(|b| b & RECORD_MASK) == Some(number)
+        {
+            parts.push(p);
+        }
+    }
+    Ok(Some(FileState::from_parts(file_ref, parts)))
+}
+
+/// One raw file record by number, or `None` if the record is not in use.
+fn fetch_record(volume: &File, number: u64) -> Result<Option<Vec<u8>>, FetchError> {
+    let input = i64::try_from(number).unwrap_or(i64::MAX).to_le_bytes();
+    // Output: record number (8 bytes), record length (4), record (up to 64 KiB).
+    let mut out = vec![0u64; (12 + 65_536) / 8 + 1];
+    let n = crate::ioctl::device_io(
+        volume,
+        crate::ioctl::FSCTL_GET_NTFS_FILE_RECORD,
+        &input,
+        &mut out,
+    )
+    .map_err(FetchError::Io)?;
+    let bytes: &[u8] = crate::ioctl::as_bytes(&out, n);
+    if bytes.len() < 12 {
+        return Err(FetchError::Parse(ParseError::Truncated(0)));
+    }
+    let returned = u64::from_le_bytes(bytes[0..8].try_into().unwrap_or([0; 8])) & RECORD_MASK;
+    let len = u32::from_le_bytes(bytes[8..12].try_into().unwrap_or([0; 4])) as usize;
+    // For a record not in use, Windows returns the closest preceding record in use.
+    if returned != number {
+        return Ok(None);
+    }
+    bytes
+        .get(12..12 + len)
+        .map(|r| Some(r.to_vec()))
+        .ok_or(FetchError::Parse(ParseError::Truncated(12)))
 }
 
 fn unsupported(root: &Path, reason: impl Into<String>) -> ScanError {
@@ -596,7 +784,7 @@ mod tests {
             32,
             RecordBuilder::new(false)
                 .standard(10, 40, 0x20)
-                .attribute_list()
+                .attribute_list(&[32 | (7 << 48), 33 | (7 << 48)])
                 .name(docs_ref, NAMESPACE_WIN32, "big.bin")
                 .build(),
         );

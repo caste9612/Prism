@@ -206,6 +206,20 @@ riapertura dell'archivio (F04-AC6).
 | Journal ricreato o sovrascritto (`usn_journal_id` diverso o `usn_next` < primo USN) | Riconciliazione completa |
 | Non NTFS locale, Prism attivo | Sorveglianza cartelle (`ReadDirectoryChangesW`) + riconciliazione mirata |
 | Unità di rete, rimovibili ricollegate | Riconciliazione completa (walker) |
+| Volume NTFS senza journal attivo | Enumerazione completa al ricollegamento; sorveglianza cartelle mentre Prism è attivo (Prism non crea journal sui dischi dell'utente) |
+
+Componenti del journal (`prism-win`, ADR-0018):
+
+- `usn::query_journal` / `check_position` / `read_journal`: stato del journal e record da una
+  posizione salvata (parser puro `parse_usn_buffer` per `USN_RECORD_V2`/`V3`). La posizione
+  (`volumes.usn_journal_id`, `usn_next`; `store::set_usn_position`) si legge prima di una
+  lettura completa della MFT e si salva dopo una riconciliazione riuscita.
+- `mft::fetch_file`: stato attuale di un file (record base ed estensioni, anche con
+  `$ATTRIBUTE_LIST` non residente letto dai cluster) tramite `FSCTL_GET_NTFS_FILE_RECORD`,
+  coerente con la cache del file system e con la stessa semantica della lettura completa
+  (codice `entry_meta` condiviso).
+- Applicazione al catalogo (in corso): elenchi superficiali delle cartelle toccate in una sola
+  esecuzione del reconciler con più bersagli (ADR-0018).
 
 ### 4.3 Hash (ADR-0011)
 
