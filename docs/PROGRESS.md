@@ -24,6 +24,18 @@
 
 ## Diario
 
+### 2026-11-07 — T9: diagnostica e reset del catalogo
+
+- Log su file: uno al giorno in `logs` nella cartella dati, 14 tenuti (`tracing-appender`).
+- `prism-core::diagnostics`: archivio ZIP non compresso scritto da Prism (CRC-32, date DOS),
+  elenco dei log; `prism-win::system::windows_version`. App: anteprima del pacchetto
+  (`system.txt` e log), esportazione senza sovrascrivere, apertura della cartella dei log.
+- `store::reset_catalog` e comando `reset_catalog` (job fermati, stato in memoria svuotato,
+  impostazioni e registro delle azioni conservati). Interfaccia: gruppi *Diagnostica* e
+  *Catalogo* nelle impostazioni, con anteprima e conferma esplicita. 2 Playwright.
+- Dal test che rilegge l'archivio: la voce della directory centrale aveva 4 byte di troppo
+  (12 invece di 8 tra la lunghezza del nome e gli attributi esterni); corretto prima del commit.
+
 ### 2026-11-07 — T8 completata: video simili
 
 - Schema v7: `video_prints`. `prism-core::media::video`: estensioni, passata in background con

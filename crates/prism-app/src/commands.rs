@@ -13,6 +13,7 @@ use crate::backup_views::{
     SideInput, VerifySummaryView,
 };
 use crate::cleanup_views::{CleanupResultView, CleanupView};
+use crate::diagnostics_state::DiagnosticsView;
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings, VolumeView};
 use crate::duplicates_views::{DupFilterInput, DuplicatesView, RuleInput};
 use crate::search_views::SearchResultView;
@@ -368,6 +369,40 @@ pub async fn image_thumbnail(
     let s = Arc::clone(&state);
     let jpeg = blocking(move || s.image_thumbnail(VolumeId(volume_id), EntryId(entry_id))).await?;
     Ok(tauri::ipc::Response::new(jpeg))
+}
+
+/// Empties the catalog after the user confirmed it (F21-AC4); returns the disks removed.
+#[tauri::command]
+pub async fn reset_catalog(app: AppHandle, state: State<'_, Arc<AppState>>) -> R<usize> {
+    let s = Arc::clone(&state);
+    let removed = blocking(move || s.reset_catalog()).await;
+    emit_volumes(&app);
+    let _ = app.emit("settings-changed", ());
+    removed
+}
+
+/// Opens the folder of the log files in Explorer (F20-AC2).
+#[tauri::command]
+pub fn open_logs(state: State<'_, Arc<AppState>>) -> R<()> {
+    let dir = state.logs_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| ApiError::new("open_failed", e))?;
+    prism_win::shell::open(&dir).map_err(|e| ApiError::new("open_failed", e))
+}
+
+/// What the diagnostic package will contain, before exporting it (F20-AC2).
+#[tauri::command]
+pub async fn diagnostics_preview(state: State<'_, Arc<AppState>>) -> R<DiagnosticsView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.diagnostics_preview()).await
+}
+
+/// Writes the diagnostic package and shows it in Explorer; returns its path (F20-AC2).
+#[tauri::command]
+pub async fn export_diagnostics(state: State<'_, Arc<AppState>>) -> R<String> {
+    let s = Arc::clone(&state);
+    let path = blocking(move || s.export_diagnostics()).await?;
+    let _ = prism_win::shell::reveal(&path);
+    Ok(path.to_string_lossy().into_owned())
 }
 
 /// F01-AC5: removes the catalog data of a volume; files on the disk are never touched.

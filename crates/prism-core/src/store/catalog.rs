@@ -288,6 +288,23 @@ pub fn remove_volume(wtx: &mut WriteTx<'_>, id: VolumeId) -> Result<(), StoreErr
     Ok(())
 }
 
+/// Removes every volume and its data from the catalog (F21-AC4); settings and the actions log
+/// stay. Returns how many volumes were removed. Files on the disks are never touched.
+///
+/// # Errors
+/// SQLite errors.
+pub fn reset_catalog(wtx: &mut WriteTx<'_>) -> Result<usize, StoreError> {
+    let ids: Vec<VolumeId> = wtx
+        .conn()
+        .prepare("SELECT id FROM volumes")?
+        .query_map([], |r| Ok(VolumeId(r.get(0)?)))?
+        .collect::<Result<_, _>>()?;
+    for &id in &ids {
+        remove_volume(wtx, id)?;
+    }
+    Ok(ids.len())
+}
+
 // ---------------------------------------------------------------------------------------------
 // Entries
 

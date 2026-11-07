@@ -678,6 +678,32 @@ impl AppState {
         Ok(())
     }
 
+    /// Empties the catalog (F21-AC4): every job stops, every volume and its data go; settings and
+    /// the actions log stay, files on the disks are never touched. The connected disks come
+    /// back as new ones at the next detection.
+    pub fn reset_catalog(&self) -> Result<usize, ApiError> {
+        for job in self.engine.jobs().iter().filter(|j| !j.state.is_finished()) {
+            self.engine.cancel(job.id);
+        }
+        for job in self.engine.jobs().iter().filter(|j| !j.state.is_finished()) {
+            let _ = self.engine.wait(job.id);
+        }
+        let removed = self.store.write(store::reset_catalog)?;
+        self.online().clear();
+        self.hashing.clear();
+        self.backup.clear();
+        self.thumbnails.clear();
+        // Choices made per volume refer to ids that no longer exist.
+        let mut settings = self.settings();
+        if !settings.hashing_excluded.is_empty() {
+            settings.hashing_excluded.clear();
+            self.save_settings(&settings)?;
+            self.apply_hashing(&settings);
+        }
+        tracing::info!(removed, "catalog reset");
+        Ok(removed)
+    }
+
     /// Applies the hashing settings to the running jobs (F06-AC5, F21-AC3).
     pub fn apply_hashing(&self, settings: &Settings) {
         self.hashing.battery_pause.store(

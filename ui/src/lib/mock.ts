@@ -206,6 +206,23 @@ export function mockBackend(): Backend {
     imageThumbnail: async (volumeId, entryId) => (find(volumeId).online ? mockThumbnail(entryId) : null),
     similarVideos: async (maxDistance, volumeId) => mockSimilarVideos(volumes, maxDistance, volumeId),
     videoThumbnail: async (volumeId, entryId) => (find(volumeId).online ? mockThumbnail(entryId) : null),
+    openLogs: async () => {},
+    diagnosticsPreview: async () => ({
+      files: [
+        { name: 'system.txt', size: 812 },
+        { name: 'logs/prism.2026-11-06.log', size: 48_213 },
+        { name: 'logs/prism.2026-11-07.log', size: 120_544 },
+      ],
+      system: 'Prism 0.1.0 (development build)\nWindows 11 Pro 25H2 (build 26300)\nAdministrator: yes\nCatalog: 5 disks, 2,054,075 entries, 410 MB',
+      destination: 'C:\\Users\\me\\Downloads',
+    }),
+    exportDiagnostics: async () => 'C:\\Users\\me\\Downloads\\prism-diagnostics-20261107-193010.zip',
+    resetCatalog: async () => {
+      const n = volumes.length;
+      volumes = [];
+      emitVolumes();
+      return n;
+    },
     revealEntry: async (volumeId, entryId) => {
       if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
       if (!mockHasEntry(volumeId, entryId)) throw { code: 'not_found', message: String(entryId) };

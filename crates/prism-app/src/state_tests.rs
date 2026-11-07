@@ -716,3 +716,67 @@ fn similar_videos_after_the_background_job() {
     let img = image::load_from_memory_with_format(&thumb, image::ImageFormat::Jpeg).unwrap();
     assert_eq!(img.width(), crate::similar_views::THUMB_SIDE);
 }
+
+// F20-AC2: the package is shown before being written, contains the system report and the
+// logs, and never replaces an existing file; development builds keep it in their data folder.
+#[test]
+fn diagnostic_package_preview_and_export() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let app = state(store, true, tmp.path());
+    let preview = app.diagnostics_preview().unwrap();
+    assert_eq!(preview.files[0].name, "system.txt");
+    assert!(preview.system.starts_with("Prism "));
+    assert!(preview.system.contains("Catalog: 0 disks"));
+    assert!(preview.system.contains("Windows"));
+    assert!(
+        preview
+            .destination
+            .starts_with(&*tmp.path().to_string_lossy())
+    );
+
+    let first = app.export_diagnostics().unwrap();
+    let second = app.export_diagnostics().unwrap();
+    assert_ne!(first, second);
+    assert!(first.starts_with(tmp.path().join("diagnostics")));
+    let zip = std::fs::read(&first).unwrap();
+    assert_eq!(&zip[..4], b"PK\x03\x04");
+    assert!(zip.windows(10).any(|w| w == b"system.txt"));
+}
+
+// F21-AC4 in the app: the reset empties the catalog and the state kept in memory, keeps the
+// settings except the choices tied to removed disks, and touches no file.
+#[test]
+fn reset_of_the_catalog() {
+    use crate::backup_views::SideInput;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let disk = tmp.path().join("disk");
+    std::fs::create_dir_all(&disk).unwrap();
+    std::fs::write(disk.join("a.txt"), b"content").unwrap();
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let (volume, detected) = add_folder_volume(&store, &disk);
+    let app = Arc::new(state(store, true, tmp.path()));
+    app.online().insert(volume, detected);
+    let _ = crate::hash_jobs::tick(&app);
+    let mut settings = app.settings();
+    settings.language = "it".into();
+    settings.hashing_excluded = vec![volume.0];
+    app.save_settings(&settings).unwrap();
+    let side = SideInput {
+        volume_id: volume.0,
+        folder: String::new(),
+    };
+    let report = app.backup_compare(&side, &side, false);
+    assert!(report.is_err(), "same folder: overlap");
+
+    assert_eq!(app.reset_catalog().unwrap(), 1);
+    assert!(app.engine.jobs().iter().all(|j| j.state.is_finished()));
+    assert!(app.volume_views().unwrap().is_empty());
+    assert!(app.online().is_empty());
+    assert!(app.hashing.progress(volume).is_none());
+    let after = app.settings();
+    assert_eq!(after.language, "it");
+    assert!(after.hashing_excluded.is_empty());
+    assert!(disk.join("a.txt").is_file());
+}

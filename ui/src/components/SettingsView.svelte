@@ -4,8 +4,11 @@
   import type { AppInfo } from '../lib/bindings/AppInfo';
   import type { Settings } from '../lib/bindings/Settings';
   import type { VolumeView } from '../lib/bindings/VolumeView';
+  import type { DiagnosticsView } from '../lib/bindings/DiagnosticsView';
   import { backend, errorMessage } from '../lib/api';
-  import { languages, t } from '../lib/i18n.svelte';
+  import { formatBytes, formatCount } from '../lib/format';
+  import Dialog from './Dialog.svelte';
+  import { language, languages, t } from '../lib/i18n.svelte';
   import { volumeName } from '../lib/catalog';
 
   let {
@@ -23,6 +26,46 @@
   } = $props();
 
   const ignored = $derived(volumes.filter((v) => v.status === 'ignored'));
+  const lang = $derived(language());
+  let diagnostics = $state<DiagnosticsView | null>(null);
+  let exported = $state<string | null>(null);
+  let resetting = $state(false);
+  let resetUnderstood = $state(false);
+
+  async function openLogs() {
+    try {
+      await backend.openLogs();
+    } catch (e) {
+      onerror(errorMessage(e));
+    }
+  }
+
+  async function previewPackage() {
+    try {
+      diagnostics = await backend.diagnosticsPreview();
+    } catch (e) {
+      onerror(errorMessage(e));
+    }
+  }
+
+  async function exportPackage() {
+    diagnostics = null;
+    try {
+      exported = await backend.exportDiagnostics();
+    } catch (e) {
+      onerror(errorMessage(e));
+    }
+  }
+
+  async function resetCatalog() {
+    resetting = false;
+    try {
+      const n = await backend.resetCatalog();
+      onerror(t('settings.resetDone', { count: formatCount(n, lang) }));
+    } catch (e) {
+      onerror(errorMessage(e));
+    }
+  }
   // Network drives are never analysed (REVIEW D30): no choice to offer for them.
   const analysable = $derived(volumes.filter((v) => v.lastIndexedAt !== null && v.kind !== 'network'));
 
@@ -139,6 +182,26 @@
     {/if}
   </div>
 
+  <div class="group">
+    <h2>{t('settings.diagnostics')}</h2>
+    <p class="muted hint">{t('settings.diagnosticsHint')}</p>
+    <div class="buttons">
+      <button onclick={openLogs}>{t('settings.openLogs')}</button>
+      <button onclick={previewPackage}>{t('settings.exportDiagnostics')}</button>
+    </div>
+    {#if exported}
+      <p class="muted path" role="status">{t('settings.exported', { path: exported })}</p>
+    {/if}
+  </div>
+
+  <div class="group">
+    <h2>{t('settings.catalog')}</h2>
+    <p class="muted hint">{t('settings.resetHint')}</p>
+    <div class="buttons">
+      <button class="danger-outline" onclick={() => ((resetting = true), (resetUnderstood = false))}>{t('settings.reset')}</button>
+    </div>
+  </div>
+
   {#if info}
     <div class="group">
       <h2>{t('settings.about')}</h2>
@@ -149,7 +212,75 @@
   {/if}
 </section>
 
+<Dialog open={diagnostics !== null} title={t('settings.packageTitle')} onclose={() => (diagnostics = null)}>
+  {#if diagnostics}
+    <p>{t('settings.packageIntro')}</p>
+    <ul class="files">
+      {#each diagnostics.files as f (f.name)}
+        <li><span>{f.name}</span><span class="muted">{formatBytes(f.size, lang)}</span></li>
+      {/each}
+    </ul>
+    <pre class="system" aria-label="system.txt">{diagnostics.system}</pre>
+    <p class="muted">{t('settings.packageWhere', { dir: diagnostics.destination })}</p>
+  {/if}
+  {#snippet actions()}
+    <button onclick={() => (diagnostics = null)}>{t('actions.cancel')}</button>
+    <button class="primary" onclick={exportPackage}>{t('settings.exportNow')}</button>
+  {/snippet}
+</Dialog>
+
+<Dialog open={resetting} title={t('settings.resetTitle')} onclose={() => (resetting = false)}>
+  <p>{t('settings.resetWhat')}</p>
+  <p><strong>{t('settings.resetKeep')}</strong></p>
+  <label class="understand">
+    <input type="checkbox" checked={resetUnderstood} onchange={(e) => (resetUnderstood = e.currentTarget.checked)} />
+    {t('settings.resetUnderstood')}
+  </label>
+  {#snippet actions()}
+    <button onclick={() => (resetting = false)}>{t('actions.cancel')}</button>
+    <button class="primary danger" disabled={!resetUnderstood} onclick={resetCatalog}>{t('settings.resetNow')}</button>
+  {/snippet}
+</Dialog>
+
 <style>
+  .buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .danger-outline {
+    color: var(--danger);
+  }
+  .files {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    font-size: 13px;
+  }
+  .files li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .system {
+    max-height: 220px;
+    overflow: auto;
+    background: var(--surface-2);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+  .understand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 0;
+    color: var(--text);
+  }
+  .understand input {
+    width: auto;
+  }
   .disks {
     border: 0;
     margin: 0;

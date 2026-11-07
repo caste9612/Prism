@@ -29,6 +29,8 @@ tempfile = "3"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Daily log files kept for 14 days (F20-AC1).
+tracing-appender = "0.2"
 # COM interfaces (unelevated shell, ADR-0003); same version as the one Tauri already uses.
 windows = "0.62"
 windows-sys = "0.61"

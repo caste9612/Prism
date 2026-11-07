@@ -16,6 +16,7 @@ pub mod backup;
 pub mod cancel;
 pub mod changes;
 pub mod cleanup;
+pub mod diagnostics;
 pub mod duplicates;
 pub mod exclusion;
 pub mod fileops;

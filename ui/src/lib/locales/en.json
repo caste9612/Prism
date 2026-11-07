@@ -122,7 +122,25 @@
     "hashingHint": "Prism reads the files of the connected disks in the background, at the lowest priority, to recognise identical files. Network drives are not read.",
     "hashingPaused": "Pause the content analysis",
     "hashingBattery": "Pause it while the PC runs on battery",
-    "hashingDisks": "Disks to analyse"
+    "hashingDisks": "Disks to analyse",
+    "diagnostics": "Diagnostics",
+    "diagnosticsHint": "Prism keeps a log file per day for 14 days. If something goes wrong, the diagnostic package collects the logs and a short system report in a ZIP file you can send.",
+    "openLogs": "Open the log folder",
+    "exportDiagnostics": "Export a diagnostic package…",
+    "packageTitle": "Diagnostic package",
+    "packageIntro": "The package contains these files. The logs include the paths of your files and the names of your disks: look at them before sending the package.",
+    "packageWhere": "It will be saved in {dir}.",
+    "exportNow": "Export",
+    "exported": "Saved: {path}",
+    "catalog": "Catalog",
+    "resetHint": "Empties the catalog: disks, folders, files and analyses. Useful to start again from scratch.",
+    "reset": "Reset the catalog…",
+    "resetTitle": "Reset the catalog?",
+    "resetWhat": "Every disk leaves the catalog with its folders, files, content analysis and similar images. The connected disks will be proposed again as new disks to index.",
+    "resetKeep": "No file on your disks is touched. Settings stay.",
+    "resetUnderstood": "I understand that the catalog of the disconnected disks is lost until they are indexed again",
+    "resetNow": "Reset",
+    "resetDone": "Catalog reset: {count} disks removed."
   },
   "language": {
     "en": "English",
@@ -152,7 +170,8 @@
     "outside_sandbox": "Development builds copy only to the test disk PRISMTEST.",
     "not_a_check": "Copies start from a backup check.",
     "cancelled": "Cancelled.",
-    "thumbnail_failed": "The preview could not be made."
+    "thumbnail_failed": "The preview could not be made.",
+    "export_failed": "The diagnostic package could not be saved."
   },
   "tray": {
     "open": "Open Prism",

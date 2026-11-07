@@ -47,6 +47,12 @@ impl BackupState {
         self.copies.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Forgets every result (after a reset of the catalog).
+    pub fn clear(&self) {
+        self.reports().1.clear();
+        self.copies().clear();
+    }
+
     fn keep(&self, report: Report) -> u64 {
         let mut r = self.reports();
         r.0 += 1;

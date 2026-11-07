@@ -100,6 +100,12 @@ impl HashingState {
             .sum()
     }
 
+    /// Forgets the counts and the runs (after a reset of the catalog).
+    pub fn clear(&self) {
+        self.status().clear();
+        self.last_run().clear();
+    }
+
     /// Whether hashing must stop now (between two files).
     pub fn should_pause(&self) -> bool {
         self.paused.load(Ordering::Relaxed)

@@ -8,6 +8,7 @@ import type { CleanupResultView } from './bindings/CleanupResultView';
 import type { CompareSummaryView } from './bindings/CompareSummaryView';
 import type { CopyPreviewView } from './bindings/CopyPreviewView';
 import type { CopyResultView } from './bindings/CopyResultView';
+import type { DiagnosticsView } from './bindings/DiagnosticsView';
 import type { CleanupView } from './bindings/CleanupView';
 import type { DupFilterInput } from './bindings/DupFilterInput';
 import type { DuplicatesView } from './bindings/DuplicatesView';
@@ -64,6 +65,12 @@ export interface Backend {
   similarVideos(maxDistance: number, volumeId: number | null): Promise<SimilarView>;
   /** A URL for the thumbnail of a connected video (its middle frame), or null. */
   videoThumbnail(volumeId: number, entryId: number): Promise<string | null>;
+  openLogs(): Promise<void>;
+  diagnosticsPreview(): Promise<DiagnosticsView>;
+  /** Writes the package and returns its path. */
+  exportDiagnostics(): Promise<string>;
+  /** Empties the catalog; returns the number of disks removed. */
+  resetCatalog(): Promise<number>;
   removeVolume(id: number): Promise<void>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
@@ -116,6 +123,10 @@ const tauriBackend: Backend = {
   imageThumbnail: (volumeId, entryId) => thumbnail('image_thumbnail', volumeId, entryId),
   similarVideos: (maxDistance, volumeId) => invoke('similar_videos', { maxDistance, volumeId }),
   videoThumbnail: (volumeId, entryId) => thumbnail('video_thumbnail', volumeId, entryId),
+  openLogs: () => invoke('open_logs'),
+  diagnosticsPreview: () => invoke('diagnostics_preview'),
+  exportDiagnostics: () => invoke('export_diagnostics'),
+  resetCatalog: () => invoke('reset_catalog'),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),
   setSettings: (settings) => invoke('set_settings', { settings }),

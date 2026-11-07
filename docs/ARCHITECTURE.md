@@ -610,7 +610,17 @@ Prism gira elevato, quindi la superficie d'attacco della webview va ridotta al m
 ## 9. Errori, log, diagnostica
 
 - `thiserror` nei crate di libreria, errori con codice stabile per l'interfaccia.
-- `tracing` con log su file a rotazione giornaliera e conservazione limitata (F20).
+- `tracing` con log su file a rotazione giornaliera e conservazione limitata (F20, T9):
+  `tracing-appender` scrive `prism.AAAA-MM-GG.log` in `logs` nella cartella dati (in sviluppo
+  `%LOCALAPPDATA%\PrismDev\app\logs`) e ne tiene 14; la console resta per lo sviluppo.
+- Pacchetto diagnostico (`prism-core::diagnostics`, `prism-app/src/diagnostics_state.rs`):
+  `system.txt` (versione, Windows, diritti, contatori del catalogo, impostazioni, dischi, job in
+  corso) e i log, in uno ZIP senza compressione scritto da Prism stesso (nessuna libreria in
+  più). L'interfaccia mostra prima l'elenco dei file e il testo di `system.txt`; il file va
+  nella cartella Download (in sviluppo nella cartella dati) senza mai sostituirne uno esistente.
+- Reset del catalogo (F21-AC4): `store::reset_catalog` toglie ogni volume come la rimozione di
+  un singolo disco (gli indici di ricerca seguono gli eventi); l'app prima ferma i job, poi
+  svuota lo stato in memoria; impostazioni e registro delle azioni restano.
 - In sviluppo, un pannello di debug interno mostra job, code e tempi (sostituisce il monitor
   egui del vecchio progetto).
 

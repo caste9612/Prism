@@ -56,6 +56,8 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D38 | 2026-11-07 | T8 | Schermata *Simili* nel menu laterale: soglia da 0 a 16 differenze su 64 (predefinita 6, entro cui stanno nei test ridimensionamenti, ricompressioni e piccoli ritocchi), filtro per disco, 200 gruppi con più immagini, 30 per volta; miniature caricate solo quando entrano nella vista e solo dei dischi collegati (per quelli scollegati restano nome, risoluzione, dimensione e posizione); nessuna eliminazione da questa schermata: le immagini simili non sono copie identiche e la regola dell'ultima copia non le protegge | Miniature salvate nel catalogo anche per i dischi scollegati (centinaia di MB); eliminazione anche dai simili | `SimilarView.svelte`, `similar_state.rs` | F11-AC1/AC3 |
 | D39 | 2026-11-07 | T8 | Video: decodifica con **Media Foundation** (ADR-0013), senza ffmpeg: nessuna licenza né decine di MB nell'installer, tutti i video reali provati (MP4 H.264, WebM) decodificati; uscita NV12 e sola luminanza (8 volte più veloce di RGB32); 5 fotogrammi al tempo esatto (10–90 %) | ffmpeg incluso (più formati, HEVC senza estensione); fotogramma chiave soltanto (più veloce ma impronte meno stabili) | `prism-win::video`, ADR-0013 | F12-AC1/AC2 |
 | D40 | 2026-11-07 | T8 | Video simili: impronta di 5 fotogrammi (10–90 %), simili se le durate differiscono al massimo di 2 s o del 3 % e la distanza media per fotogramma è entro la soglia (lo stesso cursore delle immagini, predefinito 6; le ricodifiche misurate stanno sotto 1); scheda *Video* nella schermata *Simili*; miniatura dal fotogramma a metà; i `.ts` non si considerano video (su un disco di sviluppo sono quasi tutti TypeScript); le impronte si calcolano dopo hash e immagini nello stesso job | Indice per la distanza anche sui video (pochi video, il filtro per durata basta); più fotogrammi; i `.ts` inclusi | `prism-core::media::video`, `SimilarView.svelte` | F12 |
+| D41 | 2026-11-07 | T9 | Log: un file al giorno in `logs` nella cartella dati, 14 tenuti (`tracing-appender`, unica dipendenza nuova). Pacchetto diagnostico: `system.txt` più i log in uno ZIP non compresso scritto da Prism (niente libreria ZIP), mostrato prima di salvarlo, salvato in Download (in sviluppo nella cartella dati, sandbox) e poi indicato in Esplora risorse | Crate `zip` con compressione; scelta della cartella con un dialogo; log nel registro eventi di Windows | `prism-core::diagnostics`, `diagnostics_state.rs` | F20 |
+| D42 | 2026-11-07 | T9 | Reset del catalogo: richiede una casella "ho capito" oltre al pulsante; ferma i job, toglie volumi, voci, hash e impronte; restano impostazioni e registro delle azioni (le esclusioni per disco si azzerano perché riguardano dischi tolti); i dischi collegati vengono riproposti come nuovi | Conservare il registro delle azioni? Sì: è la storia di ciò che Prism ha fatto ai file; scrivere il nome del catalogo per confermare | `store::reset_catalog`, `SettingsView.svelte` | F21-AC4 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -270,3 +272,13 @@ esempio `F:\prism-t6\Documenti` come sorgente e `F:\prism-t7` come destinazione.
 4. Scheda *Video*: lo stesso video in due risoluzioni o formati (per esempio un MP4 e la sua
    versione WMV) compare in un gruppo con durata, risoluzione, dimensione e miniatura (F12-AC1).
    I video HEVC si leggono solo con l'estensione "HEVC Video Extensions" di Windows (L15).
+
+### Checklist T9 (integrazione con il sistema)
+
+1. *Impostazioni* → *Diagnostica*: *Apri la cartella dei log* apre `logs` con un file per giorno
+   (`prism.AAAA-MM-GG.log`); *Esporta un pacchetto diagnostico…* mostra i file e il testo di
+   `system.txt` prima di salvare; dopo *Esporta* il file ZIP compare in Esplora risorse e si
+   apre con Windows (F20-AC1/AC2).
+2. *Impostazioni* → *Catalogo* → *Azzera il catalogo…*: il pulsante resta disattivato finché
+   non si spunta la casella; dopo l'azzeramento la schermata *Dischi* è vuota e i dischi
+   collegati vengono riproposti come nuovi; nessun file sui dischi è toccato (F21-AC4).

@@ -6,6 +6,7 @@ mod backup_state;
 mod backup_views;
 mod cleanup_views;
 mod commands;
+mod diagnostics_state;
 mod dto;
 mod duplicates_views;
 mod hash_jobs;
@@ -142,13 +143,64 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Where the log files go (F20-AC1): `logs` in the data folder. Computed before Tauri starts,
+/// the same way as [`data_dir`] (the local data folder of the identifier in release builds).
+pub fn logs_dir() -> PathBuf {
+    let local = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let data = if cfg!(debug_assertions) {
+        local.join("PrismDev").join("app")
+    } else {
+        local.join(IDENTIFIER)
+    };
+    data.join("logs")
+}
+
+/// The identifier of `tauri.conf.json`, which names the data folder of release builds.
+const IDENTIFIER: &str = "com.prism.catalog";
+
+/// Logs to the console and to a file a day, kept 14 days (F20-AC1). The guard flushes the file
+/// when dropped, at exit.
+fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let filter = || {
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+    };
+    let console = tracing_subscriber::fmt::layer().with_filter(filter());
+    let file = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("prism")
+        .filename_suffix("log")
+        .max_log_files(14)
+        .build(logs_dir())
+        .ok()
+        .map(tracing_appender::non_blocking);
+    match file {
+        Some((writer, guard)) => {
+            let layer = tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(writer)
+                .with_filter(filter());
+            tracing_subscriber::registry()
+                .with(console)
+                .with(layer)
+                .init();
+            Some(guard)
+        }
+        None => {
+            tracing_subscriber::registry().with(console).init();
+            None
+        }
+    }
+}
+
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    let _logs = init_logging();
     let result = tauri::Builder::default()
         // F19-AC4: starting Prism again brings the running instance to the front.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -200,6 +252,10 @@ fn main() {
             commands::similar_images,
             commands::image_thumbnail,
             commands::similar_videos,
+            commands::open_logs,
+            commands::reset_catalog,
+            commands::diagnostics_preview,
+            commands::export_diagnostics,
             commands::video_thumbnail,
             commands::reveal_entry,
             commands::remove_volume,

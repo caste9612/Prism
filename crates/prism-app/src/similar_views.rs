@@ -93,6 +93,12 @@ impl Thumbnails {
             .cloned()
     }
 
+    pub fn clear(&self) {
+        let mut items = self.items.lock().unwrap_or_else(PoisonError::into_inner);
+        items.0.clear();
+        items.1.clear();
+    }
+
     pub fn put(&self, entry: EntryId, jpeg: Vec<u8>) {
         let mut items = self.items.lock().unwrap_or_else(PoisonError::into_inner);
         if items.1.insert(entry, jpeg).is_none() {

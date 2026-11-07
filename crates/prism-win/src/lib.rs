@@ -14,6 +14,7 @@ pub mod notify;
 pub mod ntfs;
 pub mod process;
 pub mod shell;
+pub mod system;
 pub mod trash;
 pub mod usn;
 pub mod video;
