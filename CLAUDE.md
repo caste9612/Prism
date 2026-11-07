@@ -64,6 +64,19 @@ sue voci in `docs/REVIEW.md`, aggiungi le tue.
 - Sui dischi reali solo letture. Dati di sviluppo in `%LOCALAPPDATA%\PrismDev\`.
 - Non modificare il vecchio worktree `D:\Progetti\Github\Prism` né i dati del vecchio Prism in
   `%APPDATA%\com.prism.diskanalyzer`.
+- **App di sviluppo protetta** (istruzione della supervisione, 2026-11-07 17:35; **priorità
+  alta: fallo come prossimo passo**, prima di altre funzioni). Oggi `prism-app`
+  (`state.rs`, `delete_entries`) passa `None` come guardia a `fileops::delete_entries`, quindi
+  anche la build di debug, che lo sviluppo pilota con i cataloghi dei dischi reali (C:, D:),
+  può eliminare file veri. Correzione: nelle build di **debug** l'app usa sempre una
+  `SandboxGuard` limitata al volume PRISMTEST (riconosciuto dall'etichetta, non dalla lettera),
+  a `%TEMP%` e a `%LOCALAPPDATA%\PrismDev`; solo la **release** passa `None`. Lo stesso vale
+  per ogni futura operazione distruttiva dell'app (spostamento, copia verso, sovrascrittura,
+  T6–T7). Aggiungi un test: dall'app in debug, eliminazione fuori sandbox → rifiutata.
+- **Mai azioni distruttive nell'app vera su dischi reali**: pilotando l'app (WebDriver, clic,
+  IPC) con cataloghi di dischi reali non si avviano mai eliminazione, pulizia, spostamento o
+  copia, nemmeno "per vedere il dialogo". I flussi distruttivi dell'app si provano solo su
+  voci del disco PRISMTEST.
 
 ## Comandi
 

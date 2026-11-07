@@ -65,6 +65,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | L7 | 2026-11-07 | Identità ambigua di un volume (F02-AC3): nessuna finestra di scelta ancora (D13) | Caso raro (due dischi clonati); il disco non compare finché non si risolve | Da fare |
 | L8 | 2026-11-07 | Disco nuovo collegato mentre la finestra è nascosta nel tray: nessuna notifica di Windows ancora, solo il riquadro alla riapertura | F02-AC1 parziale | **Risolto** (2026-11-07): notifica di Windows, una sola per più dischi trovati insieme (D19); il clic sulla notifica non apre ancora Prism (L9) |
 | L9 | 2026-11-07 | Il clic su una notifica di Prism la chiude soltanto: aprire Prism dalla notifica richiede un attivatore COM registrato dall'installer | Si riapre Prism dall'icona nel tray | Da fare in T10 (installer) |
+| S1 | 2026-11-07 | (Supervisione) L'app di debug elimina senza `SandboxGuard` (`prism-app/src/state.rs`, guardia `None`) mentre lo sviluppo la pilota con i cataloghi di C: e D:; nessuna eliminazione reale avvenuta finora | Rischio di eliminare file veri durante le prove dell'app | Istruzione in CLAUDE.md (Sicurezza dei dati): guardia obbligatoria nelle build di debug, con test |
 
 ## 4. Come provare l'app
 
