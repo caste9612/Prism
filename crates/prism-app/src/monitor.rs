@@ -5,7 +5,11 @@
 //!   indexed volume when it comes back (F05-AC2) and, while Prism runs, applies the NTFS change
 //!   journal every 15 seconds (F05-AC1);
 //! - the **job relay** forwards job changes to the interface as `jobs-changed` events, at most
-//!   about 4 per second (ADR-0009), and refreshes the volume list when a job ends.
+//!   about 4 per second (ADR-0009), and refreshes the volume list when a job ends;
+//! - the **network probe** checks that mapped shares answer and reads their free space
+//!   (`netprobe`, REVIEW L5): a share counts as connected only once its server has answered;
+//! - **folder watchers** keep the volumes without a usable journal up to date (`watchers`,
+//!   REVIEW L6), started and stopped by the volume monitor.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,11 +17,13 @@ use std::time::{Duration, Instant};
 
 use prism_core::model::{VolumeId, VolumeKind, VolumeStatus};
 use prism_core::store;
-use prism_core::volumes::{self, VolumeMatch, VolumeSource, match_volumes};
+use prism_core::volumes::{self, DetectedVolume, VolumeMatch, VolumeSource, match_volumes};
 use prism_win::volumes::WinVolumeSource;
 use tauri::{AppHandle, Emitter};
 
-use crate::state::{AppState, auto_update, job_view};
+use crate::netprobe::{NetProbe, NetStatus};
+use crate::state::{AppState, IndexKind, auto_update, job_view};
+use crate::watchers::Watchers;
 
 const DETECT_EVERY: Duration = Duration::from_secs(2);
 const JOURNAL_EVERY: Duration = Duration::from_secs(15);
@@ -31,14 +37,20 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
     let _ = std::thread::Builder::new()
         .name("prism-job-relay".into())
         .spawn(move || job_relay(&a, &s));
+    let net = Arc::clone(&state.net);
+    let _ = std::thread::Builder::new()
+        .name("prism-net-probes".into())
+        .spawn(move || net.run());
 }
 
-fn volume_monitor(app: &AppHandle, state: &AppState) {
+fn volume_monitor(app: &AppHandle, state: &Arc<AppState>) {
     let mut last_journal = Instant::now();
+    let mut watchers = Watchers::default();
     loop {
         if let Err(e) = detect_once(app, state) {
             tracing::warn!(error = %e, "volume detection failed");
         }
+        watchers.sync(state);
         if last_journal.elapsed() >= JOURNAL_EVERY {
             last_journal = Instant::now();
             journal_tick(state);
@@ -47,8 +59,36 @@ fn volume_monitor(app: &AppHandle, state: &AppState) {
     }
 }
 
+/// Network shares are connected only when their server answers; their capacity and free space
+/// come from the probe. Local volumes pass unchanged.
+fn apply_probe(detected: Vec<DetectedVolume>, net: &NetProbe) -> Vec<DetectedVolume> {
+    net.want(
+        detected
+            .iter()
+            .filter(|d| d.info.kind == VolumeKind::Network)
+            .filter_map(|d| d.info.unc_path.as_deref()),
+    );
+    detected
+        .into_iter()
+        .filter_map(|mut d| {
+            if d.info.kind != VolumeKind::Network {
+                return Some(d);
+            }
+            match net.status(d.info.unc_path.as_deref()?) {
+                NetStatus::Reachable { capacity, free } => {
+                    d.info.capacity = Some(capacity);
+                    d.info.free_space = Some(free);
+                    Some(d)
+                }
+                NetStatus::Unknown | NetStatus::Unreachable => None,
+            }
+        })
+        .collect()
+}
+
 fn detect_once(app: &AppHandle, state: &AppState) -> Result<(), String> {
     let detected = WinVolumeSource.detect().map_err(|e| e.to_string())?;
+    let detected = apply_probe(detected, &state.net);
     let known = state
         .store
         .read(store::volumes)
@@ -100,7 +140,7 @@ fn detect_once(app: &AppHandle, state: &AppState) -> Result<(), String> {
     *state.online() = now;
     // F05-AC2: an indexed volume that comes back is brought up to date.
     for id in came_back {
-        if let Err(e) = state.submit_index(id, true) {
+        if let Err(e) = state.submit_index(id, IndexKind::Update) {
             tracing::warn!(volume = id.0, code = %e.code, "cannot update the reconnected volume");
         }
     }
@@ -137,7 +177,7 @@ fn journal_tick(state: &AppState) {
     };
     for id in candidates {
         if state.engine.active_for(id).is_empty() {
-            let _ = state.submit_index(id, true);
+            let _ = state.submit_index(id, IndexKind::Journal);
         }
     }
 }

@@ -5,8 +5,10 @@
 mod commands;
 mod dto;
 mod monitor;
+mod netprobe;
 mod state;
 mod tray;
+mod watchers;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,6 +18,7 @@ use prism_core::jobs::JobEngine;
 use prism_core::store::Store;
 use tauri::{Manager, WindowEvent};
 
+use crate::netprobe::{NetProbe, ProbeTiming};
 use crate::state::AppState;
 
 /// Catalog folder: development builds use `%LOCALAPPDATA%\PrismDev\app` (TESTING S4), release
@@ -44,6 +47,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         elevated: prism_win::process::is_elevated(),
         data_dir: dir,
         dev: cfg!(debug_assertions),
+        net: Arc::new(NetProbe::new(
+            Arc::new(prism_win::volumes::disk_space),
+            ProbeTiming::default(),
+        )),
     });
     tracing::info!(elevated = state.elevated, data = %state.data_dir.display(), "Prism started");
     app.manage(Arc::clone(&state));

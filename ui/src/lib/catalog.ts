@@ -1,4 +1,5 @@
 // Presentation logic of the catalog screen (F01), kept out of the components to be testable.
+import type { JobView } from './bindings/JobView';
 import type { VolumeView } from './bindings/VolumeView';
 import { t } from './i18n.svelte';
 
@@ -43,6 +44,22 @@ export const GROUP_PROMPTS_FROM = 3;
 
 export function groupPrompts(prompts: VolumeView[]): boolean {
   return prompts.length >= GROUP_PROMPTS_FROM;
+}
+
+/**
+ * The job shown on a volume card (F01-AC3): an indexing or update in progress. The automatic
+ * background updates (`journal`, `refresh`) run often and quickly and are not shown; mirrors
+ * `shown_on_card` in `prism-app/src/state.rs`.
+ */
+export function cardJob(jobs: JobView[], volumeId: number): JobView | null {
+  return (
+    jobs.find(
+      (j) =>
+        j.volumeId === volumeId &&
+        (j.kind === 'index' || j.kind === 'update') &&
+        (j.state === 'running' || j.state === 'queued'),
+    ) ?? null
+  );
 }
 
 /** The main action of a card: index a volume never indexed, update one already indexed. */

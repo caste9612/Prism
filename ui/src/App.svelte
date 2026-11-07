@@ -7,6 +7,7 @@
   import type { VolumeView } from './lib/bindings/VolumeView';
   import { backend, errorMessage, type Unlisten } from './lib/api';
   import { setLanguage, t, type LangPreference } from './lib/i18n.svelte';
+  import { cardJob } from './lib/catalog';
   import { setTheme, type ThemePreference } from './lib/theme';
   import CatalogView from './components/CatalogView.svelte';
   import Icon from './components/Icon.svelte';
@@ -68,7 +69,7 @@
       const offJobs = await backend.onJobsChanged((jobs) => {
         volumes = volumes.map((v) => ({
           ...v,
-          job: jobs.find((j) => j.volumeId === v.id && (j.state === 'running' || j.state === 'queued')) ?? null,
+          job: cardJob(jobs, v.id),
         }));
       });
       if (alive) unlisten.push(offVolumes, offJobs);

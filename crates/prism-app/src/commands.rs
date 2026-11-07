@@ -9,7 +9,7 @@ use prism_core::store;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, Settings, VolumeView};
-use crate::state::{AppState, job_view};
+use crate::state::{AppState, IndexKind, job_view};
 use crate::tray;
 
 type R<T> = Result<T, ApiError>;
@@ -47,8 +47,12 @@ pub fn index_volume(app: AppHandle, state: State<'_, Arc<AppState>>, id: i64) ->
         .read(|c| store::volume(c, volume))?
         .map(|v| v.status)
         .ok_or_else(|| ApiError::new("volume_not_found", id))?;
-    let update = status == VolumeStatus::Indexed;
-    let job = state.submit_index(volume, update)?;
+    let kind = if status == VolumeStatus::Indexed {
+        IndexKind::Update
+    } else {
+        IndexKind::Index
+    };
+    let job = state.submit_index(volume, kind)?;
     emit_volumes(&app);
     Ok(job.0)
 }

@@ -8,8 +8,9 @@
 - **Tappa**: T3 in corso. Fatti: motore dei job, app Tauri con tray e istanza singola,
   interfaccia Svelte con schermata catalogo, disco nuovo, etichette e impostazioni. L'app si
   prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: resto di T3 — rifiniture del monitor (REVIEW L5, L6, L8), prototipi
-  attività pianificata e apertura non elevata (ADR-0003). Poi T4. Nessuna sosta (CLAUDE.md).
+- **Prossimo passo**: resto di T3 — prototipi attività pianificata (avvio con Windows, F19-AC3)
+  e apertura non elevata (ADR-0003), notifica di sistema per i dischi nuovi (REVIEW L8). Poi T4.
+  Nessuna sosta (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -23,6 +24,20 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T3: unità di rete e sorveglianza cartelle nell'app
+
+- `prism-app::netprobe`: le unità di rete contano come collegate solo quando il server
+  risponde; capacità e spazio libero letti in thread separati con un tempo massimo di 5 s
+  (`prism-win::volumes::disk_space`). Sull'app vera le tre unità di rete mostrano ora 500 GB,
+  1,0 TB e 105 GB (REVIEW L5 risolto). Test unitari con condivisioni simulate raggiungibili,
+  irraggiungibili e lente.
+- `prism-app::watchers`: sorveglianza cartelle per i volumi indicizzati senza journal
+  utilizzabile (FAT, exFAT, ReFS, unità di rete), con job `refresh`; ignorati i cambi nella
+  cartella dati di Prism, che altrimenti si alimenterebbero da soli (REVIEW L6 risolto; la
+  prova con una chiavetta vera è nella checklist).
+- I job automatici (`journal` ogni 15 s, `refresh`) non compaiono più sulle schede: prima la
+  scheda di un volume NTFS indicizzato avrebbe mostrato "Aggiornamento" per un attimo ogni 15 s.
 
 ### 2026-11-07 — T3: test end-to-end dell'interfaccia
 

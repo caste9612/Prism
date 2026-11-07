@@ -7,6 +7,7 @@ import type { LabelsInput } from './bindings/LabelsInput';
 import type { Settings } from './bindings/Settings';
 import type { VolumeView } from './bindings/VolumeView';
 import type { Backend, Unlisten } from './api';
+import { cardJob } from './catalog';
 
 const GB = 1_000_000_000;
 const DAY = 86_400_000;
@@ -62,7 +63,7 @@ export function mockBackend(): Backend {
   const withJobs = () =>
     volumes.map((v) => ({
       ...v,
-      job: jobs.find((j) => j.volumeId === v.id && (j.state === 'running' || j.state === 'queued')) ?? null,
+      job: cardJob(jobs, v.id),
     }));
 
   const on = <T>(set: Set<T>, h: T): Promise<Unlisten> => {

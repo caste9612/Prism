@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use prism_core::cancel::CancelToken;
@@ -14,12 +14,14 @@ use prism_core::indexer::{self, IndexProgress, IndexRequest};
 use prism_core::jobs::{JobContext, JobEngine, JobId, JobInfo, JobSpec, Priority};
 use prism_core::model::{DisplayKind, Volume, VolumeId, VolumeKind, VolumeStatus};
 use prism_core::reconcile::ReconcileTarget;
+use prism_core::refresh;
 use prism_core::scan::WalkEnumerator;
 use prism_core::store::{self, Store};
 use prism_core::volumes::DetectedVolume;
 use prism_win::ntfs;
 
 use crate::dto::{ApiError, JobView, VolumeView};
+use crate::netprobe::NetProbe;
 
 pub struct AppState {
     pub store: Store,
@@ -29,6 +31,8 @@ pub struct AppState {
     pub elevated: bool,
     pub data_dir: PathBuf,
     pub dev: bool,
+    /// Reachability and free space of network shares (REVIEW L5).
+    pub net: Arc<NetProbe>,
 }
 
 pub fn job_view(j: &JobInfo) -> JobView {
@@ -83,7 +87,9 @@ impl AppState {
                 let detected = online.get(&v.id);
                 let job = jobs
                     .iter()
-                    .filter(|j| j.volume == Some(v.id) && !j.state.is_finished())
+                    .filter(|j| {
+                        j.volume == Some(v.id) && !j.state.is_finished() && shown_on_card(&j.kind)
+                    })
                     .min_by_key(|j| j.id)
                     .map(job_view);
                 let mount = detected
@@ -124,39 +130,110 @@ impl AppState {
             .collect())
     }
 
-    /// Queues an indexing (`update = false`) or an update of an online volume.
-    pub fn submit_index(&self, volume: VolumeId, update: bool) -> Result<JobId, ApiError> {
+    fn detected(&self, volume: VolumeId) -> Result<DetectedVolume, ApiError> {
+        self.online()
+            .get(&volume)
+            .cloned()
+            .ok_or_else(|| ApiError::new("volume_offline", format!("volume {volume}")))
+    }
+
+    /// Queues an indexing or an update of an online volume; if a job already runs on it,
+    /// returns that one.
+    pub fn submit_index(&self, volume: VolumeId, kind: IndexKind) -> Result<JobId, ApiError> {
         if let Some(active) = self.engine.active_for(volume).first() {
             return Ok(active.id);
         }
-        let detected = self
-            .online()
-            .get(&volume)
-            .cloned()
-            .ok_or_else(|| ApiError::new("volume_offline", format!("volume {volume}")))?;
+        let detected = self.detected(volume)?;
         let store = self.store.clone();
         let elevated = self.elevated;
-        let disks = if detected.info.kind == VolumeKind::Network {
-            vec![format!(
-                "net:{}",
-                detected.info.unc_path.clone().unwrap_or_default()
-            )]
-        } else {
-            detected.disks.iter().map(|d| format!("disk{d}")).collect()
-        };
+        let update = kind != IndexKind::Index;
         Ok(self.engine.submit(JobSpec {
-            kind: if update { "update" } else { "index" }.to_owned(),
+            kind: kind.as_str().to_owned(),
             volume: Some(volume),
             priority: Priority::Indexing,
-            disks,
+            disks: job_disks(&detected),
             run: Box::new(move |ctx| run_index(&store, volume, &detected, elevated, update, ctx)),
         }))
+    }
+
+    /// Queues a refresh of the folders where a watcher saw changes (REVIEW L6); `rescan`
+    /// re-reads the whole volume.
+    pub fn submit_refresh(
+        &self,
+        volume: VolumeId,
+        changed: Vec<Vec<String>>,
+        rescan: bool,
+    ) -> Result<JobId, ApiError> {
+        let detected = self.detected(volume)?;
+        let root = access_path(&detected)
+            .ok_or_else(|| ApiError::new("volume_offline", format!("volume {volume}")))?;
+        let store = self.store.clone();
+        Ok(self.engine.submit(JobSpec {
+            kind: "refresh".to_owned(),
+            volume: Some(volume),
+            priority: Priority::Indexing,
+            disks: job_disks(&detected),
+            run: Box::new(move |ctx| {
+                refresh::refresh_folders(
+                    &store,
+                    volume,
+                    &root,
+                    &WalkEnumerator::default(),
+                    &ExclusionPolicy::with_defaults(),
+                    &changed,
+                    rescan,
+                    &ctx.cancel,
+                    &IndexProgress::default(),
+                )
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+            }),
+        }))
+    }
+}
+
+/// Kinds of indexing job. `journal` and `refresh` are the automatic background updates: the
+/// interface does not show them on the cards (`ui/src/lib/catalog.ts`, `cardJob`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IndexKind {
+    /// First indexing, asked by the user.
+    Index,
+    /// Update asked by the user or done when a volume comes back.
+    Update,
+    /// Periodic update from the NTFS change journal.
+    Journal,
+}
+
+impl IndexKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Index => "index",
+            Self::Update => "update",
+            Self::Journal => "journal",
+        }
+    }
+}
+
+/// Whether a job of this kind is shown on the volume card.
+pub fn shown_on_card(kind: &str) -> bool {
+    matches!(kind, "index" | "update")
+}
+
+/// The physical resources a job on this volume keeps busy (one heavy job per disk, ADR-0009).
+fn job_disks(d: &DetectedVolume) -> Vec<String> {
+    if d.info.kind == VolumeKind::Network {
+        vec![format!(
+            "net:{}",
+            d.info.unc_path.clone().unwrap_or_default()
+        )]
+    } else {
+        d.disks.iter().map(|n| format!("disk{n}")).collect()
     }
 }
 
 /// Root path through which a volume is read: the UNC path for network shares (an elevated
 /// process does not see the user's mapped letters, ADR-0016), the mount otherwise.
-fn access_path(d: &DetectedVolume) -> Option<PathBuf> {
+pub fn access_path(d: &DetectedVolume) -> Option<PathBuf> {
     match d.info.kind {
         VolumeKind::Network => d.info.unc_path.as_ref().map(PathBuf::from),
         _ => d.info.last_mount.as_ref().map(PathBuf::from),

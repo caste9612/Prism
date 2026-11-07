@@ -333,8 +333,15 @@ Implementazione (T3):
 - `monitor.rs`: ogni 2 s rileva i volumi e li confronta con il catalogo (nuovi inseriti con
   stato `new`, riconosciuti aggiornati, ambigui solo registrati nel log, REVIEW D13); alla
   riconnessione di un volume indicizzato accoda un aggiornamento (F05-AC2); ogni 15 s applica
-  il journal ai volumi NTFS indicizzati e collegati (F05-AC1); inoltra all'interfaccia gli
-  eventi `jobs-changed` (al massimo ~4 al secondo) e `volumes-changed`.
+  il journal ai volumi NTFS indicizzati e collegati (F05-AC1, job `journal`); inoltra
+  all'interfaccia gli eventi `jobs-changed` (al massimo ~4 al secondo) e `volumes-changed`.
+- `netprobe.rs`: le unità di rete contano come collegate solo quando il server risponde; capacità
+  e spazio libero si chiedono in thread separati con un tempo massimo di 5 s (un server spento
+  può bloccare la chiamata per decine di secondi), ogni 30 s se raggiungibili e ogni 10 s se no.
+- `watchers.rs`: per i volumi indicizzati senza un journal utilizzabile (FAT, exFAT, ReFS, unità
+  di rete) un `FolderWatcher` raccoglie i percorsi cambiati e un job `refresh` rilegge le
+  cartelle interessate (`prism-core::refresh`); i cambi nella cartella dati di Prism sono
+  ignorati. I job automatici `journal` e `refresh` non compaiono sulle schede.
 - Le impostazioni (F21) sono un documento JSON nella tabella `settings` (chiave
   `app.settings`).
 - `ui/`: Svelte 5 + Vite + TypeScript. `src/lib/api.ts` è l'unico punto di contatto con il

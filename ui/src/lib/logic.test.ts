@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { dictionaries, interpolate, keys, setLanguage, t } from './i18n.svelte';
 import { ago, formatBytes, formatCount, usedFraction } from './format';
-import { displayName, groupPrompts, newVolumePrompts, primaryAction, visibleVolumes } from './catalog';
+import { cardJob, displayName, groupPrompts, newVolumePrompts, primaryAction, visibleVolumes } from './catalog';
 import { mockBackend, sampleVolumes } from './mock';
 
 describe('i18n', () => {
@@ -93,6 +93,16 @@ describe('catalog screen', () => {
     expect(displayName(bare, 'Internal disk')).toBe('Internal disk (C:)');
     const unc = { ...bare, name: '\\\\nas\\share', mount: '\\\\nas\\share' };
     expect(displayName(unc, 'Network drive')).toBe('Network drive (\\\\nas\\share)');
+  });
+
+  // F01-AC3: indexing and updates show on the card; automatic background updates do not.
+  it('job shown on a card', () => {
+    const job = (id: number, kind: string, state: string) =>
+      ({ id, kind, volumeId: 1, state, done: 0, total: 0, phase: '', error: null });
+    expect(cardJob([job(1, 'journal', 'running'), job(2, 'refresh', 'queued')], 1)).toBeNull();
+    expect(cardJob([job(1, 'journal', 'running'), job(3, 'update', 'running')], 1)?.id).toBe(3);
+    expect(cardJob([job(4, 'index', 'done')], 1)).toBeNull();
+    expect(cardJob([job(5, 'index', 'queued')], 2)).toBeNull();
   });
 
   it('primary action of a card', () => {

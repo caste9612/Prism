@@ -53,8 +53,8 @@ Decisioni successive (da compilare durante lo sviluppo):
 | L2 | 2026-11-07 | Lettore MFT: una `$MFT` con `$ATTRIBUTE_LIST` nel record 0 (MFT enormi e frammentate) viene rifiutata; file compressi/sparsi non verificati su disco reale | Su quei volumi si usa il walker (più lento, stessi risultati logici) | Rimandato |
 | L3 | 2026-11-07 | NTFS scrive in ritardo nei record MFT le date delle cartelle: due letture vicine possono differire di pochi ms | Solo estetico; si corregge alla modifica successiva della cartella | Accettato (ADR-0018) |
 | L4 | 2026-11-07 | Aggiornamento dal journal: la mappa dei riferimenti (≈0,25 s per 1,3 milioni di voci) si ricarica a ogni aggiornamento | Aggiornamenti continui un po' più costosi del necessario | Da ottimizzare nel motore dei job (T3) |
-| L5 | 2026-11-07 | Unità di rete: capacità e spazio libero non letti, e "collegata" significa "mappata" (non si verifica che il server risponda) | Schede di rete senza barra dello spazio; un NAS spento appare collegato | Da fare: sonda in un thread separato con tempo massimo, per non bloccare il rilevamento |
-| L6 | 2026-11-07 | Nell'app, i volumi non NTFS (exFAT, FAT) e le unità di rete non si aggiornano da soli mentre sono collegati: solo alla riconnessione o con *Aggiorna* (la sorveglianza delle cartelle esiste in `prism-win::watch` ma non è ancora collegata all'app) | Catalogo di chiavette e NAS meno fresco | Da collegare nel monitor dell'app |
+| L5 | 2026-11-07 | Unità di rete: capacità e spazio libero non letti, e "collegata" significa "mappata" (non si verifica che il server risponda) | Schede di rete senza barra dello spazio; un NAS spento appare collegato | **Risolto** (2026-11-07): sonda in thread separati con tempo massimo di 5 s; una condivisione conta come collegata solo quando il server risponde (ARCHITECTURE §7) |
+| L6 | 2026-11-07 | Nell'app, i volumi non NTFS (exFAT, FAT) e le unità di rete non si aggiornano da soli mentre sono collegati: solo alla riconnessione o con *Aggiorna* (la sorveglianza delle cartelle esiste in `prism-win::watch` ma non è ancora collegata all'app) | Catalogo di chiavette e NAS meno fresco | **Risolto** (2026-11-07): sorveglianza cartelle collegata nell'app per FAT/exFAT/ReFS e unità di rete; da provare con una chiavetta (checklist T3, punto 10) |
 | L7 | 2026-11-07 | Identità ambigua di un volume (F02-AC3): nessuna finestra di scelta ancora (D13) | Caso raro (due dischi clonati); il disco non compare finché non si risolve | Da fare |
 | L8 | 2026-11-07 | Disco nuovo collegato mentre la finestra è nascosta nel tray: nessuna notifica di Windows ancora, solo il riquadro alla riapertura | F02-AC1 parziale | Da fare (notifica di sistema) |
 
@@ -104,7 +104,11 @@ cargo run -p prism-app --features custom-protocol
    cambiano subito, anche le voci del tray.
 9. Scollegare un disco esterno: entro 5 s passa tra i "Non collegati" con i dati dell'ultima
    indicizzazione; ricollegandolo torna "Collegato" e si aggiorna (F01-AC1/AC2, F05-AC2; U4).
-10. Giudizio su aspetto e usabilità (U5).
+10. Chiavetta USB (exFAT/FAT) indicizzata: copiare o cancellare file mentre Prism è aperto; in
+    pochi secondi la scheda si aggiorna da sola (sorveglianza cartelle, REVIEW L6).
+11. Unità di rete: con il server acceso la scheda mostra lo spazio usato e libero; spegnendo il
+    server (o scollegando la rete) entro ~15 s passa tra i "Non collegati" (REVIEW L5).
+12. Giudizio su aspetto e usabilità (U5).
 
 Nota: durante le prove di T3 è rimasta sul disco di test la cartella `F:\prism-demo` (file di
 prova creati per verificare l'aggiornamento dal journal); la sua rimozione automatica è stata

@@ -226,6 +226,25 @@ fn local_volume(guid_path: &str) -> Option<DetectedVolume> {
     })
 }
 
+/// Capacity and free space, in bytes, of the volume or network share whose root is `root`
+/// (`C:\`, `\\server\share`); `None` if it cannot be reached.
+///
+/// On a network share this asks the server and can block for tens of seconds when the server
+/// does not answer: call it away from the detection loop, with a time limit (REVIEW L5).
+#[must_use]
+pub fn disk_space(root: &str) -> Option<(u64, u64)> {
+    let mut path = root.to_owned();
+    if !path.ends_with('\\') {
+        path.push('\\');
+    }
+    let w = wide(&path);
+    let (mut total, mut free, mut avail) = (0u64, 0u64, 0u64);
+    // SAFETY: `w` is NUL-terminated; the three outputs are writable u64.
+    let ok =
+        unsafe { GetDiskFreeSpaceExW(w.as_ptr(), &raw mut avail, &raw mut total, &raw mut free) };
+    (ok != 0).then_some((total, free))
+}
+
 /// The 64-bit serial of an NTFS/ReFS volume, from the root folder (no administrator needed).
 fn serial64(guid_path: &str) -> Option<u64> {
     let root = Handle::open(guid_path, FILE_READ_ATTRIBUTES, FILE_FLAG_BACKUP_SEMANTICS)?;
@@ -488,6 +507,21 @@ mod tests {
         assert!(!v.disks.is_empty(), "physical disk numbers");
         assert!(v.info.bus.is_some(), "bus type");
         assert!(v.info.last_mount.as_deref().unwrap().len() == 3);
+    }
+
+    #[test]
+    fn disk_space_of_a_root_and_of_a_missing_path() {
+        let volumes = WinVolumeSource.detect().unwrap();
+        let v = system_volume(&volumes);
+        let mount = v.info.last_mount.as_deref().unwrap();
+        let (total, free) = disk_space(mount).unwrap();
+        assert!(total > 0 && free <= total);
+        // Without the trailing backslash too.
+        assert_eq!(disk_space(mount.trim_end_matches('\\')).unwrap().0, total);
+        assert_eq!(
+            disk_space(r"\\?\Volume{00000000-0000-0000-0000-000000000000}\"),
+            None
+        );
     }
 
     // On NTFS the 32-bit serial shown by Windows is the low half of the 64-bit serial.
