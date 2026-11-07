@@ -39,6 +39,7 @@ fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
         shortcut_error: Mutex::new(None),
         hashing: crate::hash_jobs::HashingState::default(),
         backup: crate::backup_state::BackupState::default(),
+        thumbnails: crate::similar_views::Thumbnails::default(),
     }
 }
 
@@ -177,7 +178,9 @@ fn background_hashing_runs_pauses_and_counts() {
         app.hashing.progress(volume),
         Some(HashStatus {
             total: 4,
-            hashed: 0
+            hashed: 0,
+            images: 0,
+            printed: 0
         })
     );
     assert!(app.engine.jobs().is_empty());
@@ -203,7 +206,9 @@ fn background_hashing_runs_pauses_and_counts() {
         app.hashing.progress(volume),
         Some(HashStatus {
             total: 4,
-            hashed: 4
+            hashed: 4,
+            images: 0,
+            printed: 0
         })
     );
     let card = app.volume_views().unwrap();
@@ -566,4 +571,80 @@ fn debug_build_refuses_copies_outside_the_sandbox() {
     GuardedFs::new(SandboxGuard::new([&parent]).unwrap())
         .remove_dir_all(&target)
         .unwrap();
+}
+
+// F11 in the app: the background job prints the images after the hashes; similar images form a
+// group, the largest first, with thumbnails of the connected files.
+#[test]
+fn similar_images_after_the_background_job() {
+    use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
+    use prism_core::jobs::JobState;
+
+    let pattern = |w: u32, h: u32| {
+        DynamicImage::ImageRgb8(RgbImage::from_fn(w, h, |x, y| {
+            Rgb([
+                (x * 255 / w) as u8,
+                (y * 255 / h) as u8,
+                ((x + y) % 97) as u8,
+            ])
+        }))
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let disk = tmp.path().join("disk");
+    std::fs::create_dir_all(disk.join("Foto")).unwrap();
+    pattern(400, 300)
+        .save_with_format(disk.join("Foto").join("big.png"), ImageFormat::Png)
+        .unwrap();
+    pattern(400, 300)
+        .resize_exact(200, 150, image::imageops::FilterType::Triangle)
+        .save_with_format(disk.join("small.jpg"), ImageFormat::Jpeg)
+        .unwrap();
+    DynamicImage::ImageRgb8(RgbImage::from_fn(300, 300, |x, _| {
+        Rgb([if x % 50 < 25 { 0 } else { 255 }, 0, 0])
+    }))
+    .save_with_format(disk.join("stripes.png"), ImageFormat::Png)
+    .unwrap();
+
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let (volume, detected) = add_folder_volume(&store, &disk);
+    let app = Arc::new(state(store, true, tmp.path()));
+    app.online().insert(volume, detected);
+    let _ = crate::hash_jobs::tick(&app);
+    let job = app.engine.jobs()[0].id;
+    assert_eq!(app.engine.wait(job).unwrap().state, JobState::Done);
+    let status = app.hashing.progress(volume).unwrap();
+    assert_eq!((status.images, status.printed), (3, 3));
+
+    let view = app.similar_images(8, None).unwrap();
+    assert_eq!(view.total_groups, 1);
+    assert_eq!(view.pending_images, 0);
+    let files = &view.groups[0].files;
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].path, r"Foto\big.png");
+    assert_eq!((files[0].width, files[0].height), (Some(400), Some(300)));
+    assert_eq!(files[0].distance, 0);
+    assert!(files[1].distance <= 8);
+    assert!(files[1].online);
+    // Filtered on another volume: nothing.
+    assert_eq!(
+        app.similar_images(8, Some(VolumeId(999)))
+            .unwrap()
+            .total_groups,
+        0
+    );
+
+    let thumb = app
+        .image_thumbnail(volume, EntryId(files[0].entry_id))
+        .unwrap();
+    let img = image::load_from_memory_with_format(&thumb, ImageFormat::Jpeg).unwrap();
+    assert_eq!(img.width(), crate::similar_views::THUMB_SIDE);
+    // Disconnected: no thumbnail (the group stays, from the catalog).
+    app.online().remove(&volume);
+    assert_eq!(
+        app.image_thumbnail(volume, EntryId(files[1].entry_id))
+            .unwrap_err()
+            .code,
+        "volume_offline"
+    );
+    assert_eq!(app.similar_images(8, None).unwrap().total_groups, 1);
 }

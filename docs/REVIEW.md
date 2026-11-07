@@ -53,6 +53,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D35 | 2026-11-07 | T7 | Copia: file temporaneo `<nome>.prism-part`, riletto e confrontato con l'hash della sorgente prima di prendere il nome vero; data di modifica mantenuta; la ripresa riconosce i file già copiati dal contenuto; in conflitto *salta* o *rinomina* come `nome (2).ext`; un `.prism-part` rimasto da un'interruzione si sostituisce (è di Prism) | Scrivere direttamente con il nome finale; riprendere da un registro su disco | `prism-core::backup::copy` | F15-AC4/AC5 |
 | D36 | 2026-11-07 | T7 | Schermata *Backup* con due schede (verifica, confronto); sorgente e destinazioni scelte come disco + percorso scritto (vuoto = disco intero), anche dischi scollegati; verifica e confronto girano subito nel catalogo (secondi anche su dischi grandi) e non come job annullabili; gli ultimi 4 risultati restano in memoria e si sfogliano a livelli; la copia propone come destinazione un disco di backup collegato o un altro disco collegato, sotto una cartella scritta dall'utente (niente selettore di cartelle di Windows); nel confronto gli identici sono nascosti all'inizio | Selettore di cartelle nativo (plugin in più); job annullabili anche per verifica e confronto; risultati salvati su disco | `BackupView.svelte`, `backup_state.rs` | F13, F14, F15-AC3 |
 | D37 | 2026-11-07 | T8 | Immagini simili con *difference hash* a 64 bit (robusto a ridimensionamento e ricompressione, misurato nei test entro 6 bit) e BK-tree per la distanza di Hamming; RAW dall'anteprima JPEG incorporata, la più piccola con lato corto ≥ 400 px (decodificare l'anteprima a piena risoluzione costa molto più e l'impronta non ne ha bisogno); file oltre 512 MB non decodificati; un file non decodificabile non si riprova finché non cambia. Nuova dipendenza `image` (solo i formati della SPEC). HEIC/AVIF esclusi come da SPEC | pHash (DCT, più costoso), *multi-index hashing* (più veloce con soglie fisse ma più complesso); decodifica dei RAW | `prism-core::media` | F11 |
+| D38 | 2026-11-07 | T8 | Schermata *Simili* nel menu laterale: soglia da 0 a 16 differenze su 64 (predefinita 6, entro cui stanno nei test ridimensionamenti, ricompressioni e piccoli ritocchi), filtro per disco, 200 gruppi con più immagini, 30 per volta; miniature caricate solo quando entrano nella vista e solo dei dischi collegati (per quelli scollegati restano nome, risoluzione, dimensione e posizione); nessuna eliminazione da questa schermata: le immagini simili non sono copie identiche e la regola dell'ultima copia non le protegge | Miniature salvate nel catalogo anche per i dischi scollegati (centinaia di MB); eliminazione anche dai simili | `SimilarView.svelte`, `similar_state.rs` | F11-AC1/AC3 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -252,3 +253,14 @@ esempio `F:\prism-t6\Documenti` come sorgente e `F:\prism-t7` come destinazione.
 5. *Confronta*: due cartelle, per percorso o per contenuto; i totali per stato si usano come
    filtri, l'albero mostra i totali per cartella, un file spostato o rinominato compare come
    identico con il percorso in B (F14-AC1/AC2/AC3).
+
+### Checklist T8 (immagini simili)
+
+1. Dopo l'analisi del contenuto (stessa riga sulle schede) *Simili* mostra i gruppi di immagini
+   che si somigliano: copie ridimensionate, ricompresse, esportate da un RAW (CR2, NEF, ARW,
+   DNG...), con anteprime affiancate, risoluzione, dimensione, disco e posizione (F11-AC1/AC3/
+   AC4). Prova: salvare una foto in due dimensioni diverse sul disco PRISMTEST, aggiornarlo e
+   attendere.
+2. La soglia cambia i gruppi (0 = quasi identiche); il filtro per disco tiene i gruppi con una
+   copia su quel disco (F11-AC1).
+3. Con un disco scollegato le sue immagini restano nei gruppi, senza anteprima e marcate.

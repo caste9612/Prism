@@ -14,6 +14,8 @@ mod netprobe;
 mod notices;
 mod search_views;
 mod search_window;
+mod similar_state;
+mod similar_views;
 mod space_views;
 mod state;
 #[cfg(test)]
@@ -102,6 +104,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         shortcut_error: Mutex::new(None),
         hashing: hash_jobs::HashingState::default(),
         backup: backup_state::BackupState::default(),
+        thumbnails: similar_views::Thumbnails::default(),
         app_id,
         store,
         engine: JobEngine::start(4),
@@ -194,6 +197,8 @@ fn main() {
             commands::copy_preview,
             commands::copy_start,
             commands::copy_result,
+            commands::similar_images,
+            commands::image_thumbnail,
             commands::reveal_entry,
             commands::remove_volume,
             commands::get_settings,

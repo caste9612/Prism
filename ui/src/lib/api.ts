@@ -20,6 +20,7 @@ import type { ReportFolderView } from './bindings/ReportFolderView';
 import type { RuleInput } from './bindings/RuleInput';
 import type { SearchResultView } from './bindings/SearchResultView';
 import type { SideInput } from './bindings/SideInput';
+import type { SimilarView } from './bindings/SimilarView';
 import type { Settings } from './bindings/Settings';
 import type { SpaceFolderView } from './bindings/SpaceFolderView';
 import type { TypeStatsView } from './bindings/TypeStatsView';
@@ -57,6 +58,9 @@ export interface Backend {
   copyPreview(reportId: number, dest: SideInput): Promise<CopyPreviewView>;
   copyStart(reportId: number, dest: SideInput, renameOnConflict: boolean): Promise<number>;
   copyResult(jobId: number): Promise<CopyResultView | null>;
+  similarImages(maxDistance: number, volumeId: number | null): Promise<SimilarView>;
+  /** A URL for the thumbnail of a connected image, or null. */
+  imageThumbnail(volumeId: number, entryId: number): Promise<string | null>;
   removeVolume(id: number): Promise<void>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
@@ -95,6 +99,15 @@ const tauriBackend: Backend = {
   copyPreview: (reportId, dest) => invoke('copy_preview', { reportId, dest }),
   copyStart: (reportId, dest, renameOnConflict) => invoke('copy_start', { reportId, dest, renameOnConflict }),
   copyResult: (jobId) => invoke('copy_result', { jobId }),
+  similarImages: (maxDistance, volumeId) => invoke('similar_images', { maxDistance, volumeId }),
+  imageThumbnail: async (volumeId, entryId) => {
+    try {
+      const jpeg = await invoke<ArrayBuffer>('image_thumbnail', { volumeId, entryId });
+      return URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' }));
+    } catch {
+      return null;
+    }
+  },
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),
   setSettings: (settings) => invoke('set_settings', { settings }),

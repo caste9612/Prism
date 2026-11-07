@@ -101,6 +101,16 @@ fn decode(data: &[u8], format: Option<ImageFormat>) -> Result<DynamicImage, Medi
 /// # Errors
 /// [`MediaError`] when the file cannot be read or decoded.
 pub fn print_image(path: &Path) -> Result<ImagePrint, MediaError> {
+    let (img, (width, height)) = load(path)?;
+    Ok(ImagePrint {
+        dhash: dhash(&img),
+        width,
+        height,
+    })
+}
+
+/// The decoded image (the preview for a RAW file) and the size to show for it.
+fn load(path: &Path) -> Result<(DynamicImage, (u32, u32)), MediaError> {
     let data = std::fs::read(path)?;
     let ext = path
         .extension()
@@ -109,19 +119,27 @@ pub fn print_image(path: &Path) -> Result<ImagePrint, MediaError> {
     if RAW_EXTENSIONS.contains(&ext.as_str()) {
         let preview = raw::preview(&data).ok_or(MediaError::NoPreview)?;
         let img = decode(preview.data, Some(ImageFormat::Jpeg))?;
-        let (width, height) = raw::largest_size(&data).unwrap_or((img.width(), img.height()));
-        return Ok(ImagePrint {
-            dhash: dhash(&img),
-            width,
-            height,
-        });
+        let size = raw::largest_size(&data).unwrap_or((img.width(), img.height()));
+        return Ok((img, size));
     }
     let img = decode(&data, None)?;
-    Ok(ImagePrint {
-        dhash: dhash(&img),
-        width: img.width(),
-        height: img.height(),
-    })
+    let size = (img.width(), img.height());
+    Ok((img, size))
+}
+
+/// A JPEG thumbnail of the image that fits in `max` × `max` pixels, for the side-by-side
+/// previews of the similar images (F11-AC3).
+///
+/// # Errors
+/// [`MediaError`] when the file cannot be read or decoded.
+pub fn thumbnail_jpeg(path: &Path, max: u32) -> Result<Vec<u8>, MediaError> {
+    let (img, _) = load(path)?;
+    let small = img.thumbnail(max, max).to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 80)
+        .encode_image(&small)
+        .map_err(|e| MediaError::Decode(e.to_string()))?;
+    Ok(out)
 }
 
 /// What a printing run did.

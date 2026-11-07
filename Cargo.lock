@@ -3004,6 +3004,7 @@ name = "prism-app"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
+ "image",
  "prism-core",
  "prism-win",
  "rusqlite",

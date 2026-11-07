@@ -62,6 +62,8 @@ pub struct AppState {
     pub hashing: HashingState,
     /// Backup checks, comparisons and copies (F13–F15).
     pub backup: crate::backup_state::BackupState,
+    /// Thumbnails of similar images (F11-AC3).
+    pub thumbnails: crate::similar_views::Thumbnails,
 }
 
 pub fn job_view(j: &JobInfo) -> JobView {

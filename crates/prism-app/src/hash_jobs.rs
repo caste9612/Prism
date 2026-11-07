@@ -11,16 +11,25 @@ use std::time::{Duration, Instant};
 
 use prism_core::hashing;
 use prism_core::jobs::{JobSpec, Priority};
+use prism_core::media;
 use prism_core::model::{VolumeId, VolumeKind, VolumeStatus};
 use prism_core::store;
 
 use crate::state::{AppState, access_path, job_disks};
 
-/// Files and hashed files of a volume (F06-AC5).
+/// Files and hashed files of a volume (F06-AC5); images and printed images (F11).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HashStatus {
     pub total: u64,
     pub hashed: u64,
+    pub images: u64,
+    pub printed: u64,
+}
+
+impl HashStatus {
+    fn pending(&self) -> bool {
+        self.hashed < self.total || self.printed < self.images
+    }
 }
 
 /// The progress of a volume is counted again at most this often, or this often while a hash job
@@ -73,6 +82,14 @@ impl HashingState {
             .sum()
     }
 
+    /// Images still without a print on the volumes counted so far.
+    pub fn pending_images(&self) -> u64 {
+        self.status()
+            .values()
+            .map(|(s, _)| s.images.saturating_sub(s.printed))
+            .sum()
+    }
+
     /// Whether hashing must stop now (between two files).
     pub fn should_pause(&self) -> bool {
         self.paused.load(Ordering::Relaxed)
@@ -82,11 +99,23 @@ impl HashingState {
 
 /// Counts the progress of a volume again (after hashing or deleting).
 pub fn refresh(state: &AppState, volume: VolumeId) {
-    if let Ok((total, hashed)) = state.store.read(|c| store::hash_progress(c, volume)) {
+    let counted = state.store.read(|c| {
+        Ok((
+            store::hash_progress(c, volume)?,
+            media::print_progress(c, volume)?,
+        ))
+    });
+    if let Ok(((total, hashed), (images, printed))) = counted {
+        let status = HashStatus {
+            total,
+            hashed,
+            images,
+            printed,
+        };
         state
             .hashing
             .status()
-            .insert(volume, (HashStatus { total, hashed }, Instant::now()));
+            .insert(volume, (status, Instant::now()));
     }
 }
 
@@ -135,10 +164,7 @@ pub fn tick(state: &Arc<AppState>) -> bool {
         let indexed = known.iter().any(|v| {
             v.id == id && matches!(v.status, VolumeStatus::Indexed) && v.last_indexed_at.is_some()
         });
-        let pending = state
-            .hashing
-            .progress(id)
-            .is_some_and(|s| s.hashed < s.total);
+        let pending = state.hashing.progress(id).is_some_and(|s| s.pending());
         let recent = state
             .hashing
             .last_run()
@@ -172,8 +198,13 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                 };
                 let result =
                     hashing::hash_volume(&s.store, id, &root, &ctx.cancel, &pause, &ctx.progress);
-                refresh(&s, id);
-                let report = result.map_err(|e| e.to_string())?;
+                let report = match result {
+                    Ok(r) => r,
+                    Err(e) => {
+                        refresh(&s, id);
+                        return Err(e.to_string());
+                    }
+                };
                 tracing::info!(
                     volume = id.0,
                     quick = report.quick,
@@ -183,6 +214,29 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                     interrupted = report.interrupted,
                     "hashing finished"
                 );
+                // Then the prints of the images (F11), in the same background job.
+                if !report.interrupted {
+                    let prints = media::print_volume(
+                        &s.store,
+                        id,
+                        &root,
+                        &ctx.cancel,
+                        &pause,
+                        &ctx.progress,
+                    );
+                    match prints {
+                        Ok(p) => tracing::info!(
+                            volume = id.0,
+                            printed = p.printed,
+                            unreadable = p.unreadable,
+                            changed = p.changed,
+                            interrupted = p.interrupted,
+                            "image prints finished"
+                        ),
+                        Err(e) => tracing::warn!(volume = id.0, error = %e, "image prints failed"),
+                    }
+                }
+                refresh(&s, id);
                 Ok(())
             }),
         });

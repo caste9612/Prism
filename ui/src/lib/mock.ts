@@ -11,6 +11,7 @@ import { cardJob } from './catalog';
 import { mockCleanupScan, mockDeleteEntries } from './mock-cleanup';
 import { mockDeleteDuplicates, mockDuplicates } from './mock-duplicates';
 import { FAILING_COPY, mockBackup } from './mock-backup';
+import { mockSimilar, mockThumbnail } from './mock-similar';
 import type { CopyResultView } from './bindings/CopyResultView';
 import { mockSearch } from './mock-search';
 import { mockHasEntry, mockLargestFiles, mockSpaceFolder, mockTypeStats } from './mock-space';
@@ -201,6 +202,8 @@ export function mockBackend(): Backend {
       return job.id;
     },
     copyResult: async (jobId) => copyResults.get(jobId) ?? null,
+    similarImages: async (maxDistance, volumeId) => mockSimilar(volumes, maxDistance, volumeId),
+    imageThumbnail: async (volumeId, entryId) => (find(volumeId).online ? mockThumbnail(entryId) : null),
     revealEntry: async (volumeId, entryId) => {
       if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
       if (!mockHasEntry(volumeId, entryId)) throw { code: 'not_found', message: String(entryId) };

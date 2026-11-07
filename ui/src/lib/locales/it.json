@@ -7,6 +7,7 @@
     "catalog": "Dischi",
     "search": "Cerca",
     "duplicates": "Duplicati",
+    "similar": "Simili",
     "backup": "Backup",
     "cleanup": "Pulizia",
     "settings": "Impostazioni"
@@ -150,7 +151,8 @@
     "copy_overlap": "La destinazione è dentro la sorgente, o viceversa.",
     "outside_sandbox": "Le build di sviluppo copiano solo sul disco di prova PRISMTEST.",
     "not_a_check": "La copia parte da una verifica dei backup.",
-    "cancelled": "Annullato."
+    "cancelled": "Annullato.",
+    "thumbnail_failed": "Non è stato possibile creare l'anteprima."
   },
   "tray": {
     "open": "Apri Prism",
@@ -458,5 +460,27 @@
     "files": "{count} file",
     "moreFiles": "…e altri {count} file in questa cartella",
     "emptyLevel": "Niente qui con questi filtri."
+  },
+  "similar": {
+    "title": "Immagini simili",
+    "subtitle": "Foto e immagini che si somigliano anche se ridimensionate, ricompresse o ritoccate, su tutti i tuoi dischi.",
+    "refresh": "Aggiorna",
+    "loading": "Cerco le immagini simili…",
+    "nothing": "Nessuna immagine simile con questa impostazione.",
+    "threshold": "Somiglianza: fino a {value} differenze",
+    "thresholdText": "{value} differenze su 64",
+    "strict": "quasi identiche",
+    "loose": "vagamente simili",
+    "disk": "Disco",
+    "anyDisk": "Tutti i dischi",
+    "pending": "L'analisi del contenuto deve ancora leggere {count} immagini: potrebbero comparire altri gruppi.",
+    "summary": "{count} gruppi di immagini simili",
+    "images": "{count} immagini",
+    "difference": "differenza: {value}",
+    "offline": "non collegato",
+    "noPreview": "Disco non collegato: nessuna anteprima",
+    "open": "Mostra in Esplora risorse",
+    "more": "Mostra altri gruppi",
+    "capped": "Sono mostrati i {count} gruppi più grandi."
   }
 }

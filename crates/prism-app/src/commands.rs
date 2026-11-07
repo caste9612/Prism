@@ -16,6 +16,7 @@ use crate::cleanup_views::{CleanupResultView, CleanupView};
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings, VolumeView};
 use crate::duplicates_views::{DupFilterInput, DuplicatesView, RuleInput};
 use crate::search_views::SearchResultView;
+use crate::similar_views::SimilarView;
 use crate::space_views::{LargeFileView, SpaceFolderView, TypeStatsView};
 use crate::state::{AppState, IndexKind, access_path, job_view};
 use crate::{search_window, tray};
@@ -321,6 +322,29 @@ pub fn copy_start(
 #[tauri::command]
 pub fn copy_result(state: State<'_, Arc<AppState>>, job_id: u64) -> Option<CopyResultView> {
     state.copy_result(job_id)
+}
+
+/// Groups of similar images on every disk (F11), optionally with a copy on one volume.
+#[tauri::command]
+pub async fn similar_images(
+    state: State<'_, Arc<AppState>>,
+    max_distance: u32,
+    volume_id: Option<i64>,
+) -> R<SimilarView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.similar_images(max_distance, volume_id.map(VolumeId))).await
+}
+
+/// A JPEG thumbnail of a connected image, as raw bytes (F11-AC3).
+#[tauri::command]
+pub async fn image_thumbnail(
+    state: State<'_, Arc<AppState>>,
+    volume_id: i64,
+    entry_id: i64,
+) -> R<tauri::ipc::Response> {
+    let s = Arc::clone(&state);
+    let jpeg = blocking(move || s.image_thumbnail(VolumeId(volume_id), EntryId(entry_id))).await?;
+    Ok(tauri::ipc::Response::new(jpeg))
 }
 
 /// F01-AC5: removes the catalog data of a volume; files on the disk are never touched.

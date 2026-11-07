@@ -23,6 +23,16 @@
 
 ## Diario
 
+### 2026-11-07 — T8: immagini simili nell'app
+
+- Il job di background, finiti gli hash, calcola le impronte delle immagini del volume; il
+  conteggio per volume tiene anche le immagini da analizzare.
+- Comandi `similar_images` (gruppi entro una soglia, filtro per disco, la più grande per
+  prima) e `image_thumbnail` (miniatura JPEG come byte grezzi, con cache). Test dell'app su
+  immagini generate in una cartella temporanea.
+- Schermata *Simili*: soglia regolabile, filtro per disco, anteprime caricate quando entrano
+  nella vista, dischi scollegati senza anteprima. 2 Playwright.
+
 ### 2026-11-07 — T8: impronte delle immagini (nucleo)
 
 - Schema v6: `image_prints` (impronta, risoluzione, stato del file per cui vale).

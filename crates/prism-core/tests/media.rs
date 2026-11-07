@@ -232,3 +232,23 @@ fn f11_background_prints_and_groups() {
     );
     assert_eq!(cat.store.read(store::valid_prints).unwrap().len(), 2);
 }
+
+// F11-AC3: the side-by-side previews are small JPEG thumbnails, also of RAW files.
+#[test]
+fn f11_thumbnails_fit_the_requested_size() {
+    let sb = Sandbox::new();
+    let base = DynamicImage::ImageRgb8(photo(640, 480));
+    sb.fs
+        .write(&sb.path("a.png"), &encode(&base, ImageFormat::Png))
+        .unwrap();
+    sb.fs
+        .write(&sb.path("b.dng"), &tiff_raw(&jpeg(&base, 85)))
+        .unwrap();
+    for name in ["a.png", "b.dng"] {
+        let thumb = prism_core::media::thumbnail_jpeg(&sb.path(name), 160).unwrap();
+        let img = image::load_from_memory_with_format(&thumb, ImageFormat::Jpeg).unwrap();
+        assert_eq!((img.width(), img.height()), (160, 120), "{name}");
+    }
+    sb.fs.write(&sb.path("c.jpg"), b"not an image").unwrap();
+    assert!(prism_core::media::thumbnail_jpeg(&sb.path("c.jpg"), 160).is_err());
+}

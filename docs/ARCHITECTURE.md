@@ -347,7 +347,11 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   si decodifica resta segnato finché non cambia; oltre 512 MB non si decodifica. I gruppi
   (`media::bktree::groups`) uniscono le immagini entro una distanza di Hamming con un BK-tree:
   ogni immagine cerca le vicine visitando solo i rami con distanza compatibile, senza
-  confrontare tutte le coppie (F11-AC2).
+  confrontare tutte le coppie (F11-AC2). Nell'app le impronte si calcolano nello stesso job di
+  background degli hash, dopo di essi (`hash_jobs.rs`); `similar_images` restituisce i 200
+  gruppi con più immagini (la più grande per prima, con la distanza dalla prima) e
+  `image_thumbnail` una miniatura JPEG di 192 px dei file collegati, come byte grezzi
+  (`tauri::ipc::Response`), con una cache in memoria di 600 miniature.
 - **Verifica, confronto, copia** (`prism-core::backup`, T7): lavorano sul catalogo, quindi
   anche con i dischi scollegati. `store::subtree_files` legge i file sotto una cartella con il
   percorso relativo e l'hash completo se valido (una CTE ricorsiva sulle cartelle).

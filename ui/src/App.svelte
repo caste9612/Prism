@@ -16,9 +16,10 @@
   import SearchView from './components/SearchView.svelte';
   import Icon from './components/Icon.svelte';
   import SettingsView from './components/SettingsView.svelte';
+  import SimilarView from './components/SimilarView.svelte';
   import SpaceView from './components/SpaceView.svelte';
 
-  type Page = 'catalog' | 'search' | 'duplicates' | 'backup' | 'cleanup' | 'settings' | 'space';
+  type Page = 'catalog' | 'search' | 'duplicates' | 'similar' | 'backup' | 'cleanup' | 'settings' | 'space';
 
   let page = $state<Page>('catalog');
   let spaceVolume = $state<number | null>(null);
@@ -121,6 +122,7 @@
     { page: 'catalog', icon: 'disks' },
     { page: 'search', icon: 'search' },
     { page: 'duplicates', icon: 'copy' },
+    { page: 'similar', icon: 'similar' },
     { page: 'backup', icon: 'backup' },
     { page: 'cleanup', icon: 'broom' },
     { page: 'settings', icon: 'settings' },
@@ -170,6 +172,8 @@
       <SearchView {volumes} onerror={showToast} />
     {:else if page === 'duplicates'}
       <DuplicatesView {volumes} {settings} onchange={changeSettings} onerror={showToast} />
+    {:else if page === 'similar'}
+      <SimilarView {volumes} onerror={showToast} />
     {:else if page === 'backup'}
       <BackupView {volumes} onerror={showToast} />
     {:else if page === 'cleanup'}

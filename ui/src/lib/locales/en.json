@@ -7,6 +7,7 @@
     "catalog": "Disks",
     "search": "Search",
     "duplicates": "Duplicates",
+    "similar": "Similar",
     "backup": "Backup",
     "cleanup": "Cleanup",
     "settings": "Settings"
@@ -150,7 +151,8 @@
     "copy_overlap": "The destination is inside the source, or the other way round.",
     "outside_sandbox": "Development builds copy only to the test disk PRISMTEST.",
     "not_a_check": "Copies start from a backup check.",
-    "cancelled": "Cancelled."
+    "cancelled": "Cancelled.",
+    "thumbnail_failed": "The preview could not be made."
   },
   "tray": {
     "open": "Open Prism",
@@ -458,5 +460,27 @@
     "files": "{count} files",
     "moreFiles": "…and {count} more files in this folder",
     "emptyLevel": "Nothing here with these filters."
+  },
+  "similar": {
+    "title": "Similar images",
+    "subtitle": "Photos and pictures that look the same even if resized, recompressed or slightly retouched, on all your disks.",
+    "refresh": "Refresh",
+    "loading": "Looking for similar images…",
+    "nothing": "No similar images with this setting.",
+    "threshold": "Similarity: up to {value} differences",
+    "thresholdText": "{value} differences out of 64",
+    "strict": "almost identical",
+    "loose": "loosely alike",
+    "disk": "Disk",
+    "anyDisk": "All disks",
+    "pending": "The content analysis still has {count} images to read: more groups may appear.",
+    "summary": "{count} groups of similar images",
+    "images": "{count} images",
+    "difference": "difference: {value}",
+    "offline": "not connected",
+    "noPreview": "Disk not connected: no preview",
+    "open": "Show in Explorer",
+    "more": "Show more groups",
+    "capped": "Showing the {count} largest groups."
   }
 }
