@@ -131,7 +131,8 @@ Criteri coperti: F13-AC1…AC5, F14-AC1…AC3, F15-AC1…AC5.
 
 ## T8 — Media
 
-- [ ] Immagini simili con indice per distanza di Hamming, inclusi i RAW (F11)
+- [~] Immagini simili con indice per distanza di Hamming, inclusi i RAW (F11): nucleo fatto
+      (`prism-core::media`); job, anteprime e schermata da fare
 - [ ] Prototipi e decisione per i video (ADR-0013), poi video simili (F12)
 
 ## T9 — Integrazione con il sistema

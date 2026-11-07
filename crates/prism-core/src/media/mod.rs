@@ -1,0 +1,250 @@
+//! Similar images (F11): a 64-bit perceptual print of each image, computed in the background
+//! like the content hashes and valid for one size and modification time of the file, and the
+//! groups of images whose prints are within a Hamming distance.
+//!
+//! The print is a *difference hash*: the image is reduced to 9×8 grey levels (averaging areas,
+//! so resized and recompressed copies give almost the same values) and each bit says whether a
+//! pixel is brighter than its right neighbour. Camera RAW files are printed from the JPEG
+//! preview they contain (`raw`). The groups use a BK-tree (`bktree`, F11-AC2).
+
+pub mod bktree;
+pub mod raw;
+
+use std::collections::HashMap;
+use std::io::Cursor;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
+
+use image::{DynamicImage, ImageFormat, ImageReader};
+
+use crate::cancel::CancelToken;
+use crate::jobs::JobProgress;
+use crate::model::{EntryId, VolumeId, unix_millis_now};
+use crate::names;
+use crate::scan::disk_meta;
+use crate::space;
+use crate::store::{self, PrintRecord, Store, StoreError};
+
+/// Extensions decoded directly (F11-AC4).
+pub const IMAGE_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "jpe", "jfif", "png", "gif", "webp", "bmp", "dib", "tif", "tiff",
+];
+/// Camera RAW formats, printed from their embedded preview (F11-AC4).
+pub const RAW_EXTENSIONS: &[&str] = &[
+    "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raf", "pef",
+    "srw", "3fr", "iiq", "rwl", "erf", "kdc", "mrw", "x3f",
+];
+/// Larger files are not decoded (a print of a 2 GB TIFF is not worth the memory).
+pub const MAX_IMAGE_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Whether a stored file name is an image Prism prints.
+#[must_use]
+pub fn is_printable(stored_name: &str) -> bool {
+    let ext = space::extension(stored_name);
+    IMAGE_EXTENSIONS.contains(&ext.as_str()) || RAW_EXTENSIONS.contains(&ext.as_str())
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum MediaError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error("cannot decode the image: {0}")]
+    Decode(String),
+    #[error("no preview in the RAW file")]
+    NoPreview,
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// The print and the size of an image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImagePrint {
+    pub dhash: u64,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The difference hash of an image (see the module documentation).
+#[must_use]
+pub fn dhash(img: &DynamicImage) -> u64 {
+    let small = img.thumbnail_exact(9, 8).to_luma8();
+    let mut bits = 0u64;
+    for y in 0..8 {
+        for x in 0..8 {
+            bits <<= 1;
+            if small.get_pixel(x, y)[0] < small.get_pixel(x + 1, y)[0] {
+                bits |= 1;
+            }
+        }
+    }
+    bits
+}
+
+fn decode(data: &[u8], format: Option<ImageFormat>) -> Result<DynamicImage, MediaError> {
+    let mut reader = ImageReader::new(Cursor::new(data));
+    match format {
+        Some(f) => reader.set_format(f),
+        None => {
+            reader = reader
+                .with_guessed_format()
+                .map_err(|e| MediaError::Decode(e.to_string()))?;
+        }
+    }
+    reader
+        .decode()
+        .map_err(|e| MediaError::Decode(e.to_string()))
+}
+
+/// Prints the image at `path` (by its content for ordinary images, by the embedded preview for
+/// RAW files).
+///
+/// # Errors
+/// [`MediaError`] when the file cannot be read or decoded.
+pub fn print_image(path: &Path) -> Result<ImagePrint, MediaError> {
+    let data = std::fs::read(path)?;
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if RAW_EXTENSIONS.contains(&ext.as_str()) {
+        let preview = raw::preview(&data).ok_or(MediaError::NoPreview)?;
+        let img = decode(preview.data, Some(ImageFormat::Jpeg))?;
+        let (width, height) = raw::largest_size(&data).unwrap_or((img.width(), img.height()));
+        return Ok(ImagePrint {
+            dhash: dhash(&img),
+            width,
+            height,
+        });
+    }
+    let img = decode(&data, None)?;
+    Ok(ImagePrint {
+        dhash: dhash(&img),
+        width: img.width(),
+        height: img.height(),
+    })
+}
+
+/// What a printing run did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PrintReport {
+    pub printed: u64,
+    /// Not decodable (kept as such until the file changes).
+    pub unreadable: u64,
+    /// Changed or gone since the catalog was updated: tried again after the next update.
+    pub changed: u64,
+    pub interrupted: bool,
+}
+
+/// Images of a volume with and without a valid print (decoded or not).
+///
+/// # Errors
+/// SQLite errors.
+pub fn print_progress(
+    conn: &rusqlite::Connection,
+    volume: VolumeId,
+) -> Result<(u64, u64), StoreError> {
+    let states = store::print_states(conn, volume)?;
+    let images = states.iter().filter(|s| is_printable(&s.name));
+    let (mut total, mut done) = (0, 0);
+    for s in images {
+        total += 1;
+        done += u64::from(s.printed);
+    }
+    Ok((total, done))
+}
+
+/// Prints the images of a volume reached at `root` that have no valid print, saving them in
+/// batches; `pause` is asked between files. Progress is counted in files.
+///
+/// # Errors
+/// [`MediaError::Store`] if the catalog cannot be read or written.
+pub fn print_volume(
+    store: &Store,
+    volume: VolumeId,
+    root: &Path,
+    cancel: &CancelToken,
+    pause: &dyn Fn() -> bool,
+    progress: &JobProgress,
+) -> Result<PrintReport, MediaError> {
+    let todo: Vec<store::PrintState> = store
+        .read(|c| store::print_states(c, volume))?
+        .into_iter()
+        .filter(|s| !s.printed && is_printable(&s.name) && s.size <= MAX_IMAGE_BYTES)
+        .collect();
+    progress.set_phase("prints");
+    progress.total.store(todo.len() as u64, Ordering::Relaxed);
+    progress.done.store(0, Ordering::Relaxed);
+    let mut report = PrintReport::default();
+    let mut folders: HashMap<EntryId, PathBuf> = HashMap::new();
+    let mut pending: Vec<PrintRecord> = Vec::new();
+    let flush = |pending: &mut Vec<PrintRecord>| -> Result<(), MediaError> {
+        if !pending.is_empty() {
+            let batch = std::mem::take(pending);
+            store.write(move |w| store::set_prints(w, &batch, unix_millis_now()))?;
+        }
+        Ok(())
+    };
+    for s in &todo {
+        if cancel.is_cancelled() || pause() {
+            report.interrupted = true;
+            break;
+        }
+        let Some(parent) = s.parent else { continue };
+        let folder = match folders.get(&parent) {
+            Some(p) => p.clone(),
+            None => {
+                let mut p = root.to_path_buf();
+                for part in store
+                    .read(|c| store::relative_path(c, parent))?
+                    .split('\\')
+                    .filter(|p| !p.is_empty())
+                {
+                    p.push(names::decode(part));
+                }
+                folders.insert(parent, p.clone());
+                p
+            }
+        };
+        let path = folder.join(names::decode(&s.name));
+        // The print belongs to the state of the file read now; a file that changed since the
+        // catalog was updated is left for after the next update.
+        let unchanged = |p: &Path| {
+            disk_meta(p)
+                .is_ok_and(|(is_dir, m)| !is_dir && m.size == s.size && m.modified == s.modified)
+        };
+        if !unchanged(&path) {
+            report.changed += 1;
+        } else {
+            let result = print_image(&path);
+            if !unchanged(&path) {
+                report.changed += 1;
+            } else {
+                let (dhash, width, height) = match result {
+                    Ok(p) => {
+                        report.printed += 1;
+                        (Some(p.dhash), Some(p.width), Some(p.height))
+                    }
+                    Err(e) => {
+                        tracing::debug!(path = %path.display(), error = %e, "image not printed");
+                        report.unreadable += 1;
+                        (None, None, None)
+                    }
+                };
+                pending.push(PrintRecord {
+                    entry: s.entry,
+                    size: s.size,
+                    modified: s.modified,
+                    dhash,
+                    width,
+                    height,
+                });
+                if pending.len() >= 200 {
+                    flush(&mut pending)?;
+                }
+            }
+        }
+        progress.done.fetch_add(1, Ordering::Relaxed);
+    }
+    flush(&mut pending)?;
+    Ok(report)
+}

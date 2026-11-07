@@ -57,10 +57,11 @@ Archivio SQLite in modalità WAL, nella cartella dati dell'app. Lo schema è ver
 migrazioni SQL incorporate (`crates/prism-core/src/store/migrations/`) e `PRAGMA user_version`;
 una migrazione già pubblicata non si modifica, se ne aggiunge una nuova.
 
-**Schema in uso (versione 5)** — testo completo in `0001_initial.sql`,
+**Schema in uso (versione 6)** — testo completo in `0001_initial.sql`,
 `0002_volume_bus.sql` (aggiunge `bus_type`), `0003_entries_volume_index.sql` (indice sul solo
 volume al posto di `(volume_id, file_ref)`, ADR-0017) e `0004_actions_log.sql` (registro delle
-azioni, T4) e `0005_content_hashes.sql` (hash del contenuto, T6):
+azioni, T4), `0005_content_hashes.sql` (hash del contenuto, T6) e `0006_image_prints.sql`
+(impronte delle immagini, T8):
 
 ```sql
 volumes (
@@ -106,6 +107,11 @@ content_hashes (entry_id PRIMARY KEY REFERENCES entries ON DELETE CASCADE,
                 quick, full,          -- BLAKE3: dimensione + 64 KiB iniziali e finali; tutto
                 computed_at) STRICT   -- v5 (T6)
 INDEX content_hashes_full (size, full), content_hashes_quick (size, quick)
+
+image_prints (entry_id PRIMARY KEY REFERENCES entries ON DELETE CASCADE,
+              size, modified_at,      -- lo stato del file per cui l'impronta vale
+              dhash,                  -- 64 bit; NULL se il file non si decodifica
+              width, height, computed_at) STRICT   -- v6 (T8)
 ```
 
 Le chiavi esterne sono attive sulla connessione di scrittura; `entries` non usa cascate (una
@@ -330,8 +336,18 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   si selezionano mai e una copia resta sempre (F10-AC4). All'eliminazione `check_last_copies`
   rifiuta di togliere l'ultima copia e chiede conferma se resterebbero solo copie offline
   (F16-AC4); `fileops` ricalcola l'hash completo sul file e salta quelli cambiati (F16-AC3).
-- **Simili**: hash percettivi a 64 bit indicizzati con un BK-tree (o *multi-index hashing*) per
-  le ricerche di distanza di Hamming, senza confronto di tutte le coppie.
+- **Immagini simili** (`prism-core::media`, T8, F11): ogni immagine ha un'impronta percettiva
+  a 64 bit (*difference hash*: l'immagine ridotta a 9×8 livelli di grigio mediando le aree, un
+  bit per "più chiaro del vicino a destra"), valida come gli hash per una dimensione e una data
+  del file. JPEG, PNG, GIF, WebP, BMP e TIFF si decodificano con il crate `image`; i RAW delle
+  fotocamere dall'anteprima JPEG incorporata (`media::raw`: nei RAW basati su TIFF dalle
+  directory, `JPEGInterchangeFormat` o strisce JPEG anche nelle sotto-directory; negli altri
+  contenitori, come CR3, cercando i flussi JPEG), scegliendo la più piccola con il lato corto
+  di almeno 400 px; la risoluzione mostrata è quella dell'anteprima più grande. Un file che non
+  si decodifica resta segnato finché non cambia; oltre 512 MB non si decodifica. I gruppi
+  (`media::bktree::groups`) uniscono le immagini entro una distanza di Hamming con un BK-tree:
+  ogni immagine cerca le vicine visitando solo i rami con distanza compatibile, senza
+  confrontare tutte le coppie (F11-AC2).
 - **Verifica, confronto, copia** (`prism-core::backup`, T7): lavorano sul catalogo, quindi
   anche con i dischi scollegati. `store::subtree_files` legge i file sotto una cartella con il
   percorso relativo e l'hash completo se valido (una CTE ricorsiva sulle cartelle).

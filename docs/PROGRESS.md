@@ -23,6 +23,17 @@
 
 ## Diario
 
+### 2026-11-07 — T8: impronte delle immagini (nucleo)
+
+- Schema v6: `image_prints` (impronta, risoluzione, stato del file per cui vale).
+- `prism-core::media`: *difference hash* a 64 bit, decodifica con il crate `image` (JPEG, PNG,
+  GIF, WebP, BMP, TIFF), anteprime dei RAW (`media::raw`, contenitori TIFF e scansione dei
+  flussi JPEG per gli altri), passata in background su un volume con salvataggio a gruppi,
+  BK-tree e gruppi per distanza. 2 unitari (il BK-tree trova esattamente ciò che trova il
+  confronto di tutte le coppie) e 2 d'integrazione su immagini generate.
+- Un'aspettativa sbagliata in un test del BK-tree (1 e 2^40 differiscono di 2 bit, non sono
+  lontani) corretta con valori davvero lontani.
+
 ### 2026-11-07 — T7 completata: backup nell'app
 
 - App (`backup_state.rs`, `backup_views.rs`): comandi `backup_verify`, `backup_compare`,

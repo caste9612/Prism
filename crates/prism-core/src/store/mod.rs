@@ -14,6 +14,7 @@ mod catalog;
 mod check;
 mod hashes;
 mod ops;
+mod prints;
 pub mod schema;
 
 use std::panic::AssertUnwindSafe;
@@ -30,6 +31,7 @@ pub use catalog::*;
 pub use check::{SnapshotEntry, check_consistency, snapshot};
 pub use hashes::*;
 pub use ops::WriteOp;
+pub use prints::*;
 
 use crate::model::{EntryId, VolumeId};
 

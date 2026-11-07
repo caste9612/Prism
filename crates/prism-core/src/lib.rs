@@ -22,6 +22,7 @@ pub mod fileops;
 pub mod hashing;
 pub mod indexer;
 pub mod jobs;
+pub mod media;
 pub mod model;
 pub mod names;
 pub mod reconcile;

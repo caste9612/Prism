@@ -15,6 +15,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0003_entries_volume_index.sql"),
     include_str!("migrations/0004_actions_log.sql"),
     include_str!("migrations/0005_content_hashes.sql"),
+    include_str!("migrations/0006_image_prints.sql"),
 ];
 
 /// Schema version produced by this build.
