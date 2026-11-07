@@ -5,10 +5,11 @@
 
 ## Stato attuale
 
-- **Tappa**: T3 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: T4 — spazio: treemap su canvas con navigazione ed elenco dei più grandi
-  (F08), statistiche per tipo/estensione/dimensione (F08-AC3), pulizia guidata (F09). Nessuna
-  sosta (CLAUDE.md).
+- **Tappa**: T4 in corso (T3 completata il 2026-11-07). L'app si prova seguendo
+  `docs/REVIEW.md` §4.
+- **Prossimo passo**: T4 — schermata Spazio nell'app (treemap su canvas con drill-down e
+  breadcrumb, elenco dei più grandi, statistiche per tipo), poi la pulizia guidata (F09) con
+  l'eliminazione sicura nel Cestino (ADR-0012). Nessuna sosta (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -22,6 +23,20 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T4: analisi dello spazio dal catalogo
+
+- `prism-core::space`: contenuto di una cartella per dimensione, treemap potata e riempita in
+  ampiezza, file più grandi di un sottoalbero, statistiche per categoria, estensione e fascia
+  di dimensione (per volume o per tutto il catalogo), breadcrumb, controllo che una cartella
+  appartenga al volume. 7 test unitari (F08-AC1/AC2/AC3, ripartizione del budget di nodi,
+  somme coerenti a ogni livello).
+- CLI: `prism-cli space <cartella>` con i tempi. Su C: (1,37 milioni di voci): treemap 0,22 s,
+  file più grandi 0,14–0,34 s, statistiche 0,23 s (`docs/benchmarks/2026-11-07-t4-space.md`).
+- **Difetti trovati con le misure e corretti**: (1) l'assemblaggio della treemap perdeva la
+  radice (scoperto dai test); (2) i file più grandi di una sottocartella impiegavano oltre
+  2 minuti per un piano di SQLite quadratico (indice automatico su `is_dir`): ora 0,34 s con
+  ordine di join fissato.
 
 ### 2026-11-07 — T3 completata: notifiche dei dischi nuovi
 

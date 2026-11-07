@@ -262,6 +262,28 @@ FTS5 con tokenizer `trigram`. Il parser dei filtri (F07-AC5) è indipendente dal
 - **Verifica, confronto, copia**: lavorano sul catalogo (funzionano anche offline); solo la
   copia richiede i volumi online e passa da `fileops`.
 
+### 4.6 Analisi dello spazio (F08, T4)
+
+`prism-core::space` legge solo il catalogo, quindi funziona anche con i volumi offline:
+
+- **Contenuto di una cartella** ordinato per dimensione (`folder_items`): figli con la
+  dimensione del sottoalbero dagli aggregati `dir_stats` (un file con più hard link conta una
+  volta); dimensione logica, non allocata.
+- **Treemap** (`treemap`): albero potato, riempito **in ampiezza** fino a 6 livelli; gli
+  elementi sotto lo 0,002 % della cartella finiscono in `other`, al massimo 8.000 nodi. La
+  disposizione dei rettangoli e il disegno su canvas sono nell'interfaccia.
+- **File più grandi** di un sottoalbero (`largest_files`): per la radice una scansione per
+  volume; per una sottocartella una CTE ricorsiva con ordine di join fissato (vedi il
+  benchmark: senza, SQLite sceglieva un piano quadratico).
+- **Statistiche per tipo** (`type_stats`): una passata sui file del volume o del catalogo,
+  raggruppati per estensione in memoria, poi per categoria (`category_of`) e per fascia di
+  dimensione; qui ogni nome conta (anche gli hard link).
+- I comandi passano identificativi del catalogo; `folder_of_volume` verifica che la cartella
+  appartenga al volume indicato (ADR-0003).
+
+Misure su C: (1,37 milioni di voci): treemap 0,22 s, file più grandi 0,14–0,34 s, statistiche
+0,23 s (`docs/benchmarks/2026-11-07-t4-space.md`).
+
 ## 5. Accesso ai dati (ADR-0008)
 
 - **Un solo thread scrittore** possiede la connessione in scrittura: riceve operazioni da un

@@ -10,7 +10,7 @@ mod format;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::{Args, Parser, Subcommand};
 use prism_core::cancel::CancelToken;
@@ -72,6 +72,20 @@ enum Command {
         /// Number of items to show.
         #[arg(long, default_value_t = 20)]
         top: usize,
+    },
+    /// Space analysis of a folder from the catalog, with timings (F08): treemap data, largest
+    /// files and statistics by type.
+    Space {
+        path: PathBuf,
+        /// Levels of the treemap.
+        #[arg(long)]
+        depth: Option<u32>,
+        /// Smallest item drawn, as a fraction of the folder size.
+        #[arg(long)]
+        min_fraction: Option<f64>,
+        /// Most nodes in the treemap.
+        #[arg(long)]
+        max_nodes: Option<usize>,
     },
     /// Catalog size and counters.
     Stats,
@@ -198,6 +212,20 @@ fn run(store: &Store, command: &Command) -> CliResult {
         Command::Detect { record } => detect(store, *record),
         Command::Ls { path } => ls(store, path),
         Command::Du { path, top } => du(store, path, *top),
+        Command::Space {
+            path,
+            depth,
+            min_fraction,
+            max_nodes,
+        } => {
+            let d = prism_core::space::TreemapOptions::default();
+            let opts = prism_core::space::TreemapOptions {
+                depth: depth.unwrap_or(d.depth),
+                min_fraction: min_fraction.unwrap_or(d.min_fraction),
+                max_nodes: max_nodes.unwrap_or(d.max_nodes),
+            };
+            space(store, path, opts)
+        }
         Command::Stats => stats(store),
         Command::Check => check(store),
         Command::Bench { .. } => Ok(()),
@@ -522,6 +550,73 @@ fn strip_prefix_ignore_case<'a>(full: &'a str, prefix: &str) -> Option<&'a str> 
     } else {
         rest.strip_prefix('\\')
     }
+}
+
+fn space(store: &Store, path: &Path, opts: prism_core::space::TreemapOptions) -> CliResult {
+    use prism_core::space::{self, StatsScope, TreemapNode};
+    let (volume, dir) = resolve(store, path)?;
+    let id = dir.id;
+    let entries = store
+        .read(move |c| store::entry_count(c, volume.id))
+        .map_err(err)?;
+    println!("volume {} ({} entries)", volume.id, entries);
+
+    let started = Instant::now();
+    let tree = store
+        .read(move |c| space::treemap(c, id, opts))
+        .map_err(err)?;
+    fn count(n: &TreemapNode) -> usize {
+        1 + n.children.iter().map(count).sum::<usize>()
+    }
+    println!(
+        "treemap: {} nodes, depth {}, {} in {:.0} ms (F08-AC5: < 1000 ms)",
+        count(&tree),
+        opts.depth,
+        human_size(tree.size),
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    for c in tree.children.iter().take(8) {
+        println!("  {:>10}  {}", human_size(c.size), c.name);
+    }
+
+    let started = Instant::now();
+    let large = store
+        .read(move |c| space::largest_files(c, id, 100))
+        .map_err(err)?;
+    println!(
+        "largest files: {} in {:.0} ms",
+        large.len(),
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    for f in large.iter().take(5) {
+        println!(
+            "  {:>10}  {}\\{}",
+            human_size(f.item.size),
+            f.folder,
+            f.item.name
+        );
+    }
+
+    let started = Instant::now();
+    let vid = volume.id;
+    let stats = store
+        .read(move |c| space::type_stats(c, StatsScope::Volume(vid), 20))
+        .map_err(err)?;
+    println!(
+        "type statistics: {} files, {} in {:.0} ms",
+        stats.total.files,
+        human_size(stats.total.bytes),
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    for (cat, t) in &stats.categories {
+        println!(
+            "  {:<12} {:>10}  {} files",
+            cat.as_str(),
+            human_size(t.bytes),
+            t.files
+        );
+    }
+    Ok(())
 }
 
 fn ls(store: &Store, path: &Path) -> CliResult {

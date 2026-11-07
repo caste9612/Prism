@@ -23,6 +23,7 @@ pub mod reconcile;
 pub mod refresh;
 pub mod sandbox;
 pub mod scan;
+pub mod space;
 pub mod store;
 pub mod volumes;
 
