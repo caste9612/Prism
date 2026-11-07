@@ -17,11 +17,13 @@ import type { DuplicatesView } from './bindings/DuplicatesView';
 import type { JobView } from './bindings/JobView';
 import type { LabelsInput } from './bindings/LabelsInput';
 import type { LargeFileView } from './bindings/LargeFileView';
+import type { LocatedView } from './bindings/LocatedView';
 import type { NativeTexts } from './bindings/NativeTexts';
 import type { ReportFilterInput } from './bindings/ReportFilterInput';
 import type { ReportFolderView } from './bindings/ReportFolderView';
 import type { RuleInput } from './bindings/RuleInput';
 import type { SearchResultView } from './bindings/SearchResultView';
+import type { ShellRequest } from './bindings/ShellRequest';
 import type { SideInput } from './bindings/SideInput';
 import type { SimilarView } from './bindings/SimilarView';
 import type { Settings } from './bindings/Settings';
@@ -75,6 +77,9 @@ export interface Backend {
   resetCatalog(): Promise<number>;
   ambiguousVolumes(): Promise<AmbiguousView[]>;
   diskHealth(volumeId: number): Promise<DiskHealthView | null>;
+  /** The catalog folder of a path on a connected disk (Explorer menu, F18). */
+  locatePath(path: string): Promise<LocatedView>;
+  onShellRequest(handler: (r: ShellRequest) => void): Promise<Unlisten>;
   /** Which catalog disk an ambiguous disk is, or null for a new one. */
   resolveAmbiguous(key: string, volumeId: number | null): Promise<void>;
   removeVolume(id: number): Promise<void>;
@@ -135,6 +140,8 @@ const tauriBackend: Backend = {
   resetCatalog: () => invoke('reset_catalog'),
   ambiguousVolumes: () => invoke('ambiguous_volumes'),
   diskHealth: (volumeId) => invoke('disk_health', { volumeId }),
+  locatePath: (path) => invoke('locate_path', { path }),
+  onShellRequest: (handler) => listen<ShellRequest>('shell-request', (e) => handler(e.payload)),
   resolveAmbiguous: (key, volumeId) => invoke('resolve_ambiguous', { key, volumeId }),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),

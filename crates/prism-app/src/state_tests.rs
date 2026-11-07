@@ -898,3 +898,36 @@ fn disk_health_of_a_connected_volume() {
         );
     }
 }
+
+// F18-AC1: a path of the Explorer menu is found in the catalog: its volume and the deepest
+// catalog folder that contains it (case does not matter; a folder not indexed yet gives its
+// nearest indexed parent).
+#[test]
+fn paths_of_the_explorer_menu() {
+    let tmp = tempfile::tempdir().unwrap();
+    let disk = tmp.path().join("disk");
+    std::fs::create_dir_all(disk.join("Foto").join("2019")).unwrap();
+    std::fs::write(disk.join("Foto").join("2019").join("a.jpg"), b"x").unwrap();
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let (volume, detected) = add_folder_volume(&store, &disk);
+    let app = state(store, true, tmp.path());
+    app.online().insert(volume, detected);
+
+    let at = app
+        .locate_path(&disk.join("Foto").join("2019").to_string_lossy())
+        .unwrap();
+    assert_eq!(at.volume_id, volume.0);
+    assert_eq!(at.folder, r"Foto\2019");
+    let upper = disk.join("FOTO").to_string_lossy().into_owned();
+    assert_eq!(app.locate_path(&upper).unwrap().folder, "Foto");
+    let newer = disk.join("Foto").join("2019").join("not indexed yet");
+    assert_eq!(
+        app.locate_path(&newer.to_string_lossy()).unwrap().folder,
+        r"Foto\2019"
+    );
+    assert_eq!(app.locate_path(&disk.to_string_lossy()).unwrap().folder, "");
+    assert_eq!(
+        app.locate_path(r"Q:\elsewhere").unwrap_err().code,
+        "not_in_catalog"
+    );
+}

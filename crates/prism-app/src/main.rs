@@ -17,6 +17,7 @@ mod netprobe;
 mod notices;
 mod search_views;
 mod search_window;
+mod shell_requests;
 mod similar_state;
 mod similar_views;
 mod space_views;
@@ -134,6 +135,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(Arc::clone(&state));
     tray::create(app.handle(), state.settings().hashing_paused)?;
     monitor::spawn(app.handle(), &state);
+    shell_requests::spawn(app.handle(), &state);
     // F19-AC3: keep the task in line with the setting and with the current location of the
     // program (it may have moved or been updated). Off the startup path.
     let s = Arc::clone(&state);
@@ -260,6 +262,7 @@ fn main() {
             commands::reset_catalog,
             commands::ambiguous_volumes,
             commands::disk_health,
+            commands::locate_path,
             commands::resolve_ambiguous,
             commands::diagnostics_preview,
             commands::export_diagnostics,

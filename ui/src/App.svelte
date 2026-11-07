@@ -12,7 +12,7 @@
   import CatalogView from './components/CatalogView.svelte';
   import BackupView from './components/BackupView.svelte';
   import CleanupView from './components/CleanupView.svelte';
-  import DuplicatesView from './components/DuplicatesView.svelte';
+  import DuplicatesView, { presetDuplicates } from './components/DuplicatesView.svelte';
   import SearchView from './components/SearchView.svelte';
   import Icon from './components/Icon.svelte';
   import SettingsView from './components/SettingsView.svelte';
@@ -23,6 +23,9 @@
 
   let page = $state<Page>('catalog');
   let spaceVolume = $state<number | null>(null);
+  let spaceFolder = $state<number | null>(null);
+  // Bumped to open a page again with new parameters (Explorer menu).
+  let visit = $state(0);
   let volumes = $state<VolumeView[]>([]);
   let settings = $state<Settings>({
     language: 'system',
@@ -100,6 +103,24 @@
       if (info?.shortcutError) showToast(t('settings.shortcutError', { value: info.shortcutError }));
       await refresh();
       const offVolumes = await backend.onVolumesChanged(() => void refresh());
+      // F18: "Analyse with Prism" and "Find duplicates here" from Explorer.
+      const offShell = await backend.onShellRequest(async (r) => {
+        try {
+          const at = await backend.locatePath(r.path);
+          await refresh();
+          if (r.action === 'analyze') {
+            spaceVolume = at.volumeId;
+            spaceFolder = at.folderId;
+            page = 'space';
+          } else {
+            presetDuplicates(at.volumeId, at.folder);
+            page = 'duplicates';
+          }
+          visit += 1;
+        } catch (e) {
+          showToast(errorMessage(e));
+        }
+      });
       // The tray pauses or resumes the content analysis (F06-AC5).
       const offSettings = await backend.onSettingsChanged(async () => {
         settings = await backend.getSettings().catch(() => settings);
@@ -111,8 +132,8 @@
           job: cardJob(jobs, v.id),
         }));
       });
-      if (alive) unlisten.push(offVolumes, offSettings, offJobs);
-      else [offVolumes, offSettings, offJobs].forEach((f) => f());
+      if (alive) unlisten.push(offVolumes, offShell, offSettings, offJobs);
+      else [offVolumes, offShell, offSettings, offJobs].forEach((f) => f());
     })();
     return () => {
       alive = false;
@@ -154,9 +175,10 @@
 
   <main>
     {#if page === 'space' && spaceVolume !== null && volumes.some((v) => v.id === spaceVolume)}
-      {#key spaceVolume}
+      {#key `${spaceVolume}-${visit}`}
         <SpaceView
           volume={volumes.find((v) => v.id === spaceVolume)!}
+          folderId={spaceFolder}
           onback={() => (page = 'catalog')}
           onerror={showToast}
         />
@@ -167,13 +189,16 @@
         onerror={showToast}
         onspace={(v) => {
           spaceVolume = v.id;
+          spaceFolder = null;
           page = 'space';
         }}
       />
     {:else if page === 'search'}
       <SearchView {volumes} onerror={showToast} />
     {:else if page === 'duplicates'}
-      <DuplicatesView {volumes} {settings} onchange={changeSettings} onerror={showToast} />
+      {#key visit}
+        <DuplicatesView {volumes} {settings} onchange={changeSettings} onerror={showToast} />
+      {/key}
     {:else if page === 'similar'}
       <SimilarView {volumes} onerror={showToast} />
     {:else if page === 'backup'}

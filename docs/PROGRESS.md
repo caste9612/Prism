@@ -5,10 +5,11 @@
 
 ## Stato attuale
 
-- **Tappa**: T8 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: T9 — integrazione con il sistema: salute dei dischi (SMART), menu
-  contestuale di Esplora risorse, diagnostica, scelta per le identità ambigue (L7), reset del
-  catalogo (F21-AC4). Nessuna sosta.
+- **Tappa**: T9 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
+- **Prossimo passo**: T10 — distribuzione e 1.0: installer (con registrazione delle voci del
+  menu di Esplora risorse e dell'attività pianificata), aggiornamenti, prestazioni finali,
+  documentazione utente. Firma del codice (Q7) e merge sul ramo principale (Q11) richiedono
+  l'utente.
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -23,6 +24,31 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T9 completata: menu di Esplora risorse
+
+- `prism-win::pipe` (named pipe con accesso esplicito all'utente non elevato),
+  `prism-win::shell_menu` (voci sotto `HKCU\Software\Classes`, provate su una chiave di prova),
+  `autostart::run` e attività `Prism` sempre registrata con il solo trigger legato
+  all'impostazione.
+- Nuovo crate `prism-shell`: inoltra `analyze`/`duplicates` all'app, o la avvia con l'attività
+  pianificata e poi inoltra.
+- App: server della pipe, comando `locate_path`; l'interfaccia apre lo spazio della cartella o
+  i duplicati filtrati su di essa. 3 Playwright.
+- Un mio errore durante il lavoro: uno script di modifica riapriva `autostart.rs` in scrittura
+  prima di rileggerlo e lo svuotava; ripristinato da git due volte (la seconda perché lo
+  script di correzione, passato per heredoc, aveva perso le barre rovesciate e non trovava la
+  riga). Nessun commit coinvolto.
+
+**Report di fine tappa T9**
+
+- Fatto: diagnostica (log giornalieri tenuti 14 giorni, pacchetto con anteprima), reset del
+  catalogo con conferma, scelta per le identità ambigue, salute dei dischi con storia e
+  notifiche, menu di Esplora risorse con `prism-shell` e pipe.
+- Criteri coperti da test automatici: F02-AC3, F17-AC1…AC4, F18-AC1/AC2, F20-AC1…AC3,
+  F21-AC4; F18-AC3 con l'installer (T10).
+- Controlli: `scripts/check.ps1` verde.
+- Verifica manuale per l'utente: checklist T9 in `docs/REVIEW.md` §4.
 
 ### 2026-11-07 — T9: salute dei dischi (SMART)
 

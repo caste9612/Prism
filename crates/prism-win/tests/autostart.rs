@@ -30,6 +30,7 @@ fn f19_ac3_logon_task_with_highest_privileges() {
         args: "--autostart".into(),
         user: autostart::current_user().unwrap(),
         enabled: false,
+        at_logon: false,
     };
 
     assert!(!autostart::exists(&name).unwrap());

@@ -139,13 +139,18 @@ Criteri coperti: F11-AC1…AC4, F12-AC1…AC3 (F12-AC2 con i codec di Windows: H
 l'estensione dello Store, REVIEW L15).
 **Verifica utente**: checklist T8 in `docs/REVIEW.md` §4.
 
-## T9 — Integrazione con il sistema
+## T9 — Integrazione con il sistema  `[x]`
 
 - [x] SMART con storia e notifiche (F17)
-- [ ] `prism-shell` e menu contestuale di Esplora risorse (F18)
+- [x] `prism-shell` e menu contestuale di Esplora risorse (F18): la registrazione delle voci
+      si chiama dall'installer (T10)
 - [x] Diagnostica: log a rotazione, pacchetto diagnostico (F20)
 - [x] Finestra di scelta per le identità ambigue dei volumi (F02-AC3, REVIEW L7) e reset del
       catalogo con conferma (F21-AC4), rimandati da T3
+
+Criteri coperti: F02-AC3, F17-AC1…AC4, F18-AC1/AC2 (AC3 con l'installer, T10), F20-AC1…AC3,
+F21-AC4.
+**Verifica utente**: checklist T9 in `docs/REVIEW.md` §4.
 
 ## T10 — Distribuzione e 1.0
 

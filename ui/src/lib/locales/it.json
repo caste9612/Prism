@@ -171,7 +171,8 @@
     "not_a_check": "La copia parte da una verifica dei backup.",
     "cancelled": "Annullato.",
     "thumbnail_failed": "Non è stato possibile creare l'anteprima.",
-    "export_failed": "Non è stato possibile salvare il pacchetto diagnostico."
+    "export_failed": "Non è stato possibile salvare il pacchetto diagnostico.",
+    "not_in_catalog": "Quella cartella non è su un disco del catalogo collegato ora."
   },
   "tray": {
     "open": "Apri Prism",

@@ -33,6 +33,8 @@ pub struct AutostartTask {
     pub user: String,
     /// A disabled task is registered but never runs (used by the tests).
     pub enabled: bool,
+    /// Whether the task starts at logon; otherwise it runs only on demand (F18-AC2).
+    pub at_logon: bool,
 }
 
 /// Errors of the autostart task.
@@ -78,15 +80,16 @@ pub fn task_xml(task: &AutostartTask) -> String {
         .map(|d| xml_escape(&d.to_string_lossy()))
         .unwrap_or_default();
     let enabled = if task.enabled { "true" } else { "false" };
+    let at_logon = if task.at_logon { "true" } else { "false" };
     format!(
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Starts Prism at logon, in the notification area.</Description>
+    <Description>Starts Prism at logon (when enabled) or on demand from Explorer, without a UAC prompt.</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
-      <Enabled>true</Enabled>
+      <Enabled>{at_logon}</Enabled>
       <UserId>{user}</UserId>
       <Delay>PT10S</Delay>
     </LogonTrigger>
@@ -223,17 +226,24 @@ pub fn remove(name: &str) -> Result<(), AutostartError> {
 /// # Errors
 /// [`AutostartError`] from [`install`] or [`remove`].
 pub fn apply(enabled: bool, exe: &Path, args: &str) -> Result<(), AutostartError> {
-    if enabled {
-        install(&AutostartTask {
-            name: TASK_NAME.to_owned(),
-            exe: exe.to_path_buf(),
-            args: args.to_owned(),
-            user: current_user()?,
-            enabled: true,
-        })
-    } else {
-        remove(TASK_NAME)
-    }
+    // The task stays registered either way: the Explorer menu starts Prism through it without a
+    // UAC prompt (F18-AC2); only its logon trigger follows the setting (REVIEW D45).
+    install(&AutostartTask {
+        name: TASK_NAME.to_owned(),
+        exe: exe.to_path_buf(),
+        args: args.to_owned(),
+        user: current_user()?,
+        enabled: true,
+        at_logon: enabled,
+    })
+}
+
+/// Starts a registered task now (`schtasks /run`), which a non-elevated process may do.
+///
+/// # Errors
+/// [`AutostartError`] if the task does not exist or cannot start.
+pub fn run(name: &str) -> Result<(), AutostartError> {
+    check(&schtasks(&["/run", "/tn", name])?)
 }
 
 #[cfg(test)]
@@ -248,9 +258,10 @@ mod tests {
             args: "--autostart".into(),
             user: r"PC\Mario".into(),
             enabled: true,
+            at_logon: false,
         });
         assert!(xml.contains("<RunLevel>HighestAvailable</RunLevel>"));
-        assert!(xml.contains("<LogonTrigger>"));
+        assert!(xml.contains("<LogonTrigger>\n      <Enabled>false</Enabled>"));
         assert_eq!(xml.matches(r"<UserId>PC\Mario</UserId>").count(), 2);
         assert!(xml.contains(r#"<Command>"C:\Program Files\Prism &amp; Co\prism.exe"</Command>"#));
         assert!(xml.contains("<Arguments>--autostart</Arguments>"));

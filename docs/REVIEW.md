@@ -60,6 +60,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D42 | 2026-11-07 | T9 | Reset del catalogo: richiede una casella "ho capito" oltre al pulsante; ferma i job, toglie volumi, voci, hash e impronte; restano impostazioni e registro delle azioni (le esclusioni per disco si azzerano perché riguardano dischi tolti); i dischi collegati vengono riproposti come nuovi | Conservare il registro delle azioni? Sì: è la storia di ciò che Prism ha fatto ai file; scrivere il nome del catalogo per confermare | `store::reset_catalog`, `SettingsView.svelte` | F21-AC4 |
 | D43 | 2026-11-07 | T9 | Identità ambigua: un riquadro per disco nella schermata *Dischi* con i dischi del catalogo che potrebbe essere (nome, posizione, capacità, ultima volta visto) e "È un altro disco"; la scelta si applica al rilevamento successivo (entro 2 s) e aggiorna il disco scelto con il GUID di quello collegato, così dopo viene riconosciuto da solo; una scelta per un disco già assegnato a un altro collegato si ripropone | Finestra modale; ricordare la scelta per sempre senza aggiornare il catalogo | `prism-app/src/identity.rs`, `monitor::apply_detection`, `CatalogView.svelte` | F02-AC3 |
 | D44 | 2026-11-07 | T9 | Salute dei dischi senza librerie né WMI: IOCTL di Windows (pagina di log NVMe, attributi e soglie SMART ATA, stato SMART). Si mandano solo comandi di lettura; per i dischi ATA l'handle si apre con accesso in lettura e scrittura perché gli IOCTL SMART lo richiedono, senza mai scrivere. Stato: critico se il disco lo segnala (avviso critico NVMe, soglia superata, SMART "in guasto", vita esaurita, riserva sotto soglia), attenzione per settori riallocati o in attesa, errori sui dati, usura ≥ 90 %, temperatura ≥ 65 °C. Lettura ogni ora, storia solo quando cambia qualcosa (non la temperatura) o una volta al giorno, 400 giorni; notifica quando lo stato peggiora o crescono settori ed errori | WMI (`MSFT_StorageReliabilityCounter`, meno dati sugli HDD); smartmontools incluso (licenza GPL); passthrough SAT per i dischi USB (rischioso con alcuni adattatori) | `prism-core::health`, `prism-win::health`, `health_state.rs` | F17 |
+| D45 | 2026-11-07 | T9 | Menu di Esplora risorse: `prism-shell.exe` non elevato manda la richiesta a Prism con una named pipe per utente (accesso esplicito all'utente stesso, integrità media, client remoti rifiutati); se Prism non è avviato lo avvia con l'attività pianificata `Prism`, che ora resta sempre registrata nelle build di rilascio e ha solo il trigger di accesso legato all'opzione "Avvia con Windows". Voci: *Analizza con Prism* e *Cerca duplicati qui* su cartelle, unità e sfondo di una cartella, registrate dall'installer per l'utente (`HKCU`) | Due attività (accesso e su richiesta); messaggi finestra o file di richiesta al posto della pipe; voci in `HKLM` per tutti gli utenti | `prism-win::pipe`, `shell_menu`, `crates/prism-shell`, `autostart::apply` | F18, ADR-0003 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -289,7 +290,11 @@ esempio `F:\prism-t6\Documenti` come sorgente e `F:\prism-t7` come destinazione.
    chiavette e i dischi USB e sul disco virtuale PRISMTEST: "Salute: non disponibile" con il
    motivo (F17-AC1/AC4). La notifica di peggioramento (F17-AC3) si vede solo con un disco che
    peggiora davvero: coperta dai test automatici.
-4. Identità ambigua (F02-AC3): copiare il file VHDX del disco PRISMTEST e collegare la copia
+4. Menu di Esplora risorse (F18): le voci le registra l'installer (T10). Per provarlo prima, con
+   l'app di sviluppo aperta, da un terminale **non** elevato:
+   `target\debug\prism-shell.exe analyze "D:\Progetti"` porta Prism in primo piano sulla mappa
+   di quella cartella; `... duplicates "D:\Progetti"` apre i duplicati filtrati su di essa.
+5. Identità ambigua (F02-AC3): copiare il file VHDX del disco PRISMTEST e collegare la copia
    mentre l'originale è nel catalogo e scollegato; compare "Quale disco è PRISMTEST?" con il
    disco del catalogo e "È un altro disco". Scegliendo il disco, la scheda torna collegata con
    la nuova lettera; scegliendo "un altro disco", compare come disco nuovo da indicizzare.

@@ -3050,6 +3050,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "prism-shell"
+version = "0.1.0"
+dependencies = [
+ "prism-win",
+]
+
+[[package]]
 name = "prism-win"
 version = "0.1.0"
 dependencies = [

@@ -5,6 +5,11 @@
   // Filters and rules survive a change of screen (not a restart).
   let savedFilter: DupFilterInput = { minSize: 1_000_000, category: null, volumeId: null, folder: null };
   let savedRules: RuleInput[] = [{ kind: 'keepOldest', volumeId: null, text: null }];
+
+  /** Opens the duplicates of a folder (Explorer menu, F18-AC1). */
+  export function presetDuplicates(volumeId: number, folder: string) {
+    savedFilter = { ...savedFilter, volumeId, folder: folder || null };
+  }
 </script>
 
 <script lang="ts">

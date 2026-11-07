@@ -171,7 +171,8 @@
     "not_a_check": "Copies start from a backup check.",
     "cancelled": "Cancelled.",
     "thumbnail_failed": "The preview could not be made.",
-    "export_failed": "The diagnostic package could not be saved."
+    "export_failed": "The diagnostic package could not be saved.",
+    "not_in_catalog": "That folder is not on a disk of the catalog that is connected now."
   },
   "tray": {
     "open": "Open Prism",

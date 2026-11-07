@@ -21,7 +21,14 @@
     volume,
     onback,
     onerror,
-  }: { volume: VolumeView; onback: () => void; onerror: (message: string) => void } = $props();
+    folderId = null,
+  }: {
+    volume: VolumeView;
+    onback: () => void;
+    onerror: (message: string) => void;
+    /** The folder to open first (Explorer menu, F18); the root when null. */
+    folderId?: number | null;
+  } = $props();
 
   const lang = $derived(language());
   let view = $state<SpaceFolderView | null>(null);
@@ -64,7 +71,7 @@
   }
 
   $effect(() => {
-    void load(null);
+    void load(folderId);
   });
 
   function show(next: Tab) {

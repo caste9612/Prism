@@ -48,7 +48,7 @@
 | `prism-win` | Implementazioni Windows dei trait: rilevamento e identità dei volumi, lettore MFT, journal USN, SMART, Cestino, avvio non elevato, attività pianificata. Unico crate con `unsafe`, ogni blocco con commento `// SAFETY:`. | `prism-core` |
 | `prism-cli` | Strumento di sviluppo: scansioni, ricerche, benchmark, diagnostica e test manuali senza interfaccia grafica. Non è un prodotto pubblico. | `prism-core`, `prism-win` |
 | `prism-app` | Applicazione Tauri 2: comandi IPC, eventi, finestre, tray, scorciatoia, server della named pipe. Nessuna logica di dominio. *(Arriva in T3.)* | `prism-core`, `prism-win` |
-| `prism-shell` | Piccolo eseguibile **non elevato** invocato dal menu contestuale: inoltra la richiesta all'istanza attiva via named pipe, oppure avvia l'attività pianificata. *(Arriva in T9.)* | — |
+| `prism-shell` | Piccolo eseguibile **non elevato** invocato dal menu contestuale (`prism-shell analyze "<percorso>"` o `duplicates`): inoltra la richiesta all'istanza attiva via named pipe, oppure avvia l'attività pianificata `Prism` e poi la inoltra (T9). | `prism-win` |
 | `ui/` | Frontend Svelte 5 + Vite + TypeScript. *(Arriva in T3.)* | — |
 
 ## 3. Modello dati (ADR-0005)
@@ -592,8 +592,19 @@ Implementazione (T3):
   relè dei job solo quando cambia), Sospendi/Riprendi l'analisi del contenuto (salva
   l'impostazione e avvisa l'interfaccia con `settings-changed`), Esci (F19-AC2).
 - Le impostazioni (F21) sono un documento JSON nella tabella `settings` (chiave
-  `app.settings`). L'opzione di avvio con Windows registra o rimuove l'attività pianificata
-  `Prism` (`prism-win::autostart`, ADR-0003); con `--autostart` la finestra parte nascosta.
+  `app.settings`). L'attività pianificata `Prism` (`prism-win::autostart`, ADR-0003) resta
+  sempre registrata nelle build di rilascio, perché il menu di Esplora risorse la usa per
+  avviare Prism senza UAC; l'opzione di avvio con Windows ne accende o spegne solo il trigger
+  di accesso (REVIEW D45). Con `--autostart` la finestra parte nascosta.
+- Menu di Esplora risorse (F18, `shell_requests.rs`): l'app serve la named pipe
+  `\\.\pipe\prism-<utente>` (`prism-dev-` in sviluppo) con un elenco di accesso esplicito
+  (SYSTEM, amministratori, l'utente) e l'etichetta di integrità media, così `prism-shell` non
+  elevato può scriverci; una richiesta `azione<TAB>percorso` porta la finestra in primo piano
+  ed emette `shell-request`; l'interfaccia chiede `locate_path` (la cartella più profonda del
+  catalogo che contiene il percorso, su un disco collegato) e apre lo spazio di quella
+  cartella o i duplicati filtrati su di essa. Le voci del menu (`prism-win::shell_menu`, sotto
+  `HKCU\Software\Classes`: cartelle, unità, sfondo di una cartella) le registra l'installer
+  (T10) e le toglie il disinstallatore (F18-AC3).
 - La finestra principale è creata in `main.rs` dalla sua configurazione (`create: false`), con
   la cartella dati di WebView2 accanto al catalogo.
 - `ui/`: Svelte 5 + Vite + TypeScript. `src/lib/api.ts` è l'unico punto di contatto con il
@@ -661,7 +672,7 @@ Prism-next/
 │  ├─ prism-win/
 │  ├─ prism-cli/
 │  ├─ prism-app/           app Tauri 2: comandi, stato, sorveglianza volumi, tray
-│  └─ prism-shell/         (T9)
+│  └─ prism-shell/         eseguibile del menu di Esplora risorse (T9)
 ├─ ui/                     interfaccia Svelte 5 (src/components, src/lib, bindings generati)
 ├─ scripts/                check.ps1, script dei test con amministratore
 ├─ docs/

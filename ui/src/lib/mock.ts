@@ -234,6 +234,17 @@ export function mockBackend(): Backend {
     }),
     exportDiagnostics: async () => 'C:\\Users\\me\\Downloads\\prism-diagnostics-20261107-193010.zip',
     ambiguousVolumes: async () => [...ambiguous],
+    locatePath: async (path) => {
+      const v = volumes.find((x) => x.online && x.mount && path.toLowerCase().startsWith(x.mount.toLowerCase()));
+      if (!v || !v.mount) throw { code: 'not_in_catalog', message: path };
+      const folder = path.slice(v.mount.length).replace(/^\\+|\\+$/g, '');
+      return { volumeId: v.id, folderId: folder ? 1000 + v.id : 0, folder };
+    },
+    onShellRequest: (h) => {
+      // Tests send menu requests with window.__prismShellRequest(action, path).
+      (window as unknown as Record<string, unknown>).__prismShellRequest = (action: string, path: string) => h({ action, path });
+      return Promise.resolve(() => {});
+    },
     diskHealth: async (volumeId) => {
       const v = find(volumeId);
       if (!v.online || !v.health) return null;

@@ -19,6 +19,7 @@ use crate::duplicates_views::{DupFilterInput, DuplicatesView, RuleInput};
 use crate::health_state::DiskHealthView;
 use crate::identity::AmbiguousView;
 use crate::search_views::SearchResultView;
+use crate::shell_requests::LocatedView;
 use crate::similar_views::SimilarView;
 use crate::space_views::{LargeFileView, SpaceFolderView, TypeStatsView};
 use crate::state::{AppState, IndexKind, access_path, job_view};
@@ -371,6 +372,13 @@ pub async fn image_thumbnail(
     let s = Arc::clone(&state);
     let jpeg = blocking(move || s.image_thumbnail(VolumeId(volume_id), EntryId(entry_id))).await?;
     Ok(tauri::ipc::Response::new(jpeg))
+}
+
+/// The catalog folder of a path on a connected disk, for the Explorer menu (F18-AC1).
+#[tauri::command]
+pub async fn locate_path(state: State<'_, Arc<AppState>>, path: String) -> R<LocatedView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.locate_path(&path)).await
 }
 
 /// The health of the disk of a connected volume, with its history (F17).
