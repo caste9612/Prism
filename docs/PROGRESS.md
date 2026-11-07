@@ -7,8 +7,9 @@
 
 - **Tappa**: T4 in corso (T3 completata il 2026-11-07). L'app si prova seguendo
   `docs/REVIEW.md` §4.
-- **Prossimo passo**: T4 — eliminazione sicura di base (Cestino, verifica sul disco, registro
-  delle azioni; ADR-0012) e pulizia guidata (F09). Nessuna sosta (CLAUDE.md).
+- **Prossimo passo**: T4 — pulizia guidata (F09): regole delle categorie sul catalogo
+  (temporanei, cartelle vuote, grandi e vecchi, cache dei browser chiusi), schermata con
+  selezione, eliminazione tramite `fileops`. Nessuna sosta (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -22,6 +23,19 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T4: eliminazione sicura di base
+
+- `prism-core::fileops::delete_entries` (ADR-0012): identificativi del catalogo → percorsi,
+  guardia sandbox su tutti i percorsi prima di agire, verifica sul disco (dimensione e data
+  identiche al catalogo; cartelle vuote se richiesto), `Remover`, controllo del disco dopo,
+  catalogo aggiornato, esiti nel nuovo registro `actions_log` (schema v4).
+- `prism-win::trash`: Cestino con `IFileOperation` (avviso di Windows se un elemento non può
+  esservi spostato), eliminazione definitiva, lettura e svuotamento del Cestino di un volume.
+- Test: 5 d'integrazione su cartelle temporanee (F16-AC3/AC5/AC6, guardia, errori) e uno
+  elevato sul disco di test (F16-AC1/AC2): due elementi nel Cestino di PRISMTEST, uno eliminato
+  definitivamente, poi svuotato il solo Cestino del disco di test. Tutti verdi al primo giro.
+- Decisione D23: Cestino solo sui volumi fissi locali; altrove definitivo con conferma.
 
 ### 2026-11-07 — T4: schermata Spazio
 

@@ -15,6 +15,7 @@
 pub mod cancel;
 pub mod changes;
 pub mod exclusion;
+pub mod fileops;
 pub mod indexer;
 pub mod jobs;
 pub mod model;

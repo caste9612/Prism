@@ -84,6 +84,16 @@ struct ListingResult {
     error: Option<String>,
 }
 
+/// Whether `path` is a folder and its metadata as the walker records them, read from the item
+/// itself without following a final link: what a catalog entry is compared with before acting
+/// on the disk (ADR-0012).
+///
+/// # Errors
+/// I/O errors (`NotFound` if the item is gone).
+pub fn disk_meta(path: &Path) -> std::io::Result<(bool, EntryMeta)> {
+    Ok(meta_from(&std::fs::symlink_metadata(path)?))
+}
+
 #[cfg(windows)]
 fn filetime(raw: u64) -> Option<FileTime> {
     (raw != 0).then(|| FileTime(i64::try_from(raw).unwrap_or(i64::MAX)))

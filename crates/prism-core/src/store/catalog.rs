@@ -582,3 +582,69 @@ pub fn database_size(conn: &Connection) -> Result<u64, StoreError> {
     let size: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
     Ok(from_db((pages - free) * size))
 }
+
+// ---------------------------------------------------------------------------------------------
+// Actions log (F16-AC6)
+
+/// One file operation started by Prism, as recorded in the actions log.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActionRecord {
+    pub id: i64,
+    /// Milliseconds since 1970.
+    pub at: i64,
+    /// `recycle` or `delete`.
+    pub action: String,
+    pub volume: Option<VolumeId>,
+    pub path: String,
+    pub size: u64,
+    /// `done`, `skipped_changed`, `skipped_missing` or `failed`.
+    pub outcome: String,
+    pub detail: Option<String>,
+}
+
+/// Appends records to the actions log (their `id` is ignored).
+///
+/// # Errors
+/// SQLite errors.
+pub fn log_actions(wtx: &mut WriteTx<'_>, records: &[ActionRecord]) -> Result<(), StoreError> {
+    let mut stmt = wtx.conn().prepare_cached(
+        "INSERT INTO actions_log (at, action, volume_id, path, size, outcome, detail) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )?;
+    for r in records {
+        stmt.execute(params![
+            r.at,
+            r.action,
+            r.volume.map(|v| v.0),
+            r.path,
+            to_db(r.size),
+            r.outcome,
+            r.detail
+        ])?;
+    }
+    Ok(())
+}
+
+/// The most recent records of the actions log, newest first.
+///
+/// # Errors
+/// SQLite errors.
+pub fn actions_log(conn: &Connection, limit: usize) -> Result<Vec<ActionRecord>, StoreError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, at, action, volume_id, path, size, outcome, detail FROM actions_log \
+         ORDER BY at DESC, id DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |r| {
+        Ok(ActionRecord {
+            id: r.get(0)?,
+            at: r.get(1)?,
+            action: r.get(2)?,
+            volume: r.get::<_, Option<i64>>(3)?.map(VolumeId),
+            path: r.get(4)?,
+            size: from_db(r.get(5)?),
+            outcome: r.get(6)?,
+            detail: r.get(7)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}

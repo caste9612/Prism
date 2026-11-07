@@ -87,7 +87,7 @@ alla 1.0 e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
 
 - [x] Treemap su canvas con navigazione, elenco dei più grandi (F08)
 - [x] Statistiche per tipo, estensione e fascia di dimensione (F08-AC3)
-- [ ] Eliminazione sicura di base (ADR-0012, F16-AC1/2/3/5/6): Cestino, verifica sul disco,
+- [x] Eliminazione sicura di base (ADR-0012, F16-AC1/2/3/5/6): Cestino, verifica sul disco,
       registro delle azioni; l'ultima copia dei duplicati (F16-AC4) arriva con T6
 - [ ] Pulizia guidata (F09): temporanei, cartelle vuote, grandi e vecchi, cache browser/app
 

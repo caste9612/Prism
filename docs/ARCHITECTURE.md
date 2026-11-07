@@ -57,9 +57,10 @@ Archivio SQLite in modalità WAL, nella cartella dati dell'app. Lo schema è ver
 migrazioni SQL incorporate (`crates/prism-core/src/store/migrations/`) e `PRAGMA user_version`;
 una migrazione già pubblicata non si modifica, se ne aggiunge una nuova.
 
-**Schema in uso (versione 3)** — testo completo in `0001_initial.sql`,
-`0002_volume_bus.sql` (aggiunge `bus_type`) e `0003_entries_volume_index.sql` (indice sul solo
-volume al posto di `(volume_id, file_ref)`, ADR-0017):
+**Schema in uso (versione 4)** — testo completo in `0001_initial.sql`,
+`0002_volume_bus.sql` (aggiunge `bus_type`), `0003_entries_volume_index.sql` (indice sul solo
+volume al posto di `(volume_id, file_ref)`, ADR-0017) e `0004_actions_log.sql` (registro delle
+azioni, T4):
 
 ```sql
 volumes (
@@ -93,6 +94,12 @@ dir_stats (entry_id PRIMARY KEY REFERENCES entries ON DELETE CASCADE,
            total_size, total_alloc, file_count, dir_count) STRICT   -- solo file contati
 
 settings (key PRIMARY KEY, value) STRICT
+
+actions_log (id, at, action,        -- v4: recycle | delete (F16-AC6, ADR-0012)
+             volume_id,             -- senza chiave esterna: sopravvive alla rimozione del volume
+             path, size,            -- percorso completo al momento dell'azione
+             outcome, detail) STRICT  -- done | skipped_changed | skipped_missing | failed
+INDEX actions_log_at (at)
 ```
 
 Le chiavi esterne sono attive sulla connessione di scrittura; `entries` non usa cascate (una
@@ -105,8 +112,7 @@ content_hashes (entry_id PRIMARY KEY, size, modified_at, quick BLOB, full BLOB, 
 -- valido solo se size/modified_at coincidono con la voce (ADR-0011)          -- T6
 media_prints (entry_id, kind, size, modified_at, print BLOB)                   -- T8
 health_samples (volume_id, taken_at, status, temperature, power_on_hours, wear, realloc, pending, raw)  -- T9
-jobs (id, kind, volume_id, state, priority, created_at, started_at, finished_at, progress, error, params) -- T3
-actions_log (id, at, action, entry_path, volume_id, size, outcome, detail)    -- F16-AC6, T6
+jobs (id, kind, volume_id, state, priority, created_at, started_at, finished_at, progress, error, params) -- T6 (REVIEW D10)
 ```
 
 Il percorso completo di una voce **non è memorizzato**: si ricostruisce risalendo i
@@ -294,6 +300,28 @@ FTS5 con tokenizer `trigram`. Il parser dei filtri (F07-AC5) è indipendente dal
 
 Misure su C: (1,37 milioni di voci): treemap 0,48 s (11.592 nodi), file più grandi
 0,14–0,34 s, statistiche 0,23 s (`docs/benchmarks/2026-11-07-t4-space.md`).
+
+### 4.7 Eliminazione sicura (ADR-0012, F16, T4)
+
+`prism-core::fileops::delete_entries` è l'unico percorso di eliminazione:
+
+1. riceve identificativi del catalogo di **un** volume (mai la radice) e ne ricava i percorsi
+   dal percorso di accesso attuale; una voce dentro un'altra cartella selezionata viene tolta
+   (va via con la cartella);
+2. con una `SandboxGuard` (test e comandi di sviluppo) controlla **tutti** i percorsi prima di
+   toccare qualcosa;
+3. confronta ogni elemento sul disco con il catalogo (`scan::disk_meta`, gli stessi metadati
+   del walker): file con dimensione e data di modifica uguali, cartelle ancora cartelle (e
+   vuote, se la pulizia propone cartelle vuote); altrimenti l'elemento è saltato e segnalato;
+4. passa i percorsi verificati a un `Remover`: nell'app `prism-win::trash::ShellRemover`
+   (Cestino con `IFileOperation`; se un elemento non può andare nel Cestino Windows chiede
+   all'utente invece di eliminarlo in silenzio) oppure eliminazione definitiva, solo dove il
+   Cestino non esiste e con conferma esplicita;
+5. controlla il disco dopo l'operazione (fa fede quello che è rimasto), toglie dal catalogo le
+   voci eliminate e ricalcola gli aggregati delle cartelle madri, scrive ogni esito in
+   `actions_log`.
+
+La regola dell'ultima copia dei duplicati (F16-AC4) e il controllo dell'hash arrivano con T6.
 
 ## 5. Accesso ai dati (ADR-0008)
 
