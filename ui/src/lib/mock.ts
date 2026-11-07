@@ -126,6 +126,9 @@ export function mockBackend(): Backend {
       v.status = ignored ? 'ignored' : v.lastIndexedAt ? 'reindex_needed' : 'new';
       emitVolumes();
     },
+    openVolume: async (id) => {
+      if (!find(id).online) throw { code: 'volume_offline', message: String(id) };
+    },
     removeVolume: async (id) => {
       volumes = volumes.filter((v) => v.id !== id);
       emitVolumes();

@@ -121,6 +121,7 @@ fn main() {
             commands::cancel_job,
             commands::set_labels,
             commands::set_ignored,
+            commands::open_volume,
             commands::remove_volume,
             commands::get_settings,
             commands::set_settings,

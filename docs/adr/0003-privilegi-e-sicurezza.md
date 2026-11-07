@@ -53,4 +53,11 @@ scelto che Prism giri **sempre** come amministratore e parta con Windows senza p
   partire nascosto nel tray. Test elevato su un'attività disattivata in `\PrismDevTests\`.
   L'avvio di un'attività di questo tipo da un processo non elevato senza UAC è lo stesso
   meccanismo del runner dei test amministratore, verificato in T2 (TESTING §4).
-- **Apertura non elevata tramite la shell**: da prototipare quando serve aprire file (T4/T5).
+- **Apertura non elevata tramite la shell**: funziona. `prism-win::shell` raggiunge
+  `IShellDispatch2::ShellExecute` della finestra del desktop (`IShellWindows` →
+  `SID_STopLevelBrowser` → vista attiva → `IShellFolderViewDual::Application`) con il crate
+  `windows` (stessa versione già usata da Tauri). Test elevato: dal runner, `cmd /c whoami
+  /groups` avviato direttamente risulta a integrità alta, avviato tramite la shell a integrità
+  media (`S-1-16-8192`). Nell'app, *Apri in Esplora risorse* sulle schede dei dischi collegati
+  apre la finestra nel processo `explorer` del desktop. Richiede un Esplora risorse attivo come
+  shell: senza, l'apertura fallisce con un errore e non parte nulla.

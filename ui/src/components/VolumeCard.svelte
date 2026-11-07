@@ -11,12 +11,14 @@
     onindex,
     oncancel,
     onlabels,
+    onopen,
     onremove,
   }: {
     volume: VolumeView;
     onindex: (v: VolumeView) => void;
     oncancel: (jobId: number) => void;
     onlabels: (v: VolumeView) => void;
+    onopen: (v: VolumeView) => void;
     onremove: (v: VolumeView) => void;
   } = $props();
 
@@ -117,6 +119,11 @@
       {#if action}
         <button class:primary={action === 'index'} onclick={() => onindex(volume)}>
           <Icon name="refresh" size={15} /> {t(`actions.${action}`)}
+        </button>
+      {/if}
+      {#if volume.online}
+        <button class="ghost icon" title={t('actions.open')} aria-label={t('actions.open')} onclick={() => onopen(volume)}>
+          <Icon name="open" size={16} />
         </button>
       {/if}
       <button class="ghost icon" title={t('actions.labels')} aria-label={t('actions.labels')} onclick={() => onlabels(volume)}>

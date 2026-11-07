@@ -21,6 +21,7 @@ export interface Backend {
   cancelJob(id: number): Promise<boolean>;
   setLabels(id: number, labels: LabelsInput): Promise<void>;
   setIgnored(id: number, ignored: boolean): Promise<void>;
+  openVolume(id: number): Promise<void>;
   removeVolume(id: number): Promise<void>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
@@ -37,6 +38,7 @@ const tauriBackend: Backend = {
   cancelJob: (id) => invoke('cancel_job', { id }),
   setLabels: (id, labels) => invoke('set_labels', { id, labels }),
   setIgnored: (id, ignored) => invoke('set_ignored', { id, ignored }),
+  openVolume: (id) => invoke('open_volume', { id }),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),
   setSettings: (settings) => invoke('set_settings', { settings }),

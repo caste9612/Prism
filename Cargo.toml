@@ -24,6 +24,8 @@ tempfile = "3"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# COM interfaces (unelevated shell, ADR-0003); same version as the one Tauri already uses.
+windows = "0.62"
 windows-sys = "0.61"
 
 # Shared lints (ADR-0002). Crates opt in with `[lints] workspace = true`.

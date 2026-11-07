@@ -17,8 +17,14 @@ test('F01-AC1: offline disks stay visible with their last indexed data', async (
   await expect(backup).toContainText('182,340 files');
   await expect(backup).toContainText('Last seen 12 days ago');
   await expect(backup).toContainText('Location: cassetto 2');
-  // An offline disk cannot be indexed.
+  // An offline disk cannot be indexed or opened.
   await expect(backup.getByRole('button', { name: /Index|Update/ })).toHaveCount(0);
+  await expect(backup.getByRole('button', { name: 'Open in Explorer' })).toHaveCount(0);
+});
+
+test('a connected disk opens in Explorer without errors', async ({ page }) => {
+  await card(page, 'Data').getByRole('button', { name: 'Open in Explorer' }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
 test('F02-AC1, F01-AC3: a new disk is proposed, indexed with progress, then listed', async ({ page }) => {

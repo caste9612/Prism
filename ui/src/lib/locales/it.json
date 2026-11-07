@@ -56,7 +56,8 @@
     "cancel": "Annulla",
     "save": "Salva",
     "close": "Chiudi",
-    "confirm": "Conferma"
+    "confirm": "Conferma",
+    "open": "Apri in Esplora risorse"
   },
   "newDisk": {
     "title": "Nuovo disco: {name}",
@@ -115,6 +116,7 @@
     "invalid_settings": "Queste impostazioni non sono valide.",
     "store": "Non è stato possibile leggere o scrivere il catalogo.",
     "autostart_failed": "Non è stato possibile cambiare l'avvio con Windows.",
+    "open_failed": "Non è stato possibile aprire il disco in Esplora risorse.",
     "unknown": "Qualcosa è andato storto."
   },
   "tray": {

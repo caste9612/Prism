@@ -56,7 +56,8 @@
     "cancel": "Cancel",
     "save": "Save",
     "close": "Close",
-    "confirm": "Confirm"
+    "confirm": "Confirm",
+    "open": "Open in Explorer"
   },
   "newDisk": {
     "title": "New disk: {name}",
@@ -115,6 +116,7 @@
     "invalid_settings": "These settings are not valid.",
     "store": "The catalog could not be read or written.",
     "autostart_failed": "Start with Windows could not be changed.",
+    "open_failed": "The disk could not be opened in Explorer.",
     "unknown": "Something went wrong."
   },
   "tray": {

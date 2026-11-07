@@ -8,9 +8,8 @@
 - **Tappa**: T3 in corso. Fatti: motore dei job, app Tauri con tray e istanza singola,
   interfaccia Svelte con schermata catalogo, disco nuovo, etichette e impostazioni. L'app si
   prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: resto di T3 — prototipo di apertura non elevata tramite la shell
-  (ADR-0003), notifica di sistema per i dischi nuovi (REVIEW L8). Poi T4. Nessuna sosta
-  (CLAUDE.md).
+- **Prossimo passo**: ultima voce di T3 — notifica di sistema per i dischi nuovi (REVIEW L8) —
+  e report di fine tappa; poi T4. Nessuna sosta (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -24,6 +23,16 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T3: apertura senza privilegi
+
+- `prism-win::shell`: apertura di file, cartelle e programmi con i diritti normali
+  dell'utente tramite `IShellDispatch2::ShellExecute` del desktop (crate `windows`, ADR-0003).
+  Test elevato con controllo di confronto: lo stesso `cmd /c whoami /groups` risulta a
+  integrità alta se avviato direttamente dal runner e media se avviato tramite la shell.
+- App: pulsante *Apri in Esplora risorse* sulle schede dei dischi collegati (comando
+  `open_volume` con l'id del catalogo); provato sull'app vera con PRISMTEST: la finestra si
+  apre nel processo `explorer` del desktop. Test e2e: pulsante assente sui dischi scollegati.
 
 ### 2026-11-07 — T3: avvio con Windows e finestra dell'app
 

@@ -33,6 +33,7 @@
   const index = (v: VolumeView) => run(() => backend.indexVolume(v.id));
   const cancel = (jobId: number) => run(() => backend.cancelJob(jobId));
   const ignore = (v: VolumeView) => run(() => backend.setIgnored(v.id, true));
+  const open = (v: VolumeView) => run(() => backend.openVolume(v.id));
   const notNow = (v: VolumeView) => (dismissed = new Set([...dismissed, v.id]));
   // Jobs on different physical disks run in parallel; the engine queues the rest (ADR-0009).
   const indexAll = () => prompts.forEach((v) => void index(v));
@@ -120,7 +121,7 @@
     <h2 class="section">{t('catalog.onlineSection')}</h2>
     <div class="grid">
       {#each groups.online as v (v.id)}
-        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onremove={(x) => (removing = x)} />
+        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onopen={open} onremove={(x) => (removing = x)} />
       {/each}
     </div>
   {/if}
@@ -129,7 +130,7 @@
     <h2 class="section">{t('catalog.offlineSection')}</h2>
     <div class="grid">
       {#each groups.offline as v (v.id)}
-        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onremove={(x) => (removing = x)} />
+        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onopen={open} onremove={(x) => (removing = x)} />
       {/each}
     </div>
   {/if}

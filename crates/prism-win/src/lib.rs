@@ -12,6 +12,7 @@ pub(crate) mod ioctl;
 pub mod mft;
 pub mod ntfs;
 pub mod process;
+pub mod shell;
 pub mod usn;
 pub mod volumes;
 pub mod watch;

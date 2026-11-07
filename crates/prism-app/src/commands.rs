@@ -9,7 +9,7 @@ use prism_core::store;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, Settings, VolumeView};
-use crate::state::{AppState, IndexKind, SETTINGS_KEY, job_view};
+use crate::state::{AppState, IndexKind, SETTINGS_KEY, access_path, job_view};
 use crate::tray;
 
 type R<T> = Result<T, ApiError>;
@@ -108,6 +108,18 @@ pub fn set_ignored(
         .write(move |w| store::set_volume_status(w, volume, status))?;
     emit_volumes(&app);
     Ok(())
+}
+
+/// Opens the root of a connected volume in Explorer, with the user's normal rights (ADR-0003).
+#[tauri::command]
+pub fn open_volume(state: State<'_, Arc<AppState>>, id: i64) -> R<()> {
+    let detected = state
+        .online()
+        .get(&VolumeId(id))
+        .cloned()
+        .ok_or_else(|| ApiError::new("volume_offline", id))?;
+    let root = access_path(&detected).ok_or_else(|| ApiError::new("volume_offline", id))?;
+    prism_win::shell::open(&root).map_err(|e| ApiError::new("open_failed", e))
 }
 
 /// F01-AC5: removes the catalog data of a volume; files on the disk are never touched.
