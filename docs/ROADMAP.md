@@ -21,7 +21,7 @@ Legenda: `[x]` fatto · `[ ]` da fare · `[~]` in corso
 **Verifica utente**: facoltativa, leggere `docs/SPEC.md`. Fatto: esecuzione una tantum di
 `scripts/admin/install-admin-runner.ps1` (2026-11-07).
 
-## T1 — Catalogo di base (core, senza privilegi)  `[~]`
+## T1 — Catalogo di base (core, senza privilegi)  `[x]`
 
 - [x] Schema SQLite e migrazioni; test di migrazione
 - [x] Archivio: thread scrittore + pool di lettori (ADR-0008)
@@ -30,11 +30,13 @@ Legenda: `[x]` fatto · `[ ]` da fare · `[~]` in corso
 - [x] `WalkEnumerator` parallelo senza `metadata()` per file
 - [x] `Reconciler` unico; test di proprietà "aggiornamento = reindicizzazione" (F05-AC3)
 - [x] `SandboxGuard` per le operazioni distruttive (TESTING S2)
-- [ ] CLI: `scan`, `ls`, `du`, `stats` su un catalogo di sviluppo
-- [ ] Benchmark in sola lettura su C: e D: e confronto con il vecchio Prism (tempo, dimensione
-      del catalogo per voce)
+- [x] CLI: `scan`, `ls`, `du`, `stats` su un catalogo di sviluppo (più `volumes`, `check`,
+      `bench`)
+- [x] Benchmark in sola lettura su C: e D: e confronto con il vecchio Prism (tempo, dimensione
+      del catalogo per voce): `docs/benchmarks/2026-11-07-t1-walker.md`
 
-Criteri coperti: F04-AC2..AC7, F05-AC3, NF2 (prima misura), NF4 (parziale).
+Criteri coperti: F01-AC5, F04-AC2..AC7, F05-AC3, F05-AC4 (riferimenti simulati), NF2 (prima
+misura: 108–129 B per voce senza indice di ricerca), NF4 (parziale).
 **Verifica utente**: lanciare il benchmark su altri dischi, se si vuole.
 
 ## T2 — Windows: volumi, MFT, USN

@@ -5,10 +5,12 @@
 
 ## Stato attuale
 
-- **Tappa**: T1 in corso — core del catalogo fatto (archivio, walker, esclusioni,
-  reconciler, sandbox), con test.
-- **Prossimo passo**: T1 — comandi della CLI (`scan`, `ls`, `du`, `stats`, `bench`) e
-  benchmark in sola lettura su C: e D: con confronto con il vecchio Prism.
+- **Tappa**: T1 completata (2026-11-07). Report sotto.
+- **Prossimo passo**: T2 — rilevamento volumi e identità (ADR-0004), poi prototipo del lettore
+  MFT con misure sul VHDX e su C:/D: (sola lettura) e decisione go/no-go.
+- **Da fare in T2 emerso in T1**: istantanea `ScanTree` più compatta (oggi ~245 B per voce di
+  picco durante l'indicizzazione: per 5 milioni di voci sarebbe ~1,2 GB); hard link e ADS
+  (ADR-0015).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -19,6 +21,30 @@
   consentito solo del branch `rewrite` (vedi CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T1 completata: CLI e benchmark
+
+- `prism-cli`: `scan`, `volumes`, `ls`, `du`, `stats`, `check`, `bench` su un catalogo di
+  sviluppo in `%LOCALAPPDATA%\PrismDev\` (opzione `--db` per usarne un altro). `bench` usa un
+  catalogo temporaneo e lo elimina tramite la guardia sandbox.
+- `prism-win`: memoria del processo e stato di elevazione (primo codice `unsafe`, con `SAFETY`).
+- Due test NF4 in più: chiusura non pulita rilevata e controllo d'integrità superato; catalogo
+  danneggiato rifiutato all'apertura invece di essere usato.
+- **Benchmark** (`docs/benchmarks/2026-11-07-t1-walker.md`, release, NVMe Samsung 990 PRO):
+  C: 1.249.469 voci in 17,2 s, 129 B per voce, picco 307 MiB; D: 615.492 voci in 3,8 s,
+  108 B per voce. Il vecchio Prism occupava ≈ 1.094 B per file (8–10 volte di più) e la sua
+  unica scansione completa registrata andava a ≈ 2.500 file/s (contro ≈ 160.000 voci/s).
+
+**Report di fine tappa T1**
+
+- Fatto: tutto il contenuto della tappa (vedi ROADMAP). Criteri coperti da test automatici:
+  F01-AC5, F04-AC2..AC7, F05-AC3, F05-AC4 (con riferimenti simulati; su NTFS reale in T2),
+  NF2 (prima misura), NF4 (parziale: ripresa dei job in T3).
+- Controlli: `scripts/check.ps1` verde (fmt, clippy `-D warnings`, 77 test tra unitari,
+  integrazione e proprietà).
+- Verifica manuale per l'utente (facoltativa): lanciare
+  `cargo run --release -p prism-cli -- bench <disco>` su altri dischi (es. E:, unità di rete
+  X:/Y:/Z:) e confrontare con la tabella; è in sola lettura.
 
 ### 2026-11-07 — T1: core del catalogo
 

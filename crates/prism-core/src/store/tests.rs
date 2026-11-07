@@ -203,6 +203,87 @@ fn session_failure_is_sticky_and_skips_later_batches() {
     assert!(store.read(|c| root_entry(c, volume)).unwrap().is_none());
 }
 
+fn session_flag(path: &std::path::Path) -> String {
+    let conn = Connection::open(path).unwrap();
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        [SESSION_KEY],
+        |r| r.get(0),
+    )
+    .unwrap()
+}
+
+// NF4: a clean close is recorded; after an unclean one the next open runs an integrity check
+// and still opens a healthy catalog.
+#[test]
+fn nf4_unclean_shutdown_is_detected_and_checked() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("catalog.db");
+    {
+        let store = Store::open(&path).unwrap();
+        let v = add_volume(&store, "X:");
+        insert_chain(&store, v, 3, 1);
+    }
+    assert_eq!(session_flag(&path), "0", "clean close");
+
+    let store = Store::open(&path).unwrap();
+    assert_eq!(session_flag(&path), "1", "open session");
+    // Simulate a crash: the store is never closed.
+    std::mem::forget(store);
+    let reopened = Store::open(&path).unwrap();
+    assert!(reopened.read(check_consistency).unwrap().is_empty());
+}
+
+// NF4: after an unclean shutdown, a damaged catalog is reported instead of being used.
+#[test]
+fn nf4_damaged_catalog_is_refused_after_unclean_shutdown() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("catalog.db");
+    {
+        let store = Store::open(&path).unwrap();
+        let v = add_volume(&store, "X:");
+        let ids = insert_chain(&store, v, 1, 1);
+        let start = store.allocate_entry_ids(20_000);
+        let ops = (0..20_000)
+            .map(|i| WriteOp::Insert {
+                id: EntryId(start.0 + i),
+                volume: v,
+                parent: Some(ids[0]),
+                name: format!("file-{i:05}.bin"),
+                is_dir: false,
+                meta: file(1),
+            })
+            .collect();
+        let session = store.session();
+        session.submit(v, ops).unwrap();
+        session.flush().unwrap();
+    }
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute(
+            "UPDATE settings SET value = '1' WHERE key = ?1",
+            [SESSION_KEY],
+        )
+        .unwrap();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+    }
+    // Overwrite a page in the middle of the file (a temporary test file, S1).
+    let guard =
+        crate::sandbox::GuardedFs::new(crate::sandbox::SandboxGuard::new([dir.path()]).unwrap());
+    let mut bytes = std::fs::read(&path).unwrap();
+    let page = 4096;
+    assert!(bytes.len() > 40 * page);
+    bytes[20 * page..21 * page].fill(0xAB);
+    guard.write(&path, &bytes).unwrap();
+
+    let result = Store::open(&path);
+    assert!(
+        matches!(result, Err(StoreError::Corrupt(_) | StoreError::Sqlite(_))),
+        "a damaged catalog must not open silently"
+    );
+}
+
 #[test]
 fn interrupted_indexing_becomes_reindex_needed_on_open() {
     let dir = tempfile::tempdir().unwrap();
