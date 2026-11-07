@@ -40,7 +40,7 @@
 - Fatto: tutto il contenuto della tappa (vedi ROADMAP). Criteri coperti da test automatici:
   F01-AC5, F04-AC2..AC7, F05-AC3, F05-AC4 (con riferimenti simulati; su NTFS reale in T2),
   NF2 (prima misura), NF4 (parziale: ripresa dei job in T3).
-- Controlli: `scripts/check.ps1` verde (fmt, clippy `-D warnings`, 77 test tra unitari,
+- Controlli: `scripts/check.ps1` verde (fmt, clippy `-D warnings`, 66 test tra unitari,
   integrazione e proprietà).
 - Verifica manuale per l'utente (facoltativa): lanciare
   `cargo run --release -p prism-cli -- bench <disco>` su altri dischi (es. E:, unità di rete
