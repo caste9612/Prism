@@ -340,6 +340,9 @@ pub fn child_by_name(
 
 /// Entries of a volume with the given file reference (several for NTFS hard links).
 ///
+/// There is no index on file references (ADR-0017): this scans the volume's entries. Use it
+/// for single lookups in tests and diagnostics; for many lookups build a [`file_ref_map`].
+///
 /// # Errors
 /// SQLite errors.
 pub fn entries_by_ref(
@@ -352,6 +355,48 @@ pub fn entries_by_ref(
     ))?;
     let rows = stmt.query_map(params![volume.0, to_db(file_ref)], entry_from_row)?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Every (file reference, entry) pair of a volume, sorted by reference, for fast lookups by
+/// reference (moves during reconciliation, USN journal). About 16 bytes per entry; loading
+/// one million entries takes about 0.2 s (ADR-0017).
+///
+/// # Errors
+/// SQLite errors.
+pub fn file_ref_map(conn: &Connection, volume: VolumeId) -> Result<FileRefMap, StoreError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT file_ref, id FROM entries WHERE volume_id = ?1 AND file_ref IS NOT NULL",
+    )?;
+    let rows = stmt.query_map([volume.0], |r| Ok((from_db(r.get(0)?), EntryId(r.get(1)?))))?;
+    let mut pairs: Vec<(u64, EntryId)> = rows.collect::<Result<_, _>>()?;
+    pairs.sort_unstable();
+    Ok(FileRefMap { pairs })
+}
+
+/// See [`file_ref_map`].
+#[derive(Clone, Debug, Default)]
+pub struct FileRefMap {
+    pairs: Vec<(u64, EntryId)>,
+}
+
+impl FileRefMap {
+    /// Entries with this file reference (several for hard links), in id order.
+    #[must_use]
+    pub fn get(&self, file_ref: u64) -> &[(u64, EntryId)] {
+        let start = self.pairs.partition_point(|(r, _)| *r < file_ref);
+        let end = self.pairs.partition_point(|(r, _)| *r <= file_ref);
+        &self.pairs[start..end]
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.pairs.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.pairs.is_empty()
+    }
 }
 
 /// Whether the volume has any entry.

@@ -45,8 +45,12 @@ misura: 108–129 B per voce senza indice di ricerca), NF4 (parziale).
       processo elevato, via `HKCU\Network`); test elevato del cambio di lettera (F02-AC3)
 - [x] Runner amministratore e disco virtuale di test (TESTING §4): configurato dall'utente e
       verificato (`schtasks /run` senza UAC, test elevati passati sul volume PRISMTEST)
-- [ ] Prototipo lettore MFT, misure su VHDX e su C:/D: (sola lettura); decisione go/no-go
-- [ ] `MftEnumerator` completo (frammentazione, `$ATTRIBUTE_LIST`, hard link)
+- [x] Prototipo lettore MFT, misure su VHDX e su C:/D: (sola lettura); decisione go/no-go:
+      **go** (ADR-0017; C: 5,7 s contro 14,3 s del walker)
+- [~] `MftEnumerator` completo: fatti frammentazione della `$MFT`, record di estensione
+      (`$ATTRIBUTE_LIST`), hard link, ADS, confronto con il walker sul disco di test; restano
+      `$MFT` con `$ATTRIBUTE_LIST` nel record 0, verifica di file compressi/sparsi
+- [ ] Istantanea `ScanTree` compatta (memoria massima oggi ~315 B per voce, NF3)
 - [ ] Journal USN: lettura, applicazione tramite `Reconciler`, gestione journal non valido
 - [ ] Sorveglianza cartelle per i volumi non NTFS
 

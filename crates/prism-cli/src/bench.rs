@@ -26,7 +26,7 @@ pub fn run(path: &Path, walk: &WalkArgs, out: Option<&Path>) -> Result<(), Strin
     std::fs::create_dir_all(&bench_dir).map_err(err)?;
     let db = bench_dir.join(format!("bench-{}.db", unix_millis_now()));
     let elevated = process::is_elevated();
-    let threads = walk.enumerator().threads();
+    let enumerator = walk.describe();
 
     let store = Store::open(&db).map_err(err)?;
     let (volume, access) = volume_for(&store, &mount)?;
@@ -55,7 +55,7 @@ pub fn run(path: &Path, walk: &WalkArgs, out: Option<&Path>) -> Result<(), Strin
     let _ = writeln!(md);
     let _ = writeln!(
         md,
-        "Walker, {threads} threads, {} logical CPUs, process {}elevated, prism-cli {} ({}).",
+        "{enumerator}, {} logical CPUs, process {}elevated, prism-cli {} ({}).",
         std::thread::available_parallelism().map_or(0, std::num::NonZero::get),
         if elevated { "" } else { "not " },
         prism_core::VERSION,

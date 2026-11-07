@@ -11,7 +11,7 @@ e si aggiorna lo stato di quella vecchia ("Sostituita da ADR-NNNN").
 | [0003](0003-privilegi-e-sicurezza.md) | Esecuzione elevata, avvio senza UAC, superficie d'attacco ridotta | Accettata |
 | [0004](0004-identita-dei-volumi.md) | Identità stabile dei volumi | Accettata (regole rifinite da ADR-0016) |
 | [0005](0005-modello-dati-ad-albero.md) | Modello dati ad albero | Accettata (unicità dei nomi sostituita da ADR-0015) |
-| [0006](0006-enumerazione-e-riconciliazione.md) | Enumerazione (MFT o walker) e riconciliazione unica | Accettata |
+| [0006](0006-enumerazione-e-riconciliazione.md) | Enumerazione (MFT o walker) e riconciliazione unica | Accettata (MFT misurato in ADR-0017) |
 | [0007](0007-aggiornamenti-usn-e-sorveglianza.md) | Aggiornamenti: journal USN, sorveglianza, riconciliazione | Accettata |
 | [0008](0008-accesso-al-database.md) | Accesso al database: uno scrittore, molti lettori | Accettata |
 | [0009](0009-motore-dei-job.md) | Motore dei job ed eventi verso l'interfaccia | Accettata |
@@ -22,3 +22,4 @@ e si aggiorna lo stato di quella vecchia ("Sostituita da ADR-NNNN").
 | [0014](0014-frontend.md) | Frontend: Svelte 5, IPC tipizzato, i18n, tema | Accettata |
 | [0015](0015-dettagli-modello-dati-t1.md) | Dettagli del modello dati decisi in T1 | Accettata |
 | [0016](0016-abbinamento-volumi-e-unita-di-rete.md) | Abbinamento dei volumi e unità di rete in un processo elevato | Accettata |
+| [0017](0017-lettore-mft.md) | Lettore MFT: "go" e ricerche per riferimento senza indice SQL | Accettata |

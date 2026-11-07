@@ -19,9 +19,10 @@ use prism_core::indexer::{self, IndexProgress, IndexReport, IndexRequest};
 use prism_core::model::{EntryRecord, Volume, VolumeId, VolumeInfo, VolumeKind, VolumeStatus};
 use prism_core::names;
 use prism_core::reconcile::ReconcileTarget;
-use prism_core::scan::WalkEnumerator;
+use prism_core::scan::{Enumerator, WalkEnumerator};
 use prism_core::store::{self, Store};
 use prism_core::volumes::{self, DetectedVolume, VolumeMatch, VolumeSource, match_volumes};
+use prism_win::mft::MftEnumerator;
 use prism_win::volumes::WinVolumeSource;
 
 use crate::format::{human_size, human_time};
@@ -82,7 +83,11 @@ enum Command {
 
 #[derive(Args, Clone)]
 pub struct WalkArgs {
-    /// Listing threads (default: number of CPUs, at most 8).
+    /// Read the NTFS Master File Table instead of walking folders (administrator only; the
+    /// path must be a volume root or a folder on a drive letter).
+    #[arg(long)]
+    pub mft: bool,
+    /// Listing threads of the walker (default: number of CPUs, at most 8).
     #[arg(long)]
     threads: Option<usize>,
     /// Do not apply the default exclusions ($RECYCLE.BIN, System Volume Information).
@@ -97,9 +102,26 @@ pub struct WalkArgs {
 }
 
 impl WalkArgs {
-    fn enumerator(&self) -> WalkEnumerator {
+    fn walker(&self) -> WalkEnumerator {
         self.threads
             .map_or_else(WalkEnumerator::default, WalkEnumerator::with_threads)
+    }
+
+    fn enumerator(&self) -> Box<dyn Enumerator> {
+        if self.mft {
+            Box::new(MftEnumerator)
+        } else {
+            Box::new(self.walker())
+        }
+    }
+
+    /// Short description for reports.
+    pub fn describe(&self) -> String {
+        if self.mft {
+            "MFT reader".to_owned()
+        } else {
+            format!("Walker, {} threads", self.walker().threads())
+        }
     }
 
     fn policy(&self) -> ExclusionPolicy {
@@ -209,7 +231,7 @@ pub fn index_with_progress(
         let job = s.spawn(|| {
             indexer::index(
                 store,
-                &enumerator,
+                enumerator.as_ref(),
                 &IndexRequest {
                     volume,
                     path: root,

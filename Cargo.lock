@@ -456,6 +456,8 @@ version = "0.1.0"
 dependencies = [
  "prism-core",
  "tempfile",
+ "thiserror",
+ "tracing",
  "windows-sys",
 ]
 

@@ -7,5 +7,6 @@
 #![cfg(windows)]
 #![allow(unsafe_code)]
 
+pub mod mft;
 pub mod process;
 pub mod volumes;

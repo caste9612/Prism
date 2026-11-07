@@ -23,20 +23,30 @@ pub fn encode(name: &OsStr) -> String {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
-        let mut out = String::with_capacity(name.len());
-        for unit in char::decode_utf16(name.encode_wide()) {
-            match unit {
-                Ok(ESCAPE) => push_escaped(&mut out, 0xFFFF),
-                Ok(c) => out.push(c),
-                Err(e) => push_escaped(&mut out, e.unpaired_surrogate()),
-            }
-        }
-        out
+        encode_units(name.encode_wide(), name.len())
     }
     #[cfg(not(windows))]
     {
         name.to_string_lossy().into_owned()
     }
+}
+
+/// Converts a name given as UTF-16 code units (as stored by NTFS) to its stored form.
+#[must_use]
+pub fn encode_wide(units: &[u16]) -> String {
+    encode_units(units.iter().copied(), units.len())
+}
+
+fn encode_units(units: impl Iterator<Item = u16>, capacity: usize) -> String {
+    let mut out = String::with_capacity(capacity);
+    for unit in char::decode_utf16(units) {
+        match unit {
+            Ok(ESCAPE) => push_escaped(&mut out, 0xFFFF),
+            Ok(c) => out.push(c),
+            Err(e) => push_escaped(&mut out, e.unpaired_surrogate()),
+        }
+    }
+    out
 }
 
 fn push_escaped(out: &mut String, unit: u16) {
@@ -135,6 +145,14 @@ mod tests {
         assert_eq!(ea, "a\u{FFFF}D800b");
         assert_eq!(decode(&ea), a);
         assert_eq!(decode(&eb), b);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn wide_and_os_encodings_agree() {
+        use std::os::windows::ffi::OsStringExt;
+        let units = [0x61, 0xD800, 0x62, 0xFFFF, 0x65E5];
+        assert_eq!(encode_wide(&units), encode(&OsString::from_wide(&units)));
     }
 
     #[cfg(windows)]

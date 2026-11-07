@@ -102,6 +102,7 @@ pub fn reconcile(
         pending_deletes: Vec::new(),
         seeds: Vec::new(),
         lookups: false,
+        ref_map: None,
         stats: ReconcileStats::default(),
     };
     let outcome = store.read(|conn| Ok(run.execute(conn, target)))?;
@@ -138,6 +139,8 @@ struct Run<'a> {
     seeds: Vec<EntryId>,
     /// Whether to look up unmatched scanned entries by file reference in the whole volume.
     lookups: bool,
+    /// File reference → entries of the volume, loaded on the first lookup.
+    ref_map: Option<store::FileRefMap>,
     stats: ReconcileStats,
 }
 
@@ -293,13 +296,27 @@ impl Run<'_> {
                 }
                 let c = tree.node(n);
                 let Some(r) = c.meta.file_ref else { continue };
-                let found = store::entries_by_ref(conn, self.volume, r)?
-                    .into_iter()
-                    .find(|e| {
-                        e.is_dir == c.is_dir
-                            && !self.used.contains(e.id)
-                            && !self.protected.contains(&e.id)
-                    });
+                // Built on first need: most updates never look anything up (ADR-0017).
+                if self.ref_map.is_none() {
+                    self.ref_map = Some(store::file_ref_map(conn, self.volume)?);
+                }
+                let candidates: Vec<EntryId> = self
+                    .ref_map
+                    .as_ref()
+                    .map(|m| m.get(r).iter().map(|(_, id)| *id).collect())
+                    .unwrap_or_default();
+                let mut found = None;
+                for id in candidates {
+                    if self.used.contains(id) || self.protected.contains(&id) {
+                        continue;
+                    }
+                    // The map reflects the catalog before this run; the record itself is
+                    // read now (an entry moved earlier in this run is already `used`).
+                    if let Some(e) = store::entry(conn, id)?.filter(|e| e.is_dir == c.is_dir) {
+                        found = Some(e);
+                        break;
+                    }
+                }
                 if let Some(e) = found {
                     self.used.insert(e.id);
                     if let Some(old_parent) = e.parent {

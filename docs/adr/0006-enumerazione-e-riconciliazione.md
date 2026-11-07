@@ -1,6 +1,6 @@
 # ADR-0006 — Enumerazione (MFT o walker) e riconciliazione unica
 
-- **Stato**: Accettata (prestazioni MFT da misurare con il prototipo T2)
+- **Stato**: Accettata; prototipo MFT misurato e adottato in ADR-0017
 - **Data**: 2026-11-07
 
 ## Contesto

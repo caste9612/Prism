@@ -5,12 +5,13 @@
 
 ## Stato attuale
 
-- **Tappa**: T2 in corso — rilevamento volumi e identità fatto (ADR-0016).
-- **Prossimo passo**: T2 — prototipo del lettore MFT con misure sul VHDX e su C:/D: (sola
-  lettura) e decisione go/no-go.
-- **Da fare in T2 emerso in T1**: istantanea `ScanTree` più compatta (oggi ~245 B per voce di
-  picco durante l'indicizzazione: per 5 milioni di voci sarebbe ~1,2 GB); hard link e ADS
-  (ADR-0015).
+- **Tappa**: T2 in corso — rilevamento volumi (ADR-0016) e lettore MFT (ADR-0017, "go") fatti.
+- **Prossimo passo**: T2 — journal USN: lettura, applicazione tramite il reconciler, gestione
+  del journal non valido (ADR-0007), con la `FileRefMap` per le ricerche per riferimento.
+- **Da fare in T2**: istantanea `ScanTree` compatta (memoria massima ~315 B per voce durante
+  l'indicizzazione con MFT: per 5 milioni di voci sarebbe ~1,5 GB); lettore MFT completo
+  (`$MFT` con `$ATTRIBUTE_LIST` nel record 0, file compressi/sparsi verificati);
+  sorveglianza cartelle per i volumi non NTFS.
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -21,6 +22,29 @@
   consentito solo del branch `rewrite` (vedi CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T2: lettore MFT, decisione "go"
+
+- `prism-win::mft`: parser puro delle strutture NTFS (boot sector, record con fixup,
+  attributi, run list) con 8 test su record sintetici; `MftEnumerator` che legge `\\.\X:` in
+  codice sicuro, unisce i record di estensione, gestisce hard link e ADS e produce lo stesso
+  `ScanTree` del walker (4 test unitari sulla costruzione dell'albero).
+- **Decisione go** (ADR-0017): C: 1,26 milioni di voci indicizzate in 5,7 s contro 14,3 s del
+  walker (enumerazione 1,6 s contro 9,5 s); su D: i due metodi trovano esattamente gli stessi
+  file e cartelle. Benchmark in `docs/benchmarks/2026-11-07-t2-mft.md`.
+- **Problema trovato e risolto con un esperimento misurato**: con l'MFT la scrittura del
+  catalogo era 3 volte più lenta. Causa: l'indice `(volume_id, file_ref)` riceveva inserimenti
+  sparsi (13,0 s contro 2,4 s per un milione di voci). Migrazione 3: indice sul solo volume;
+  le ricerche per riferimento usano una `FileRefMap` in memoria caricata solo se serve
+  (0,18 s per milione di voci).
+- Tabella dei record MFT compatta: memoria massima su C: da 676 a 397 MiB, costruzione
+  dell'albero da 0,80 a 0,39 s.
+- `ScanError::Unsupported` per i volumi che un enumeratore non può leggere (il chiamante usa il
+  walker); CLI: `scan`/`bench --mft`; `names::encode_wide` per convertire i nomi UTF-16 senza
+  allocazioni intermedie.
+- Test elevato tramite il runner (passato): MFT e walker danno gli stessi file, dimensioni, date
+  e attributi su un albero creato sul disco di test con 42 hard link (record di estensione),
+  flussi alternativi, nomi Unicode e con punto finale; lo spazio dei 42 link è contato una volta.
 
 ### 2026-11-07 — T2: rilevamento dei volumi e identità
 

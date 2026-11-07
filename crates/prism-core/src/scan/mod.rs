@@ -250,6 +250,8 @@ pub enum ScanError {
     RootNotADirectory(PathBuf),
     #[error("{0} is excluded by the exclusion rules")]
     RootExcluded(PathBuf),
+    #[error("this enumerator cannot read {path}: {reason}")]
+    Unsupported { path: PathBuf, reason: String },
     #[error("internal scan error: {0}")]
     Internal(String),
 }

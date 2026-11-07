@@ -57,8 +57,9 @@ Archivio SQLite in modalità WAL, nella cartella dati dell'app. Lo schema è ver
 migrazioni SQL incorporate (`crates/prism-core/src/store/migrations/`) e `PRAGMA user_version`;
 una migrazione già pubblicata non si modifica, se ne aggiunge una nuova.
 
-**Schema in uso (versione 2)** — testo completo in `0001_initial.sql` e
-`0002_volume_bus.sql` (aggiunge `bus_type`):
+**Schema in uso (versione 3)** — testo completo in `0001_initial.sql`,
+`0002_volume_bus.sql` (aggiunge `bus_type`) e `0003_entries_volume_index.sql` (indice sul solo
+volume al posto di `(volume_id, file_ref)`, ADR-0017):
 
 ```sql
 volumes (
@@ -84,7 +85,9 @@ entries (
   file_ref                          -- riferimento MFT, NULL per il walker
 ) STRICT
 UNIQUE INDEX entries_parent_name (parent_id, name)    -- nome esatto (ADR-0015)
-INDEX        entries_volume_ref  (volume_id, file_ref)
+INDEX        entries_volume      (volume_id)          -- v3; nessun indice su file_ref:
+                                                      -- ricerche per riferimento con una
+                                                      -- mappa in memoria (FileRefMap)
 
 dir_stats (entry_id PRIMARY KEY REFERENCES entries ON DELETE CASCADE,
            total_size, total_alloc, file_count, dir_count) STRICT   -- solo file contati
@@ -154,8 +157,19 @@ Indicizzazione completa e aggiornamento usano **lo stesso Reconciler**: un aggio
 una riconciliazione su un insieme di voci più piccolo. Così sono garantiti gli stessi risultati
 (F05-AC3), cosa che il vecchio Prism non garantiva.
 
-- **MFT** (NTFS locale, richiede amministratore): lettura diretta della `$MFT` tramite handle
-  al volume; elenco completo in un'unica passata sequenziale.
+- **MFT** (`prism-win::mft::MftEnumerator`; NTFS locale, richiede amministratore, ADR-0017):
+  lettura diretta della `$MFT` dal dispositivo `\\.\X:` (solo codice sicuro: `seek_read`) in
+  un'unica passata sequenziale a blocchi da 4 MiB, seguendo i run della `$MFT` (anche
+  frammentata). Parser puro (`mft/parse.rs`: boot sector, record con fixup, attributi, run
+  list) testato su record sintetici. I record di estensione si uniscono al record base per
+  riferimento (così `$ATTRIBUTE_LIST` non va decodificato); tabella compatta per colonne e nomi
+  in un unico buffer; albero dai `$FILE_NAME` (genitore + nome) con la stessa politica di
+  esclusione. Semantica allineata al walker (verificata da un test elevato sul disco di test):
+  nomi DOS esclusi, file di metadati NTFS nascosti, date e attributi da
+  `$STANDARD_INFORMATION`. In più: riferimento al file, spazio allocato (con i flussi
+  alternativi; i dati residenti non occupano cluster), hard link con lo spazio contato su un
+  solo nome. Legge il disco, non la cache: le modifiche ancora in cache arrivano dopo, con il
+  journal USN.
 - **Walker classico** (`scan::WalkEnumerator`; FAT/exFAT/ReFS, unità di rete, fallback):
   enumerazione parallela delle cartelle usando i metadati restituiti dall'enumerazione stessa,
   **senza** una chiamata `metadata()` per file (su SMB ogni chiamata in più è un viaggio di

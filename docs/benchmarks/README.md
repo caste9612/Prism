@@ -7,6 +7,7 @@ Misure ripetibili delle prestazioni di Prism, in **sola lettura** sui dischi rea
 |---|---|---|
 | [2026-11-07-t1-walker.md](2026-11-07-t1-walker.md) | T1 | Indicizzazione con il walker su C: e D:, dimensione del catalogo per voce, memoria, confronto con il vecchio Prism |
 | [2026-11-07-t2-network.md](2026-11-07-t2-network.md) | T2 | Walker su una condivisione SMB letta via UNC da un processo elevato |
+| [2026-11-07-t2-mft.md](2026-11-07-t2-mft.md) | T2 | Lettore MFT contro walker su C: e D:; indice sui riferimenti e memoria |
 
 ## Come ripetere
 
