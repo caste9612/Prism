@@ -303,6 +303,14 @@ Implementazione (`store::Store`, T1):
 - Eventi verso l'interfaccia, limitati a circa 4 al secondo: `job-updated`, `catalog-changed`
   (volume, tipo di modifica), `volume-status`, `notification`.
 
+Implementazione (`prism-core::jobs::JobEngine`, T3): alcuni thread di lavoro prendono il job in
+coda più urgente i cui dischi fisici sono liberi (FIFO a parità di priorità); ogni job riceve
+un `JobContext` (token di annullamento, avanzamento con fase); un job in coda annullato non
+parte, uno in esecuzione riceve la richiesta di stop; un job che va in panico risulta fallito.
+`subscribe` notifica i cambi di stato; l'avanzamento si legge con `jobs()` a frequenza limitata.
+Il motore è in memoria (REVIEW D10): il record persistente e la ripresa dopo un crash arrivano
+con i job di background (T6).
+
 ## 7. Interfaccia e IPC (ADR-0014)
 
 - Svelte 5 + Vite + TypeScript, senza SvelteKit (finestra principale e finestra di ricerca).

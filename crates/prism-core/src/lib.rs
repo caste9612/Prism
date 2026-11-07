@@ -16,6 +16,7 @@ pub mod cancel;
 pub mod changes;
 pub mod exclusion;
 pub mod indexer;
+pub mod jobs;
 pub mod model;
 pub mod names;
 pub mod reconcile;

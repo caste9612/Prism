@@ -25,6 +25,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D7 | 2026-11-07 | T2 | Sorveglianza cartelle con la libreria `notify` 8 (usa `ReadDirectoryChangesW`), invece di codice Win32 scritto a mano | Implementazione diretta con I/O sovrapposto | Sostituire `prism-win::watch` | ARCHITECTURE §4.2 |
 | D8 | 2026-11-07 | T2 | Aggiornamento dai cambi di cartella: si rienumera il sottoalbero della cartella del catalogo più vicina a ogni percorso cambiato (solo le più in alto); un cambio nella radice rienumera tutto il volume | Elenchi superficiali come per il journal (più veloce, più complesso) | `prism-core::refresh` | ARCHITECTURE §4.2 |
 | D9 | 2026-11-07 | T2 | T2 chiusa rimandando due ottimizzazioni (istantanea compatta, `$MFT` molto grandi) per arrivare prima all'app provabile | Completarle prima di T3 | Voci L1 e L2 in §3 | ROADMAP T2 |
+| D10 | 2026-11-07 | T3 | Motore dei job in memoria (nessuna tabella `jobs` per ora): un'indicizzazione interrotta è già segnalata dallo stato del volume (`reindex_needed`) | Record persistente subito | Aggiungere la tabella quando arrivano i job di background riprendibili (T6) | ARCHITECTURE §6 |
 
 ## 2. Cose che richiedono l'utente
 
