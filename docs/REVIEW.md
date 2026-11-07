@@ -21,6 +21,10 @@ Decisioni successive (da compilare durante lo sviluppo):
 
 | # | Data | Tappa | Decisione | Alternative | Come cambiarla | Riferimento |
 |---|---|---|---|---|---|---|
+| D6 | 2026-11-07 | T2 | Indice SQL su `file_ref` rimosso: le ricerche per riferimento usano una mappa in memoria (inserimenti MFT 5× più veloci) | Indice `(volume_id, file_ref)` | Migrazione che ricrea l'indice | ADR-0017 |
+| D7 | 2026-11-07 | T2 | Sorveglianza cartelle con la libreria `notify` 8 (usa `ReadDirectoryChangesW`), invece di codice Win32 scritto a mano | Implementazione diretta con I/O sovrapposto | Sostituire `prism-win::watch` | ARCHITECTURE §4.2 |
+| D8 | 2026-11-07 | T2 | Aggiornamento dai cambi di cartella: si rienumera il sottoalbero della cartella del catalogo più vicina a ogni percorso cambiato (solo le più in alto); un cambio nella radice rienumera tutto il volume | Elenchi superficiali come per il journal (più veloce, più complesso) | `prism-core::refresh` | ARCHITECTURE §4.2 |
+| D9 | 2026-11-07 | T2 | T2 chiusa rimandando due ottimizzazioni (istantanea compatta, `$MFT` molto grandi) per arrivare prima all'app provabile | Completarle prima di T3 | Voci L1 e L2 in §3 | ROADMAP T2 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -37,6 +41,10 @@ Decisioni successive (da compilare durante lo sviluppo):
 
 | # | Data | Problema | Impatto | Stato |
 |---|---|---|---|---|
+| L1 | 2026-11-07 | Memoria massima durante l'indicizzazione ~315 B per voce (istantanea `ScanTree` completa in memoria) | Un volume da 5 milioni di voci richiederebbe ~1,5 GB durante l'indicizzazione (NF3 chiede ≤ 500 MB a regime) | Rimandato (dopo le funzioni della 1.0) |
+| L2 | 2026-11-07 | Lettore MFT: una `$MFT` con `$ATTRIBUTE_LIST` nel record 0 (MFT enormi e frammentate) viene rifiutata; file compressi/sparsi non verificati su disco reale | Su quei volumi si usa il walker (più lento, stessi risultati logici) | Rimandato |
+| L3 | 2026-11-07 | NTFS scrive in ritardo nei record MFT le date delle cartelle: due letture vicine possono differire di pochi ms | Solo estetico; si corregge alla modifica successiva della cartella | Accettato (ADR-0018) |
+| L4 | 2026-11-07 | Aggiornamento dal journal: la mappa dei riferimenti (≈0,25 s per 1,3 milioni di voci) si ricarica a ogni aggiornamento | Aggiornamenti continui un po' più costosi del necessario | Da ottimizzare nel motore dei job (T3) |
 
 ## 4. Come provare l'app
 

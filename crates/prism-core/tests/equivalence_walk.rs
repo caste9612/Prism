@@ -9,6 +9,12 @@ use std::path::{Path, PathBuf};
 
 use common::fakefs::{NAMES, Rng};
 use common::{Sandbox, TestCatalog, mtime};
+use prism_core::cancel::CancelToken;
+use prism_core::exclusion::ExclusionPolicy;
+use prism_core::indexer::IndexProgress;
+use prism_core::names;
+use prism_core::refresh;
+use prism_core::scan::WalkEnumerator;
 use proptest::prelude::*;
 
 /// Lists folders (root included) and files below `root`, read-only.
@@ -37,6 +43,8 @@ fn list_all(root: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
 struct Disk<'a> {
     sb: &'a Sandbox,
     clock: u64,
+    /// Paths touched since the last `take_changed`, as a folder watcher reports them.
+    changed: Vec<PathBuf>,
 }
 
 impl Disk<'_> {
@@ -45,7 +53,22 @@ impl Disk<'_> {
         self.clock
     }
 
+    fn take_changed(&mut self) -> Vec<Vec<String>> {
+        let root = self.sb.root().to_path_buf();
+        std::mem::take(&mut self.changed)
+            .iter()
+            .map(|p| {
+                p.strip_prefix(&root)
+                    .unwrap()
+                    .components()
+                    .map(|c| names::encode(c.as_os_str()))
+                    .collect()
+            })
+            .collect()
+    }
+
     fn write(&mut self, path: &Path, size: usize) {
+        self.changed.push(path.to_path_buf());
         let t = self.tick();
         self.sb.fs.write(path, &vec![b'p'; size]).unwrap();
         self.sb.fs.set_modified(path, mtime(t)).unwrap();
@@ -64,6 +87,7 @@ impl Disk<'_> {
                 let p = parent.join(name);
                 if !p.exists() {
                     if rng.below(3) == 0 {
+                        self.changed.push(p.clone());
                         self.sb.fs.create_dir_all(&p).unwrap();
                     } else {
                         let size = rng.below(3000);
@@ -73,6 +97,7 @@ impl Disk<'_> {
             }
             2 => {
                 if let Some(p) = rng.pick(&all) {
+                    self.changed.push(p.clone());
                     if p.is_dir() {
                         self.sb.fs.remove_dir_all(p).unwrap();
                     } else {
@@ -103,6 +128,8 @@ impl Disk<'_> {
                     let target = p.with_file_name(&new);
                     let same_entry = new.to_lowercase() == old.to_lowercase();
                     if new != old && (same_entry || !target.exists()) {
+                        self.changed.push(p.clone());
+                        self.changed.push(target.clone());
                         self.sb.fs.rename(p, &target).unwrap();
                     }
                 }
@@ -112,6 +139,8 @@ impl Disk<'_> {
                 if let (Some(p), Some(to)) = (rng.pick(&all), rng.pick(&dirs)) {
                     let target = to.join(p.file_name().unwrap());
                     if !to.starts_with(p) && !target.exists() {
+                        self.changed.push(p.clone());
+                        self.changed.push(target.clone());
                         self.sb.fs.rename(p, &target).unwrap();
                     }
                 }
@@ -120,6 +149,7 @@ impl Disk<'_> {
                 // Replace a file with a folder of the same name.
                 if let Some(p) = rng.pick(&files) {
                     let p = p.clone();
+                    self.changed.push(p.clone());
                     self.sb.fs.remove_file(&p).unwrap();
                     self.sb.fs.create_dir_all(&p).unwrap();
                 }
@@ -128,10 +158,75 @@ impl Disk<'_> {
     }
 }
 
+/// A sandbox with a random tree, and the generator to continue from.
+fn setup(seed: u64) -> (Rng, Sandbox) {
+    let mut rng = Rng::new(seed);
+    let sb = Sandbox::new();
+    let mut disk = Disk {
+        sb: &sb,
+        clock: 0,
+        changed: Vec::new(),
+    };
+    for _ in 0..30 {
+        let (dirs, _) = list_all(sb.root());
+        let parent = rng.pick(&dirs).unwrap().clone();
+        let p = parent.join(rng.pick(NAMES).unwrap());
+        if p.exists() {
+            continue;
+        }
+        if rng.below(3) == 0 {
+            sb.fs.create_dir_all(&p).unwrap();
+        } else {
+            let size = rng.below(3000);
+            disk.write(&p, size);
+        }
+    }
+    (rng, sb)
+}
+
+// F05-AC3 for volumes without a change journal: refreshing only the folders reported by the
+// folder watcher gives the same catalog as a full indexing.
+fn check_refresh(seed: u64, steps: usize) {
+    let (mut rng, sb) = setup(seed);
+    let cat = TestCatalog::new();
+    let v = cat.add_volume("sandbox");
+    cat.index(v, sb.root());
+    let mut disk = Disk {
+        sb: &sb,
+        clock: 10_000,
+        changed: Vec::new(),
+    };
+    for _ in 0..steps {
+        disk.mutate(&mut rng);
+    }
+    let changed = disk.take_changed();
+    refresh::refresh_folders(
+        &cat.store,
+        v,
+        sb.root(),
+        &WalkEnumerator::with_threads(2),
+        &ExclusionPolicy::with_defaults(),
+        &changed,
+        false,
+        &CancelToken::new(),
+        &IndexProgress::default(),
+    )
+    .unwrap();
+    cat.assert_consistent();
+    let fresh = TestCatalog::new();
+    let fv = fresh.add_volume("sandbox");
+    fresh.index(fv, sb.root());
+    assert_eq!(cat.snapshot(v), fresh.snapshot(fv));
+}
+
 fn check(seed: u64, steps: usize) {
     let mut rng = Rng::new(seed);
     let sb = Sandbox::new();
-    let mut disk = Disk { sb: &sb, clock: 0 };
+    let mut disk = Disk {
+        sb: &sb,
+        clock: 0,
+        changed: Vec::new(),
+    };
     for _ in 0..30 {
         let (dirs, _) = list_all(sb.root());
         let parent = rng.pick(&dirs).unwrap().clone();
@@ -169,5 +264,13 @@ proptest! {
     #[test]
     fn f05_ac3_update_equals_full_reindex_on_disk(seed in any::<u64>(), steps in 1usize..20) {
         check(seed, steps);
+    }
+
+    #[test]
+    fn f05_ac3_watcher_refresh_equals_full_reindex_on_disk(
+        seed in any::<u64>(),
+        steps in 1usize..15,
+    ) {
+        check_refresh(seed, steps);
     }
 }

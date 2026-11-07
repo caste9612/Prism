@@ -39,7 +39,7 @@ Criteri coperti: F01-AC5, F04-AC2..AC7, F05-AC3, F05-AC4 (riferimenti simulati),
 misura: 108–129 B per voce senza indice di ricerca), NF4 (parziale).
 **Verifica utente**: lanciare il benchmark su altri dischi, se si vuole.
 
-## T2 — Windows: volumi, MFT, USN  `[~]`
+## T2 — Windows: volumi, MFT, USN  `[x]` (due ottimizzazioni rimandate, REVIEW L1/L2)
 
 - [x] Rilevamento volumi e identità (ADR-0004, ADR-0016); unità di rete e UNC (anche da
       processo elevato, via `HKCU\Network`); test elevato del cambio di lettera (F02-AC3)
@@ -50,13 +50,16 @@ misura: 108–129 B per voce senza indice di ricerca), NF4 (parziale).
 - [~] `MftEnumerator` completo: fatti frammentazione della `$MFT`, record di estensione
       (`$ATTRIBUTE_LIST`), hard link, ADS, confronto con il walker sul disco di test; restano
       `$MFT` con `$ATTRIBUTE_LIST` nel record 0, verifica di file compressi/sparsi
-- [ ] Istantanea `ScanTree` compatta (memoria massima oggi ~315 B per voce, NF3)
+      (rimandato: REVIEW L2)
+- [ ] Istantanea `ScanTree` compatta (memoria massima oggi ~315 B per voce, NF3) — rimandata:
+      REVIEW L1
 - [x] Journal USN: lettura, posizione salvata, gestione journal non valido, recupero dei
       singoli file e applicazione tramite il `Reconciler` (più bersagli, cartelle non elencate),
       con test di equivalenza simulati e reali (ADR-0018)
-- [ ] Sorveglianza cartelle per i volumi non NTFS
+- [x] Sorveglianza cartelle per i volumi non NTFS (`notify`, aggiornamento mirato dei
+      sottoalberi, test end-to-end e di proprietà su disco)
 
-Criteri coperti: F02-AC3, F04-AC1, F05-AC1/AC2/AC4.
+Criteri coperti: F02-AC3, F02-AC5, F04-AC1, F05-AC1/AC2/AC3/AC4.
 **Verifica utente**: collegare/scollegare un disco esterno.
 
 ## T3 — Motore dei job e app minima

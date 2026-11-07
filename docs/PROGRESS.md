@@ -5,13 +5,10 @@
 
 ## Stato attuale
 
-- **Tappa**: T2 in corso — rilevamento volumi (ADR-0016), lettore MFT (ADR-0017) e journal USN
-  completo (lettura e applicazione, ADR-0018) fatti.
-- **Prossimo passo**: T2 — sorveglianza cartelle per i volumi non NTFS
-  (`ReadDirectoryChangesW` + riconciliazione mirata, ADR-0007).
-- **Poi, per chiudere T2**: istantanea `ScanTree` compatta (memoria massima ~315 B per voce
-  durante l'indicizzazione con MFT: per 5 milioni di voci sarebbe ~1,5 GB); lettore MFT completo
-  (`$MFT` con `$ATTRIBUTE_LIST` nel record 0, file compressi/sparsi verificati).
+- **Tappa**: T2 completata (2026-11-07); due ottimizzazioni rimandate (REVIEW L1, L2).
+- **Prossimo passo**: T3 — motore dei job e app minima: `prism-app` Tauri 2, frontend Svelte 5
+  con i18n e tema, schermata catalogo (F01), disco nuovo (F02), etichette (F03), impostazioni di
+  base (F21). Nessuna sosta a fine T3 (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -25,6 +22,29 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T2 completata: sorveglianza cartelle
+
+- `prism-win::watch::FolderWatcher` (libreria `notify`, REVIEW D7) e `prism-core::refresh`
+  (cartelle del catalogo più vicine ai percorsi cambiati, solo le più in alto, rienumerate come
+  sottoalberi; REVIEW D8).
+- Test: unitario sulla scelta delle cartelle, di proprietà su disco (modifiche casuali →
+  aggiornamento mirato = reindicizzazione) ed end-to-end con il watcher reale su una cartella
+  temporanea.
+- Nuove regole dal commit di supervisione `48614fa`: niente soste fino alla 1.0, decisioni
+  registrate in `docs/REVIEW.md`. Registrate le decisioni D6–D9 e i limiti noti L1–L4.
+- Incidente: un mio comando con un `cat >` senza input è rimasto bloccato 16 minuti
+  (segnalato dalla supervisione); fermato, regola in CLAUDE.md rispettata da qui in avanti.
+
+**Report di fine tappa T2**
+
+- Fatto: rilevamento e identità dei volumi (anche unità di rete da processo elevato), lettore
+  MFT (5,7 s per 1,26 milioni di voci su C:), journal USN (lettura e applicazione, 253 record su
+  C: in 0,6 s), sorveglianza cartelle. Rimandati: istantanea compatta (L1), `$MFT` enormi (L2).
+- Criteri coperti da test automatici: F02-AC3 (elevato, cambio di lettera reale), F02-AC5,
+  F04-AC1, F05-AC1/AC2/AC3/AC4 (simulati e su NTFS reale).
+- Controlli: `scripts/check.ps1` verde; test elevati tramite il runner verdi.
+- Verifica manuale per l'utente: collegare e scollegare un disco esterno (REVIEW U4).
 
 ### 2026-11-07 — T2: applicazione del journal USN al catalogo
 

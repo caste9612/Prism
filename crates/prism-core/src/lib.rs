@@ -19,6 +19,7 @@ pub mod indexer;
 pub mod model;
 pub mod names;
 pub mod reconcile;
+pub mod refresh;
 pub mod sandbox;
 pub mod scan;
 pub mod store;

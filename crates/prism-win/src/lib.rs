@@ -13,3 +13,4 @@ pub mod ntfs;
 pub mod process;
 pub mod usn;
 pub mod volumes;
+pub mod watch;

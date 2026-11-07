@@ -228,6 +228,17 @@ Componenti del journal (`prism-win`, ADR-0018):
   posizione manca o è persa, o se le modifiche non si possono applicare: es. cartella con
   contenuto ripristinata dal Cestino).
 
+Sorveglianza cartelle (volumi senza journal, ADR-0007):
+
+- `prism-win::watch::FolderWatcher`: `ReadDirectoryChangesW` tramite la libreria `notify`;
+  `next_batch` raccoglie gli eventi in lotti (fino a una pausa di silenzio) come percorsi
+  relativi alla radice; un traboccamento del buffer chiede una rienumerazione completa.
+- `prism-core::refresh`: per ogni percorso cambiato, la cartella del catalogo più vicina al suo
+  genitore (ignorando le zone escluse); restano solo le più in alto, e ognuna si rienumera come
+  sottoalbero con lo stesso reconciler (una cartella che non esiste più cede il posto al suo
+  antenato esistente). Verificato da un test di proprietà su disco e da un test end-to-end con
+  il watcher.
+
 ### 4.3 Hash (ADR-0011)
 
 Job di background a priorità bassa (`THREAD_MODE_BACKGROUND_BEGIN`, quindi I/O e CPU in
