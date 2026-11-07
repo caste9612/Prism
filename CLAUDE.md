@@ -18,7 +18,9 @@ da zero**: questo branch (`rewrite`) sostituirà il ramo principale alla 1.0.
   SPEC; se cambia la struttura, ARCHITECTURE o una nuova ADR; a ogni passo significativo, una
   voce in `docs/PROGRESS.md` e le checkbox in `docs/ROADMAP.md`.
 - **Passi piccoli, sempre verdi.** Prima di ogni commit `scripts/check.ps1` deve passare
-  (fmt, clippy con `-D warnings`, test). Commit in autonomia.
+  (fmt, clippy con `-D warnings`, test). Commit in autonomia. Se `Cargo.lock` (o
+  `ui/package-lock.json`) è modificato, va nello stesso commit: in locale `--locked` passa
+  comunque, in CI no (CI rossa su `736db7c` per questo).
 - **Push**: consentito **solo** per il branch `rewrite` su `origin`, periodicamente (CI e
   backup). Mai force push, mai push di altri branch, mai merge sul ramo principale senza
   approvazione dell'utente.
