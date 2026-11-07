@@ -18,8 +18,8 @@ Legenda: `[x]` fatto · `[ ]` da fare · `[~]` in corso
 - [x] Script dei controlli (`scripts/check.ps1`) e CI GitHub Actions (attiva al primo push)
 - [x] Decisioni anticipate per lavorare in autonomia fino alla 1.0 (SPEC §8)
 
-**Verifica utente**: facoltativa, leggere `docs/SPEC.md`; eseguire una volta
-`scripts/admin/install-admin-runner.ps1` da PowerShell amministratore (serve da T2).
+**Verifica utente**: facoltativa, leggere `docs/SPEC.md`. Fatto: esecuzione una tantum di
+`scripts/admin/install-admin-runner.ps1` (2026-11-07).
 
 ## T1 — Catalogo di base (core, senza privilegi)
 
@@ -40,15 +40,15 @@ Criteri coperti: F04-AC2..AC7, F05-AC3, NF2 (prima misura), NF4 (parziale).
 ## T2 — Windows: volumi, MFT, USN
 
 - [ ] Rilevamento volumi e identità (ADR-0004); unità di rete e UNC
-- [~] Runner amministratore e disco virtuale di test (TESTING §4): script pronti e verificati
-      senza privilegi; **manca l'esecuzione una tantum da parte dell'utente**
+- [x] Runner amministratore e disco virtuale di test (TESTING §4): configurato dall'utente e
+      verificato (`schtasks /run` senza UAC, test elevati passati sul volume PRISMTEST)
 - [ ] Prototipo lettore MFT, misure su VHDX e su C:/D: (sola lettura); decisione go/no-go
 - [ ] `MftEnumerator` completo (frammentazione, `$ATTRIBUTE_LIST`, hard link)
 - [ ] Journal USN: lettura, applicazione tramite `Reconciler`, gestione journal non valido
 - [ ] Sorveglianza cartelle per i volumi non NTFS
 
 Criteri coperti: F02-AC3, F04-AC1, F05-AC1/AC2/AC4.
-**Verifica utente**: configurazione del runner; collegare/scollegare un disco esterno.
+**Verifica utente**: collegare/scollegare un disco esterno.
 
 ## T3 — Motore dei job e app minima
 

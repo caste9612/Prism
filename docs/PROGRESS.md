@@ -7,14 +7,26 @@
 
 - **Tappa**: T0 completata.
 - **Prossimo passo**: T1 — schema SQLite, archivio con scrittore unico, walker, riconciliazione.
-- **Bloccanti**: nessuno per T1. Per T2 serve che l'utente esegua una volta
-  `scripts/admin/install-admin-runner.ps1` da PowerShell amministratore.
+- **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
+  `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
+  `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
+  sopravvive al riavvio: lo ricollega il runner stesso; la lettera di unità può cambiare.
 - **Decisioni in sospeso**: Q7 firma del codice (utente, entro T10), Q11 ramo principale (T10).
   ADR-0010 (indice di ricerca) e ADR-0013 (video) le decide lo sviluppo con benchmark e prototipi.
 - **Modalità di lavoro**: autonomia completa; unica sosta per la revisione a fine T3; push
   consentito solo del branch `rewrite` (vedi CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — Runner amministratore configurato
+
+- L'utente ha confermato il prompt UAC di `scripts/admin/install-admin-runner.ps1`: creato
+  `%LOCALAPPDATA%\PrismDev\prism-test.vhdx` (4 GB espandibile, NTFS, etichetta PRISMTEST,
+  montato su F:) e registrata l'attività `PrismDevAdminTests`.
+- Verifica dalla shell non elevata: `schtasks /run /tn PrismDevAdminTests` è partita senza UAC,
+  `last.status` = `passed`; nel log `runner_is_elevated` e `test_volume_is_mounted` passano con
+  `PRISM_TEST_VOLUME=F:\`.
+- CI su GitHub verde; `actions/checkout` portato alla v5 per l'avviso di deprecazione di Node 20.
 
 ### 2026-11-07 — T0 Fondamenta
 

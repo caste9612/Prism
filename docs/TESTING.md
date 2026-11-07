@@ -82,8 +82,10 @@ senza UAC. Per questo:
 - l'alternativa è che l'utente esegua a mano `run-admin-tests.ps1` da un terminale
   amministratore quando richiesto (meno autonomia, nessun rischio aggiunto).
 
-L'utente sceglie tra le due opzioni; la configurazione si può fare in qualsiasi momento prima
-di T2 (lettura MFT/USN).
+**Stato**: l'utente ha scelto l'attività pianificata; configurata e verificata il 2026-11-07
+(volume PRISMTEST montato su F: al momento della configurazione). Il montaggio del VHDX non
+sopravvive al riavvio: lo ricollega il runner, e la lettera di unità può cambiare, per questo i
+test usano sempre `PRISM_TEST_VOLUME` e mai una lettera fissa.
 
 ## 4bis. Verifica dell'interfaccia sull'app vera
 
