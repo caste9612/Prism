@@ -27,10 +27,26 @@ pub struct ShellRemover;
 impl Remover for ShellRemover {
     fn remove(&self, paths: &[PathBuf], disposal: Disposal) -> Vec<(PathBuf, String)> {
         match disposal {
-            Disposal::RecycleBin => match recycle(paths) {
-                Ok(()) => Vec::new(),
-                Err(e) => paths.iter().map(|p| (p.clone(), e.message())).collect(),
-            },
+            Disposal::RecycleBin => {
+                // One operation for all; if the shell stops on an item (in use, gone), the
+                // items still on the disk are retried one by one, so one bad item does not
+                // hold back the others and each failure gets its own reason.
+                let first = recycle(paths);
+                let left: Vec<&PathBuf> = paths
+                    .iter()
+                    .filter(|p| std::fs::symlink_metadata(p).is_ok())
+                    .collect();
+                if first.is_ok() || left.is_empty() {
+                    return Vec::new();
+                }
+                left.into_iter()
+                    .filter_map(|p| match recycle(std::slice::from_ref(p)) {
+                        Ok(()) if std::fs::symlink_metadata(p).is_err() => None,
+                        Ok(()) => Some((p.clone(), "not moved to the Recycle Bin".to_owned())),
+                        Err(e) => Some((p.clone(), e.message())),
+                    })
+                    .collect()
+            }
             Disposal::Permanent => paths
                 .iter()
                 .filter_map(|p| {
@@ -86,12 +102,21 @@ pub fn recycle(paths: &[PathBuf]) -> windows::core::Result<()> {
                 | FOF_NOERRORUI
                 | FOF_WANTNUKEWARNING,
         )?;
+        let mut queued = 0;
         for path in paths {
-            let item: IShellItem =
-                SHCreateItemFromParsingName(&HSTRING::from(path.as_os_str()), None)?;
+            // An item that vanished meanwhile is skipped, not a reason to stop.
+            let Ok(item) = SHCreateItemFromParsingName::<_, _, IShellItem>(
+                &HSTRING::from(path.as_os_str()),
+                None,
+            ) else {
+                continue;
+            };
             op.DeleteItem(&item, None::<&IFileOperationProgressSink>)?;
+            queued += 1;
         }
-        op.PerformOperations()?;
+        if queued > 0 {
+            op.PerformOperations()?;
+        }
     }
     Ok(())
 }

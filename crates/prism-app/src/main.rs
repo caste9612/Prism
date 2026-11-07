@@ -2,6 +2,7 @@
 //! domain logic lives in `prism-core` and `prism-win` (ARCHITECTURE §2, ADR-0014).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod cleanup_views;
 mod commands;
 mod dto;
 mod monitor;
@@ -9,6 +10,8 @@ mod netprobe;
 mod notices;
 mod space_views;
 mod state;
+#[cfg(test)]
+mod state_tests;
 mod tray;
 mod watchers;
 
@@ -152,6 +155,8 @@ fn main() {
             commands::largest_files,
             commands::type_stats,
             commands::open_entry,
+            commands::cleanup_scan,
+            commands::delete_entries,
             commands::reveal_entry,
             commands::remove_volume,
             commands::get_settings,

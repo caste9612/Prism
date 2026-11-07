@@ -12,6 +12,9 @@ publish.workspace = true
 name = "prism"
 path = "src/main.rs"
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
 

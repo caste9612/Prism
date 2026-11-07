@@ -40,6 +40,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D22 | 2026-11-07 | T4 | La schermata *Spazio* si apre dall'icona sulla scheda di un disco indicizzato (nessuna voce nel menu laterale); le statistiche dell'intero catalogo sono una scelta dentro *Tipi di file* | Voce *Spazio* nel menu con scelta del disco | `ui/src/App.svelte` | F01-AC4 |
 | D23 | 2026-11-07 | T4 | Eliminazione: Cestino solo sui volumi fissi locali; su chiavette e dischi rimovibili (Windows non ha il Cestino) e su unità di rete eliminazione definitiva solo con conferma esplicita. Se un elemento non entra nel Cestino (troppo grande) Windows chiede all'utente invece di eliminarlo in silenzio. Verifica prima di agire: dimensione e data di modifica identiche al catalogo | Cestino ovunque (su chiavette diventerebbe definitivo senza avviso); verifica con tolleranza sulle date | `prism-core::fileops`, `prism-win::trash` | ADR-0012 |
 | D24 | 2026-11-07 | T4 | Regole prudenti della pulizia: temporanei solo se più vecchi di un giorno; cartelle vuote e file grandi e vecchi mai in Windows, programmi, `ProgramData`, `AppData`, `inetpub`, cartelle dei profili, elementi nascosti/di sistema, nomi con `.` o `$`, collegamenti; grandi e vecchi = almeno 500 MB e non modificati da un anno; cache solo di Chrome, Edge, Brave e Firefox, a browser chiuso | Temporanei senza limite d'età; soglie diverse; più browser e app | `DEFAULT_PROTECTED` e `CleanupRules` in `prism-core::cleanup`; soglie configurabili da aggiungere alle impostazioni | SPEC F09 |
+| D25 | 2026-11-07 | T4 | Cartelle di programmi riconosciute anche fuori da `Program Files`: una cartella che contiene direttamente una `.dll` (giochi, Steam, app portatili) e tutto ciò che ha sotto non vengono proposti come cartelle vuote né come file grandi e vecchi. Trovato sui dati reali: Steam in `D:\Programmi` proponeva `steamapps\downloading` e simili | Basarsi solo sui nomi delle cartelle; considerare anche le `.exe` (escluderebbe `Download` con un programma d'installazione) | `ProgramFolders` in `prism-core::cleanup` | F09-AC2 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -66,6 +67,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | L8 | 2026-11-07 | Disco nuovo collegato mentre la finestra è nascosta nel tray: nessuna notifica di Windows ancora, solo il riquadro alla riapertura | F02-AC1 parziale | **Risolto** (2026-11-07): notifica di Windows, una sola per più dischi trovati insieme (D19); il clic sulla notifica non apre ancora Prism (L9) |
 | L9 | 2026-11-07 | Il clic su una notifica di Prism la chiude soltanto: aprire Prism dalla notifica richiede un attivatore COM registrato dall'installer | Si riapre Prism dall'icona nel tray | Da fare in T10 (installer) |
 | S1 | 2026-11-07 | (Supervisione) L'app di debug elimina senza `SandboxGuard` (`prism-app/src/state.rs`, guardia `None`) mentre lo sviluppo la pilota con i cataloghi di C: e D:; nessuna eliminazione reale avvenuta finora | Rischio di eliminare file veri durante le prove dell'app | Istruzione in CLAUDE.md (Sicurezza dei dati): guardia obbligatoria nelle build di debug, con test |
+| L10 | 2026-11-07 | Risposta a S1 | — | **Fatto** (2026-11-07): nelle build di debug `AppState::deletion_guard` limita ogni eliminazione al volume PRISMTEST (trovato dall'etichetta), a `%TEMP%` e a `%LOCALAPPDATA%\PrismDev`; la release non ha guardia. Test `state_tests::debug_build_refuses_deletions_outside_the_sandbox` (eliminazione in una cartella fuori sandbox → rifiutata, file intatto, registro vuoto). Nelle prove sull'app vera non è mai stata avviata un'eliminazione (solo schermate in lettura) |
 
 ## 4. Come provare l'app
 
@@ -153,3 +155,14 @@ Note sulle prove di T3:
 6. Disco non collegato: mappa, elenco e statistiche funzionano con i dati dell'ultima
    indicizzazione; nessun pulsante di apertura (F08-AC4).
 7. Giudizio sulla leggibilità della mappa in tema chiaro e scuro (U5).
+8. *Pulizia* (menu laterale): per ogni disco collegato e indicizzato le categorie con
+   spiegazione e totale (F09-AC1); nessuna proposta in Windows, programmi, `AppData`, cartelle
+   di giochi o app installate altrove (F09-AC2); i file grandi e vecchi non sono preselezionati;
+   ogni elemento si può deselezionare (F09-AC3); la cache di un browser aperto è bloccata con
+   l'invito a chiuderlo (F09-AC4); in fondo lo spazio occupato dal Cestino.
+9. **Prova di eliminazione solo sul disco di test**: creare su PRISMTEST una cartella vuota (o
+   un file di prova), aspettare che compaia in *Pulizia*, spostarla nel Cestino con conferma:
+   il risultato riporta spostati e spazio liberato; nel Cestino di PRISMTEST c'è l'elemento
+   (F16-AC1). Sui dischi veri usare la pulizia solo quando lo si vuole davvero: la build di
+   sviluppo rifiuta comunque ogni eliminazione fuori da PRISMTEST, `%TEMP%` e
+   `%LOCALAPPDATA%\PrismDev` (S1).

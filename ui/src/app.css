@@ -133,6 +133,20 @@ button.danger {
   color: var(--danger);
 }
 
+button.primary.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #ffffff;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  width: auto;
+  padding: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+
 button.ghost {
   border-color: transparent;
   background: transparent;

@@ -10,11 +10,12 @@
   import { cardJob } from './lib/catalog';
   import { setTheme, type ThemePreference } from './lib/theme';
   import CatalogView from './components/CatalogView.svelte';
+  import CleanupView from './components/CleanupView.svelte';
   import Icon from './components/Icon.svelte';
   import SettingsView from './components/SettingsView.svelte';
   import SpaceView from './components/SpaceView.svelte';
 
-  type Page = 'catalog' | 'settings' | 'space';
+  type Page = 'catalog' | 'cleanup' | 'settings' | 'space';
 
   let page = $state<Page>('catalog');
   let spaceVolume = $state<number | null>(null);
@@ -93,6 +94,7 @@
 
   const nav: { page: Page; icon: string }[] = [
     { page: 'catalog', icon: 'disks' },
+    { page: 'cleanup', icon: 'broom' },
     { page: 'settings', icon: 'settings' },
   ];
 </script>
@@ -136,6 +138,8 @@
           page = 'space';
         }}
       />
+    {:else if page === 'cleanup'}
+      <CleanupView {volumes} onerror={showToast} />
     {:else}
       <SettingsView {settings} {volumes} {info} onchange={changeSettings} onerror={showToast} />
     {/if}

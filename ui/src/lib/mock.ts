@@ -8,6 +8,7 @@ import type { Settings } from './bindings/Settings';
 import type { VolumeView } from './bindings/VolumeView';
 import type { Backend, Unlisten } from './api';
 import { cardJob } from './catalog';
+import { mockCleanupScan, mockDeleteEntries } from './mock-cleanup';
 import { mockHasEntry, mockLargestFiles, mockSpaceFolder, mockTypeStats } from './mock-space';
 
 const GB = 1_000_000_000;
@@ -137,6 +138,13 @@ export function mockBackend(): Backend {
     openEntry: async (volumeId, entryId) => {
       if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
       if (!mockHasEntry(volumeId, entryId)) throw { code: 'not_found', message: String(entryId) };
+    },
+    cleanupScan: async () => mockCleanupScan(),
+    deleteEntries: async (volumeId, entryIds, _emptyFolders, permanent) => {
+      if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
+      const result = mockDeleteEntries(volumeId, entryIds, permanent);
+      emitVolumes();
+      return result;
     },
     revealEntry: async (volumeId, entryId) => {
       if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };

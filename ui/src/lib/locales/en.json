@@ -5,6 +5,7 @@
   },
   "nav": {
     "catalog": "Disks",
+    "cleanup": "Cleanup",
     "settings": "Settings"
   },
   "catalog": {
@@ -118,6 +119,8 @@
     "store": "The catalog could not be read or written.",
     "autostart_failed": "Start with Windows could not be changed.",
     "open_failed": "The disk could not be opened in Explorer.",
+    "needs_permanent": "This disk has no Recycle Bin: confirm the permanent deletion.",
+    "delete_failed": "The files could not be removed.",
     "unknown": "Something went wrong."
   },
   "tray": {
@@ -181,6 +184,48 @@
     "below": "under {size}",
     "range": "{from} – {to}",
     "over": "{size} and more"
+  },
+  "cleanup": {
+    "title": "Cleanup",
+    "subtitle": "Space you can recover on the connected disks. Nothing is removed until you confirm.",
+    "rescan": "Scan again",
+    "scanning": "Looking for recoverable space…",
+    "nothing": "Nothing to clean on the connected disks.",
+    "items": "Items: {count}",
+    "cat": {
+      "temp": "Temporary files",
+      "empty_folders": "Empty folders",
+      "large_old": "Large and old files",
+      "browser_cache": "{browser} cache"
+    },
+    "why": {
+      "temp": "Files left by installers and programs in the temporary folders of Windows and of your account, older than one day.",
+      "empty_folders": "Folders with no file inside, not even in their subfolders. System and program folders are never proposed.",
+      "large_old": "Files of 500 MB or more that have not changed for a year. They are your files: check each one before removing it.",
+      "browser_cache": "Copies of web pages and images the browser downloads again when needed. Profiles, cookies, passwords and history are never touched."
+    },
+    "closeBrowser": "Close {browser} to clean its cache.",
+    "emptyFolder": "empty",
+    "showAll": "Show all {count}",
+    "showLess": "Show fewer",
+    "moreLater": "and {count} more: clean these, then scan again",
+    "selectAll": "Select all",
+    "selectNone": "Select none",
+    "recycle": "Move to the Recycle Bin ({size})",
+    "deletePermanently": "Delete permanently ({size})",
+    "confirmRecycleTitle": "Move the selected items ({count}, {size}) to the Recycle Bin?",
+    "confirmDeleteTitle": "Delete the selected items ({count}, {size}) permanently?",
+    "confirmCheck": "Prism checks every item first: anything that changed since the last indexing is left where it is.",
+    "confirmPermanent": "This disk has no Recycle Bin: the files cannot be restored.",
+    "recycleNow": "Move to the Recycle Bin",
+    "deleteNow": "Delete permanently",
+    "resultRecycled": "Moved to the Recycle Bin: {count}. Freed: {size}.",
+    "resultDeleted": "Deleted: {count}. Freed: {size}.",
+    "resultSkipped": "Left alone because they changed: {count}.",
+    "resultFailed": "Not removed (in use?): {count}.",
+    "binsTitle": "Recycle Bin",
+    "bin": "Recycle Bin of {name}: {count} items, {size}.",
+    "binHint": "That space is freed when you empty the Recycle Bin from Explorer."
   },
   "time": {
     "justNow": "just now",

@@ -18,6 +18,7 @@
     plus: 'M12 5v14 M5 12h14',
     open: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
     back: 'M15 18l-6-6 6-6',
+    broom: 'M15 3l6 6 M13 5l6 6-6 6-6-6z M7 11l-4 9 9-4',
     up: 'M12 19V5 M5 12l7-7 7 7',
     space: 'M3 3h18v18H3z M3 12h10 M13 3v18 M13 15h8',
   };

@@ -8,6 +8,7 @@ use prism_core::model::{EntryId, VolumeId, VolumeLabels, VolumeStatus};
 use prism_core::store;
 use tauri::{AppHandle, Emitter, State};
 
+use crate::cleanup_views::{CleanupResultView, CleanupView};
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings, VolumeView};
 use crate::space_views::{LargeFileView, SpaceFolderView, TypeStatsView};
 use crate::state::{AppState, IndexKind, SETTINGS_KEY, access_path, job_view};
@@ -176,6 +177,32 @@ pub fn open_entry(state: State<'_, Arc<AppState>>, volume_id: i64, entry_id: i64
 pub fn reveal_entry(state: State<'_, Arc<AppState>>, volume_id: i64, entry_id: i64) -> R<()> {
     let path = state.entry_path(VolumeId(volume_id), EntryId(entry_id))?;
     prism_win::shell::reveal(&path).map_err(|e| ApiError::new("open_failed", e))
+}
+
+/// What the guided cleanup proposes on the connected disks (F09).
+#[tauri::command]
+pub async fn cleanup_scan(state: State<'_, Arc<AppState>>) -> R<CleanupView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.cleanup_scan()).await
+}
+
+/// Deletes the chosen entries of a volume through the safe deletion path (ADR-0012, F16).
+#[tauri::command]
+pub async fn delete_entries(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    volume_id: i64,
+    entry_ids: Vec<i64>,
+    empty_folders: bool,
+    permanent: bool,
+) -> R<CleanupResultView> {
+    let s = Arc::clone(&state);
+    let entries: Vec<EntryId> = entry_ids.into_iter().map(EntryId).collect();
+    let result =
+        blocking(move || s.delete_entries(VolumeId(volume_id), &entries, empty_folders, permanent))
+            .await;
+    emit_volumes(&app);
+    result
 }
 
 /// F01-AC5: removes the catalog data of a volume; files on the disk are never touched.

@@ -5,11 +5,10 @@
 
 ## Stato attuale
 
-- **Tappa**: T4 in corso (T3 completata il 2026-11-07). L'app si prova seguendo
-  `docs/REVIEW.md` §4.
-- **Prossimo passo**: T4 — pulizia guidata (F09): regole delle categorie sul catalogo
-  (temporanei, cartelle vuote, grandi e vecchi, cache dei browser chiusi), schermata con
-  selezione, eliminazione tramite `fileops`. Nessuna sosta (CLAUDE.md).
+- **Tappa**: T4 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
+- **Prossimo passo**: T5 — ricerca: benchmark e decisione sull'indice (ADR-0010), parser dei
+  filtri avanzati (F07-AC5/AC6), finestra di ricerca globale con scorciatoia (F07-AC1),
+  risultati offline con nome e posizione del disco (F07-AC4). Nessuna sosta (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -23,6 +22,39 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T4 completata: schermata Pulizia e guardia dell'app di sviluppo
+
+- App: comandi `cleanup_scan` (categorie per ogni disco collegato e indicizzato, Cestino per
+  informazione) e `delete_entries` (Cestino sui volumi fissi, definitivo altrove solo con
+  conferma). `prism-win::trash` ora riprova uno per uno gli elementi rimasti se la shell si
+  ferma su un file in uso o sparito.
+- Interfaccia: schermata *Pulizia* nel menu laterale; 3 Vitest della selezione, 5 Playwright
+  (F09-AC1/AC3/AC4, F16-AC1/AC2).
+- Test elevato `fileops_real.rs`: eliminazione sicura completa sul disco di test (catalogo,
+  file cambiato saltato, cartella vuota e file vecchio nel Cestino vero di PRISMTEST).
+- Dati reali (schermata in sola lettura, nessuna eliminazione): su D: comparivano cartelle
+  vuote di Steam installato in `D:\Programmi` → nuova regola delle cartelle di programmi (D25).
+- **Istruzione della supervisione (S1, priorità alta)**: le build di debug dell'app eliminano
+  solo dentro PRISMTEST, `%TEMP%` e `%LOCALAPPDATA%\PrismDev` (`AppState::deletion_guard`); test
+  che un'eliminazione fuori sandbox è rifiutata senza toccare il disco (L10).
+
+**Report di fine tappa T4**
+
+- Fatto: analisi dello spazio dal catalogo (treemap, file più grandi, statistiche per tipo,
+  anche per dischi scollegati), schermata *Spazio*, eliminazione sicura con Cestino e registro
+  delle azioni, pulizia guidata con regole prudenti, apertura di file e cartelle senza
+  privilegi dalle liste.
+- Misure: su C: (1,37 milioni di voci) treemap 0,48 s, file più grandi 0,14–0,34 s,
+  statistiche 0,23 s, scansione della pulizia ~2 s.
+- Criteri coperti da test automatici: F08-AC1/AC2/AC3/AC4 (e2e, unitari), F08-AC5 (misura),
+  F09-AC1/AC2/AC3/AC4 (unitari, e2e), F16-AC1/AC2 (test elevati sul disco di test, e2e),
+  F16-AC3/AC5/AC6 (integrazione).
+- Controlli: `scripts/check.ps1` verde, test elevati verdi.
+- Rimandati: soglie della pulizia configurabili nelle impostazioni (D24), consultazione del
+  registro delle azioni nell'interfaccia (i dati ci sono: `store::actions_log`), regola
+  dell'ultima copia (T6).
+- Verifica manuale per l'utente: checklist T4 in `docs/REVIEW.md` §4.
 
 ### 2026-11-07 — T4: regole della pulizia guidata
 

@@ -5,6 +5,7 @@
   },
   "nav": {
     "catalog": "Dischi",
+    "cleanup": "Pulizia",
     "settings": "Impostazioni"
   },
   "catalog": {
@@ -118,6 +119,8 @@
     "store": "Non è stato possibile leggere o scrivere il catalogo.",
     "autostart_failed": "Non è stato possibile cambiare l'avvio con Windows.",
     "open_failed": "Non è stato possibile aprire il disco in Esplora risorse.",
+    "needs_permanent": "Questo disco non ha il Cestino: conferma l'eliminazione definitiva.",
+    "delete_failed": "Non è stato possibile togliere i file.",
     "unknown": "Qualcosa è andato storto."
   },
   "tray": {
@@ -181,6 +184,48 @@
     "below": "sotto {size}",
     "range": "{from} – {to}",
     "over": "{size} e oltre"
+  },
+  "cleanup": {
+    "title": "Pulizia",
+    "subtitle": "Spazio che puoi recuperare sui dischi collegati. Non si toglie nulla finché non confermi.",
+    "rescan": "Analizza di nuovo",
+    "scanning": "Cerco lo spazio recuperabile…",
+    "nothing": "Niente da pulire sui dischi collegati.",
+    "items": "Elementi: {count}",
+    "cat": {
+      "temp": "File temporanei",
+      "empty_folders": "Cartelle vuote",
+      "large_old": "File grandi e vecchi",
+      "browser_cache": "Cache di {browser}"
+    },
+    "why": {
+      "temp": "File lasciati da installazioni e programmi nelle cartelle temporanee di Windows e del tuo account, più vecchi di un giorno.",
+      "empty_folders": "Cartelle senza alcun file, nemmeno nelle sottocartelle. Le cartelle di sistema e dei programmi non vengono mai proposte.",
+      "large_old": "File di almeno 500 MB non modificati da un anno. Sono file tuoi: controllali uno per uno prima di toglierli.",
+      "browser_cache": "Copie di pagine e immagini che il browser riscarica quando servono. Profili, cookie, password e cronologia non vengono mai toccati."
+    },
+    "closeBrowser": "Chiudi {browser} per pulirne la cache.",
+    "emptyFolder": "vuota",
+    "showAll": "Mostra tutti ({count})",
+    "showLess": "Mostra meno",
+    "moreLater": "e altri {count}: pulisci questi, poi analizza di nuovo",
+    "selectAll": "Seleziona tutto",
+    "selectNone": "Deseleziona tutto",
+    "recycle": "Sposta nel Cestino ({size})",
+    "deletePermanently": "Elimina definitivamente ({size})",
+    "confirmRecycleTitle": "Spostare nel Cestino gli elementi selezionati ({count}, {size})?",
+    "confirmDeleteTitle": "Eliminare definitivamente gli elementi selezionati ({count}, {size})?",
+    "confirmCheck": "Prism controlla ogni elemento prima: ciò che è cambiato dall'ultima indicizzazione resta dov'è.",
+    "confirmPermanent": "Questo disco non ha il Cestino: i file non si potranno recuperare.",
+    "recycleNow": "Sposta nel Cestino",
+    "deleteNow": "Elimina definitivamente",
+    "resultRecycled": "Spostati nel Cestino: {count}. Liberati: {size}.",
+    "resultDeleted": "Eliminati: {count}. Liberati: {size}.",
+    "resultSkipped": "Lasciati dove sono perché cambiati: {count}.",
+    "resultFailed": "Non rimossi (in uso?): {count}.",
+    "binsTitle": "Cestino",
+    "bin": "Cestino di {name}: {count} elementi, {size}.",
+    "binHint": "Quello spazio si libera svuotando il Cestino da Esplora risorse."
   },
   "time": {
     "justNow": "proprio ora",

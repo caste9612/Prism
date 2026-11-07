@@ -321,6 +321,13 @@ Misure su C: (1,37 milioni di voci): treemap 0,48 s (11.592 nodi), file più gra
    voci eliminate e ricalcola gli aggregati delle cartelle madri, scrive ogni esito in
    `actions_log`.
 
+Nell'app (`AppState::delete_entries`, comando `delete_entries`) il Cestino si usa sui volumi
+fissi locali; altrove l'eliminazione è definitiva solo con la conferma esplicita
+dell'interfaccia. Le build di **debug** passano sempre una `SandboxGuard`
+(`AppState::deletion_guard`): solo il volume PRISMTEST (riconosciuto dall'etichetta), `%TEMP%`
+e `%LOCALAPPDATA%\PrismDev`; la release non ha guardia. La stessa guardia varrà per ogni
+futura operazione distruttiva dell'app (spostamento, copia verso, sovrascrittura).
+
 La regola dell'ultima copia dei duplicati (F16-AC4) e il controllo dell'hash arrivano con T6.
 
 ### 4.8 Pulizia guidata (F09, T4)
@@ -342,7 +349,13 @@ disco.
 - **Mai proposti** (F09-AC2): `DEFAULT_PROTECTED` (Windows, programmi, `ProgramData`,
   ripristino, `Users\*\AppData` tranne temporanei e cache, `inetpub` creato da Windows come
   mitigazione di sicurezza…), le cartelle dei profili utente in sé, elementi nascosti o di
-  sistema e tutto ciò che contengono, collegamenti e giunzioni, nomi che iniziano con `.` o `$`.
+  sistema e tutto ciò che contengono, collegamenti e giunzioni, nomi che iniziano con `.` o `$`,
+  e tutto ciò che sta sotto una cartella di programmi installata altrove (una cartella che
+  contiene direttamente una `.dll`: giochi, Steam, app portatili).
+- **Schermata** *Pulizia* (`ui/src/components/CleanupView.svelte`, comandi `cleanup_scan` e
+  `delete_entries`): gruppi per categoria e disco con spiegazione e totale, elementi
+  deselezionabili (preselezionati tranne i file grandi e vecchi), conferma prima di agire,
+  risultato con spostati, saltati e non riusciti; spazio occupato dal Cestino per informazione.
 
 Su C: (1,37 milioni di voci) la scansione completa richiede circa 2 s (cartelle vuote 1,1 s,
 temporanei 0,75 s); `prism-cli cleanup <volume>` mostra la proposta senza eliminare nulla.

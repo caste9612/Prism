@@ -83,13 +83,17 @@ di scelta per le identità ambigue, REVIEW L7), F03-AC1/AC3, F19-AC1/AC3/AC4, F2
 alla 1.0 e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
 **Verifica utente**: aspetto e usabilità della schermata catalogo; avvio con Windows.
 
-## T4 — Spazio
+## T4 — Spazio  `[x]`
 
 - [x] Treemap su canvas con navigazione, elenco dei più grandi (F08)
 - [x] Statistiche per tipo, estensione e fascia di dimensione (F08-AC3)
 - [x] Eliminazione sicura di base (ADR-0012, F16-AC1/2/3/5/6): Cestino, verifica sul disco,
       registro delle azioni; l'ultima copia dei duplicati (F16-AC4) arriva con T6
-- [ ] Pulizia guidata (F09): temporanei, cartelle vuote, grandi e vecchi, cache browser/app
+- [x] Pulizia guidata (F09): temporanei, cartelle vuote, grandi e vecchi, cache dei browser
+- [x] Guardia sandbox nelle build di debug dell'app (istruzione della supervisione, REVIEW S1)
+
+Criteri coperti: F08-AC1/AC2/AC3/AC4/AC5, F09-AC1/AC2/AC3/AC4, F16-AC1/AC2/AC3/AC5/AC6.
+**Verifica utente**: leggibilità della treemap; prova di pulizia sul disco di test (REVIEW §4).
 
 ## T5 — Ricerca
 

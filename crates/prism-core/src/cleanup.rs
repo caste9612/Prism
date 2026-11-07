@@ -161,6 +161,49 @@ fn chain(conn: &Connection, id: EntryId) -> Result<Vec<(String, u32)>, StoreErro
     Ok(out)
 }
 
+/// Folders that hold an installed program: an application lives there, wherever it was
+/// installed (games in `D:\Programs`, Steam libraries, portable tools), and its empty folders
+/// and big data files are not the user's to clean (F09-AC2). A folder counts as one when it
+/// directly contains a `.dll`: installed applications nearly always do, while the folders
+/// where users keep their files (Downloads with a setup `.exe`) rarely do.
+struct ProgramFolders {
+    memo: std::collections::HashMap<EntryId, bool>,
+}
+
+impl ProgramFolders {
+    fn new() -> Self {
+        Self {
+            memo: std::collections::HashMap::new(),
+        }
+    }
+
+    fn holds_program(&mut self, conn: &Connection, folder: EntryId) -> Result<bool, StoreError> {
+        if let Some(&known) = self.memo.get(&folder) {
+            return Ok(known);
+        }
+        let found: bool = conn
+            .prepare_cached(
+                "SELECT EXISTS (SELECT 1 FROM entries WHERE parent_id = ?1 AND is_dir = 0 \
+                 AND name LIKE '%.dll')",
+            )?
+            .query_row([folder.0], |r| r.get(0))?;
+        self.memo.insert(folder, found);
+        Ok(found)
+    }
+
+    /// Whether `id` lies inside a program folder (the volume root does not count).
+    fn contains(&mut self, conn: &Connection, id: EntryId) -> Result<bool, StoreError> {
+        let chain = store::ancestors_and_self(conn, id)?;
+        // chain: id, parent, ..., root; skip the root.
+        for folder in chain.iter().take(chain.len().saturating_sub(1)) {
+            if self.holds_program(conn, *folder)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
 /// Whether an item may be proposed by the categories that scan the whole volume.
 fn allowed(chain: &[(String, u32)], protected: &[Vec<String>]) -> bool {
     let names: Vec<String> = chain.iter().map(|(n, _)| n.clone()).collect();
@@ -267,10 +310,11 @@ pub fn empty_folders(
         .query_map([volume.0], |r| Ok(EntryId(r.get(0)?)))?
         .collect::<Result<_, _>>()?;
     let protected = patterns(rules);
+    let mut programs = ProgramFolders::new();
     let mut out = Vec::new();
     for id in ids {
         let path = chain(conn, id)?;
-        if allowed(&path, &protected) {
+        if allowed(&path, &protected) && !programs.contains(conn, id)? {
             out.push(item(conn, id, &path, None)?);
         }
     }
@@ -304,10 +348,11 @@ pub fn large_old_files(
             .iter()
             .map(|d| d.split('\\').map(str::to_owned).collect()),
     );
+    let mut programs = ProgramFolders::new();
     let mut out = Vec::new();
     for id in ids {
         let path = chain(conn, id)?;
-        if allowed(&path, &protected) {
+        if allowed(&path, &protected) && !programs.contains(conn, id)? {
             out.push(item(conn, id, &path, None)?);
         }
     }
@@ -559,6 +604,26 @@ mod tests {
             (r"$SysReset\", 0, 0, 0),
             (r"Old Backups\", 0, 0, 0),
             (r"Old Backups\image.iso", GB, 700, 0),
+            // A program installed outside Program Files (D24/D25): its empty folders and old
+            // data files are never proposed.
+            (r"Games\", 0, 0, 0),
+            (r"Games\Steam\", 0, 0, 0),
+            (r"Games\Steam\steam.exe", 4_000_000, 300, 0),
+            (r"Games\Steam\steamclient.dll", 9_000_000, 300, 0),
+            (r"Games\Steam\steamapps\", 0, 0, 0),
+            (r"Games\Steam\steamapps\downloading\", 0, 0, 0),
+            (r"Games\Steam\steamapps\common\", 0, 0, 0),
+            (r"Games\Steam\steamapps\common\Game\", 0, 0, 0),
+            (
+                r"Games\Steam\steamapps\common\Game\data.pak",
+                3 * GB,
+                800,
+                0,
+            ),
+            (r"Downloads\", 0, 0, 0),
+            (r"Downloads\setup.exe", 50_000_000, 900, 0),
+            (r"Downloads\old-dvd.iso", 4 * GB, 900, 0),
+            (r"Downloads\empty-unzip\", 0, 0, 0),
         ])
     }
 
@@ -586,8 +651,11 @@ mod tests {
         let (_d, store, volume) = sample();
         let items = store.read(|c| empty_folders(c, volume, &rules())).unwrap();
         // Top-most only (empty1 holds empty2); nothing in AppData, Windows, hidden or dot
-        // folders, links.
-        assert_eq!(paths(&items), [r"Users\me\Projects\a\empty1"]);
+        // folders, links, program folders (Steam); Downloads with a setup .exe is not one.
+        assert_eq!(
+            paths(&items),
+            [r"Users\me\Projects\a\empty1", r"Downloads\empty-unzip"]
+        );
         assert!(items[0].is_dir);
     }
 
@@ -600,11 +668,14 @@ mod tests {
         assert_eq!(
             paths(&items),
             [
+                r"Downloads\old-dvd.iso",
                 r"Users\me\Videos\holiday-2019.mkv",
                 r"Old Backups\image.iso"
             ]
         );
-        assert_eq!(items[0].size, 2 * GB);
+        assert_eq!(items[1].size, 2 * GB);
+        // The 3 GB game data inside the Steam folder is not proposed.
+        assert!(!paths(&items).iter().any(|p| p.ends_with("data.pak")));
     }
 
     #[test]

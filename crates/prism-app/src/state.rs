@@ -9,20 +9,25 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use prism_core::cancel::CancelToken;
+use prism_core::cleanup::{self, Category};
 use prism_core::exclusion::ExclusionPolicy;
+use prism_core::fileops::{self, DeleteRequest, Disposal, FolderCheck};
 use prism_core::indexer::{self, IndexProgress, IndexRequest};
 use prism_core::jobs::{JobContext, JobEngine, JobId, JobInfo, JobSpec, Priority};
 use prism_core::model::{DisplayKind, EntryId, Volume, VolumeId, VolumeKind, VolumeStatus};
 use prism_core::names;
 use prism_core::reconcile::ReconcileTarget;
 use prism_core::refresh;
+use prism_core::sandbox::SandboxGuard;
 use prism_core::scan::WalkEnumerator;
 use prism_core::space::{self, StatsScope, TreemapOptions};
 use prism_core::store::StoreError;
 use prism_core::store::{self, Store};
 use prism_core::volumes::DetectedVolume;
+use prism_win::trash::ShellRemover;
 use prism_win::{autostart, ntfs};
 
+use crate::cleanup_views::{self, CleanupResultView, CleanupView, RecycleBinView};
 use crate::dto::{ApiError, JobView, Settings, VolumeView};
 use crate::netprobe::NetProbe;
 use crate::notices::Notices;
@@ -271,6 +276,163 @@ impl AppState {
         }
         Ok(path)
     }
+}
+
+/// Guided cleanup (F09) and safe deletion (ADR-0012).
+impl AppState {
+    /// What can be cleaned on the connected, indexed volumes.
+    pub fn cleanup_scan(&self) -> Result<CleanupView, ApiError> {
+        let running = prism_win::process::running_process_names();
+        let known = self.store.read(store::volumes)?;
+        let online: Vec<(VolumeId, DetectedVolume)> =
+            self.online().iter().map(|(k, v)| (*k, v.clone())).collect();
+        let mut view = CleanupView::default();
+        for (id, detected) in online {
+            let indexed = known
+                .iter()
+                .any(|v| v.id == id && auto_update(v.status) && v.last_indexed_at.is_some());
+            let Some(root) = access_path(&detected).filter(|_| indexed) else {
+                continue;
+            };
+            let rules = cleanup_views::rules_for(&root);
+            let permanent = detected.info.kind != VolumeKind::Fixed;
+            let groups = self.store.read(|c| {
+                let mut out = vec![
+                    cleanup_views::group(
+                        Category::Temp,
+                        id.0,
+                        cleanup::temp_files(c, id, &rules)?,
+                        None,
+                        None,
+                        permanent,
+                    ),
+                    cleanup_views::group(
+                        Category::EmptyFolders,
+                        id.0,
+                        cleanup::empty_folders(c, id, &rules)?,
+                        None,
+                        None,
+                        permanent,
+                    ),
+                    cleanup_views::group(
+                        Category::LargeOld,
+                        id.0,
+                        cleanup::large_old_files(c, id, &rules)?,
+                        None,
+                        None,
+                        permanent,
+                    ),
+                ];
+                for b in &rules.browsers {
+                    let blocked = running.contains(&b.process).then(|| b.browser.clone());
+                    out.push(cleanup_views::group(
+                        Category::BrowserCache,
+                        id.0,
+                        cleanup::browser_caches(c, id, b)?,
+                        Some(b.browser.clone()),
+                        blocked,
+                        permanent,
+                    ));
+                }
+                Ok(out)
+            })?;
+            view.groups.extend(groups.into_iter().flatten());
+            if !permanent
+                && let Some((items, bytes)) = prism_win::trash::recycle_bin_info(&root)
+                && items > 0
+            {
+                view.recycle_bins.push(RecycleBinView {
+                    volume_id: id.0,
+                    items,
+                    bytes,
+                });
+            }
+        }
+        Ok(view)
+    }
+
+    /// Deletes catalog entries of a connected volume (ADR-0012): to the Recycle Bin on local
+    /// fixed volumes; elsewhere only permanently and only with `permanent` confirmed by the
+    /// user (F16-AC2).
+    pub fn delete_entries(
+        &self,
+        volume: VolumeId,
+        entries: &[EntryId],
+        empty_folders: bool,
+        permanent: bool,
+    ) -> Result<CleanupResultView, ApiError> {
+        let detected = self.detected(volume)?;
+        let root = access_path(&detected)
+            .ok_or_else(|| ApiError::new("volume_offline", format!("volume {volume}")))?;
+        let disposal = if detected.info.kind == VolumeKind::Fixed {
+            Disposal::RecycleBin
+        } else if permanent {
+            Disposal::Permanent
+        } else {
+            return Err(ApiError::new("needs_permanent", format!("volume {volume}")));
+        };
+        let report = fileops::delete_entries(
+            &self.store,
+            &DeleteRequest {
+                volume,
+                root: &root,
+                entries,
+                disposal,
+                folders: if empty_folders {
+                    FolderCheck::NoFiles
+                } else {
+                    FolderCheck::Exists
+                },
+            },
+            &ShellRemover,
+            self.deletion_guard()?.as_ref(),
+        )
+        .map_err(|e| ApiError::new("delete_failed", e))?;
+        tracing::info!(
+            volume = volume.0,
+            done = report.count("done"),
+            freed = report.freed(),
+            "deletion finished"
+        );
+        Ok((&report).into())
+    }
+
+    /// The guard of every destructive operation of the app (CLAUDE.md, TESTING S2): development
+    /// builds, which are driven with catalogs of real disks, may act only inside the PRISMTEST
+    /// test volume (found by its label, never by letter), the temporary folder and the
+    /// development data; release builds have no guard.
+    pub fn deletion_guard(&self) -> Result<Option<SandboxGuard>, ApiError> {
+        if !self.dev {
+            return Ok(None);
+        }
+        let test_volume = self
+            .online()
+            .values()
+            .find(|d| d.info.os_label.as_deref() == Some(TEST_VOLUME_LABEL))
+            .and_then(access_path);
+        let dev_data = std::env::var_os("LOCALAPPDATA").map(|l| PathBuf::from(l).join("PrismDev"));
+        let roots = debug_guard_roots(test_volume, std::env::temp_dir(), dev_data);
+        SandboxGuard::new(roots)
+            .map(Some)
+            .map_err(|e| ApiError::new("delete_failed", e))
+    }
+}
+
+/// Label of the virtual test disk (docs/TESTING.md §4).
+pub const TEST_VOLUME_LABEL: &str = "PRISMTEST";
+
+/// The folders a development build may change: those that exist among the test volume, the
+/// temporary folder and the development data.
+pub fn debug_guard_roots(
+    test_volume: Option<PathBuf>,
+    temp: PathBuf,
+    dev_data: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    [test_volume, Some(temp), dev_data]
+        .into_iter()
+        .flatten()
+        .filter(|p| p.is_dir())
+        .collect()
 }
 
 /// Key of the user settings (F21) in the `settings` table: one JSON document.

@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { ApiError } from './bindings/ApiError';
 import type { AppInfo } from './bindings/AppInfo';
+import type { CleanupResultView } from './bindings/CleanupResultView';
+import type { CleanupView } from './bindings/CleanupView';
 import type { JobView } from './bindings/JobView';
 import type { LabelsInput } from './bindings/LabelsInput';
 import type { LargeFileView } from './bindings/LargeFileView';
@@ -30,6 +32,8 @@ export interface Backend {
   largestFiles(volumeId: number, folderId: number | null, limit: number): Promise<LargeFileView[]>;
   typeStats(volumeId: number | null): Promise<TypeStatsView>;
   openEntry(volumeId: number, entryId: number): Promise<void>;
+  cleanupScan(): Promise<CleanupView>;
+  deleteEntries(volumeId: number, entryIds: number[], emptyFolders: boolean, permanent: boolean): Promise<CleanupResultView>;
   revealEntry(volumeId: number, entryId: number): Promise<void>;
   removeVolume(id: number): Promise<void>;
   getSettings(): Promise<Settings>;
@@ -52,6 +56,9 @@ const tauriBackend: Backend = {
   largestFiles: (volumeId, folderId, limit) => invoke('largest_files', { volumeId, folderId, limit }),
   typeStats: (volumeId) => invoke('type_stats', { volumeId }),
   openEntry: (volumeId, entryId) => invoke('open_entry', { volumeId, entryId }),
+  cleanupScan: () => invoke('cleanup_scan'),
+  deleteEntries: (volumeId, entryIds, emptyFolders, permanent) =>
+    invoke('delete_entries', { volumeId, entryIds, emptyFolders, permanent }),
   revealEntry: (volumeId, entryId) => invoke('reveal_entry', { volumeId, entryId }),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),
