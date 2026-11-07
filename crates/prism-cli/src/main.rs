@@ -16,11 +16,13 @@ use clap::{Args, Parser, Subcommand};
 use prism_core::cancel::CancelToken;
 use prism_core::exclusion::{ExclusionPolicy, ExclusionRule};
 use prism_core::indexer::{self, IndexProgress, IndexReport, IndexRequest};
-use prism_core::model::{EntryRecord, Volume, VolumeId, VolumeInfo, VolumeStatus};
+use prism_core::model::{EntryRecord, Volume, VolumeId, VolumeInfo, VolumeKind, VolumeStatus};
 use prism_core::names;
 use prism_core::reconcile::ReconcileTarget;
 use prism_core::scan::WalkEnumerator;
 use prism_core::store::{self, Store};
+use prism_core::volumes::{self, DetectedVolume, VolumeMatch, VolumeSource, match_volumes};
+use prism_win::volumes::WinVolumeSource;
 
 use crate::format::{human_size, human_time};
 
@@ -48,6 +50,12 @@ enum Command {
     },
     /// List the volumes in the catalog.
     Volumes,
+    /// Detect the connected volumes and match them with the catalog (ADR-0016).
+    Detect {
+        /// Record the result in the catalog (known volumes updated, new ones added).
+        #[arg(long)]
+        record: bool,
+    },
     /// List a folder from the catalog (works offline).
     Ls { path: PathBuf },
     /// Show the largest items of a folder from the catalog.
@@ -157,6 +165,7 @@ fn run(store: &Store, command: &Command) -> CliResult {
     match command {
         Command::Scan { path, walk } => scan(store, path, walk),
         Command::Volumes => list_volumes(store),
+        Command::Detect { record } => detect(store, *record),
         Command::Ls { path } => ls(store, path),
         Command::Du { path, top } => du(store, path, *top),
         Command::Stats => stats(store),
@@ -227,11 +236,21 @@ pub fn index_with_progress(
     })
 }
 
-/// Finds the development volume registered at `mount`, or adds it.
-pub fn dev_volume(store: &Store, mount: &str) -> Result<VolumeId, String> {
+/// Finds the development volume registered at `mount` (a folder that is not a volume root),
+/// or adds it. Volumes with a real identity are never matched by path.
+fn dev_volume(store: &Store, mount: &str) -> Result<VolumeId, String> {
     let m = mount.to_owned();
     let existing = store
-        .read(move |c| store::volume_by_mount(c, &m))
+        .read(move |c| {
+            Ok(store::volumes(c)?.into_iter().find(|v| {
+                v.info.fs_serial.is_none()
+                    && v.info.unc_path.is_none()
+                    && v.info
+                        .last_mount
+                        .as_deref()
+                        .is_some_and(|x| names::eq_ignore_case(x, &m))
+            }))
+        })
         .map_err(err)?;
     match existing {
         Some(v) => Ok(v.id),
@@ -244,12 +263,99 @@ pub fn dev_volume(store: &Store, mount: &str) -> Result<VolumeId, String> {
     }
 }
 
+fn same_mount(a: &str, b: &str) -> bool {
+    names::eq_ignore_case(a.trim_end_matches('\\'), b.trim_end_matches('\\'))
+}
+
+/// The volume for `mount`: a connected volume whose root it is (matched by identity, F02-AC3),
+/// a UNC share (F02-AC5), or else a development folder volume. Also returns the path to read
+/// it through: network shares are always read through their UNC path, because an elevated
+/// process does not see the user's mapped letters (ADR-0016).
+pub fn volume_for(store: &Store, mount: &str) -> Result<(VolumeId, String), String> {
+    let detected = if mount.starts_with(r"\\") && !mount.starts_with(r"\\?\") {
+        Some(DetectedVolume {
+            info: VolumeInfo {
+                kind: VolumeKind::Network,
+                unc_path: Some(mount.to_owned()),
+                ..VolumeInfo::dev_folder(mount)
+            },
+            mounts: vec![mount.to_owned()],
+            disks: Vec::new(),
+        })
+    } else {
+        WinVolumeSource
+            .detect()
+            .map_err(err)?
+            .into_iter()
+            .find(|d| d.mounts.iter().any(|m| same_mount(m, mount)))
+    };
+    let Some(mut detected) = detected else {
+        return Ok((dev_volume(store, mount)?, mount.to_owned()));
+    };
+    let access = match (&detected.info.kind, &detected.info.unc_path) {
+        (VolumeKind::Network, Some(unc)) => unc.clone(),
+        _ => mount.to_owned(),
+    };
+    // Index through the path the user gave (a letter or a mount folder).
+    detected.info.last_mount = Some(mount.to_owned());
+    let known = store.read(store::volumes).map_err(err)?;
+    let matched = match_volumes(std::slice::from_ref(&detected), &known)
+        .pop()
+        .unwrap_or(VolumeMatch::New);
+    if let VolumeMatch::Ambiguous(ids) = &matched {
+        return Err(format!(
+            "{mount} could be one of the catalog volumes {ids:?}: the choice belongs to the \
+             user (F02-AC3), not supported by the development CLI"
+        ));
+    }
+    let id = volumes::record_detected(store, &detected, &matched)
+        .map_err(err)?
+        .ok_or_else(|| "volume not recorded".to_owned())?;
+    Ok((id, access))
+}
+
 fn scan(store: &Store, path: &Path, walk: &WalkArgs) -> CliResult {
     let mount = normalize_root(path)?;
-    let volume = dev_volume(store, &mount)?;
-    eprintln!("indexing {mount} (volume {volume}) ...");
-    let report = index_with_progress(store, volume, Path::new(&mount), walk)?;
+    let (volume, access) = volume_for(store, &mount)?;
+    eprintln!("indexing {mount} through {access} (volume {volume}) ...");
+    let report = index_with_progress(store, volume, Path::new(&access), walk)?;
     print_report(&report);
+    Ok(())
+}
+
+fn detect(store: &Store, record: bool) -> CliResult {
+    let detected = WinVolumeSource.detect().map_err(err)?;
+    let known = store.read(store::volumes).map_err(err)?;
+    let matches = match_volumes(&detected, &known);
+    println!(
+        "{:<8} {:<9} {:<6} {:>10}  {:<18} {:<8} {:<14} label / UNC",
+        "mount", "kind", "fs", "capacity", "serial", "bus", "catalog"
+    );
+    for (d, m) in detected.iter().zip(&matches) {
+        let i = &d.info;
+        println!(
+            "{:<8} {:<9} {:<6} {:>10}  {:<18} {:<8} {:<14} {}",
+            i.last_mount.as_deref().unwrap_or("-"),
+            format!("{:?}", i.display_kind()).to_lowercase(),
+            i.fs_type.as_deref().unwrap_or("-"),
+            i.capacity.map_or_else(|| "-".into(), human_size),
+            i.fs_serial
+                .map_or_else(|| "-".into(), |s| format!("{s:016X}")),
+            i.bus.map_or("-", |b| b.as_str()),
+            match m {
+                VolumeMatch::Known(id) => format!("volume {id}"),
+                VolumeMatch::New => "new".to_owned(),
+                VolumeMatch::Ambiguous(ids) => format!("ambiguous {ids:?}"),
+            },
+            i.unc_path
+                .as_deref()
+                .or(i.os_label.as_deref())
+                .unwrap_or("")
+        );
+        if record {
+            volumes::record_detected(store, d, m).map_err(err)?;
+        }
+    }
     Ok(())
 }
 
@@ -281,14 +387,20 @@ fn list_volumes(store: &Store) -> CliResult {
         })
         .map_err(err)?;
     println!(
-        "{:>4}  {:<15} {:>12}  {:<17}  mount",
-        "id", "status", "entries", "indexed"
+        "{:>4}  {:<15} {:<9} {:>12}  {:<17}  mount",
+        "id", "status", "kind", "entries", "indexed"
     );
     for (v, n) in rows {
+        let kind = if v.info.fs_serial.is_none() && v.info.unc_path.is_none() {
+            "folder".to_owned()
+        } else {
+            format!("{:?}", v.info.display_kind()).to_lowercase()
+        };
         println!(
-            "{:>4}  {:<15} {:>12}  {:<17}  {}",
+            "{:>4}  {:<15} {:<9} {:>12}  {:<17}  {}",
             v.id.0,
             v.status.as_str(),
+            kind,
             n,
             v.last_indexed_at.map_or_else(|| "-".into(), human_time),
             v.info.last_mount.unwrap_or_default()

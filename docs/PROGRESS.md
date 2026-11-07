@@ -5,9 +5,9 @@
 
 ## Stato attuale
 
-- **Tappa**: T1 completata (2026-11-07). Report sotto.
-- **Prossimo passo**: T2 — rilevamento volumi e identità (ADR-0004), poi prototipo del lettore
-  MFT con misure sul VHDX e su C:/D: (sola lettura) e decisione go/no-go.
+- **Tappa**: T2 in corso — rilevamento volumi e identità fatto (ADR-0016).
+- **Prossimo passo**: T2 — prototipo del lettore MFT con misure sul VHDX e su C:/D: (sola
+  lettura) e decisione go/no-go.
 - **Da fare in T2 emerso in T1**: istantanea `ScanTree` più compatta (oggi ~245 B per voce di
   picco durante l'indicizzazione: per 5 milioni di voci sarebbe ~1,2 GB); hard link e ADS
   (ADR-0015).
@@ -21,6 +21,29 @@
   consentito solo del branch `rewrite` (vedi CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T2: rilevamento dei volumi e identità
+
+- `prism-core::volumes`: `DetectedVolume`, trait `VolumeSource`, abbinamento puro
+  `match_volumes` (noto / nuovo / ambiguo) e `record_detected`. Regole in **ADR-0016**.
+- `prism-win::volumes::WinVolumeSource`: volumi locali (seriale a 64 bit NTFS/ReFS da
+  `FILE_ID_INFO` senza privilegi, bus del disco, dischi fisici), esclusi quelli senza punto di
+  montaggio (ripristino, EFI); unità di rete dalle mappature persistenti dell'utente e della
+  sessione.
+- **Scoperta**: un processo elevato non vede le unità mappate dall'utente (`net use` vuoto nella
+  shell elevata, mentre l'utente ha X:, Y:, Z: sul NAS). Poiché Prism gira sempre elevato, le
+  mappature si leggono da `HKCU\Network` e le condivisioni si leggono via UNC (verificato).
+- Schema v2: colonna `bus_type` (interno/esterno, F01). Il tipo "esterno" si ricava dal bus
+  perché Windows riporta i dischi USB come fissi.
+- CLI: nuovo comando `detect` (con `--record`); `scan` e `bench` di una radice di volume usano
+  l'identità vera; le unità di rete si leggono via UNC.
+- Test: 8 unitari sull'abbinamento (F02-AC3 lettera cambiata, cloni ambigui, GUID decisivo,
+  ridimensionamento, file system diverso, rete per UNC F02-AC5), 3 di rilevamento reale non
+  elevati (seriale a 64 bit coerente con quello a 32 bit di Windows, stabilità, abbinamento con
+  sé stessi), 1 **elevato** che cambia davvero la lettera del disco di test PRISMTEST e verifica
+  che l'identità resti la stessa (passato tramite il runner; lettera ripristinata a F:).
+- Benchmark di rete (`docs/benchmarks/2026-11-07-t2-network.md`): X: (21.302 voci) via UNC in
+  7,3 s a freddo, 1,2 s a caldo.
 
 ### 2026-11-07 — T1 completata: CLI e benchmark
 

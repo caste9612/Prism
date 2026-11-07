@@ -14,7 +14,7 @@ use prism_core::store::{self, Store};
 use prism_win::process;
 
 use crate::format::{human_size, human_time, thousands};
-use crate::{WalkArgs, dev_data_dir, dev_volume, err, index_with_progress, normalize_root};
+use crate::{WalkArgs, dev_data_dir, err, index_with_progress, normalize_root, volume_for};
 
 fn secs(d: Duration) -> String {
     format!("{:.1} s", d.as_secs_f64())
@@ -29,16 +29,16 @@ pub fn run(path: &Path, walk: &WalkArgs, out: Option<&Path>) -> Result<(), Strin
     let threads = walk.enumerator().threads();
 
     let store = Store::open(&db).map_err(err)?;
-    let volume = dev_volume(&store, &mount)?;
+    let (volume, access) = volume_for(&store, &mount)?;
     eprintln!("full indexing of {mount} into {} ...", db.display());
-    let full = index_with_progress(&store, volume, Path::new(&mount), walk)?;
+    let full = index_with_progress(&store, volume, Path::new(&access), walk)?;
     let peak_full = process::memory_usage().map_or(0, |m| m.peak_working_set);
     let (entries, db_pages) = store
         .read(move |c| Ok((store::entry_count(c, volume)?, store::database_size(c)?)))
         .map_err(err)?;
 
     eprintln!("update without changes ...");
-    let update = index_with_progress(&store, volume, Path::new(&mount), walk)?;
+    let update = index_with_progress(&store, volume, Path::new(&access), walk)?;
 
     eprintln!("consistency check ...");
     let check_started = Instant::now();

@@ -39,9 +39,10 @@ Criteri coperti: F01-AC5, F04-AC2..AC7, F05-AC3, F05-AC4 (riferimenti simulati),
 misura: 108–129 B per voce senza indice di ricerca), NF4 (parziale).
 **Verifica utente**: lanciare il benchmark su altri dischi, se si vuole.
 
-## T2 — Windows: volumi, MFT, USN
+## T2 — Windows: volumi, MFT, USN  `[~]`
 
-- [ ] Rilevamento volumi e identità (ADR-0004); unità di rete e UNC
+- [x] Rilevamento volumi e identità (ADR-0004, ADR-0016); unità di rete e UNC (anche da
+      processo elevato, via `HKCU\Network`); test elevato del cambio di lettera (F02-AC3)
 - [x] Runner amministratore e disco virtuale di test (TESTING §4): configurato dall'utente e
       verificato (`schtasks /run` senza UAC, test elevati passati sul volume PRISMTEST)
 - [ ] Prototipo lettore MFT, misure su VHDX e su C:/D: (sola lettura); decisione go/no-go

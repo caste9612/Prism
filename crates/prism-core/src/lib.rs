@@ -21,6 +21,7 @@ pub mod reconcile;
 pub mod sandbox;
 pub mod scan;
 pub mod store;
+pub mod volumes;
 
 /// Version of the core crate, reported by diagnostics and the development CLI.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

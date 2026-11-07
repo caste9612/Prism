@@ -7,8 +7,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::{StoreError, StoreEvent, WriteTx};
 use crate::model::{
-    DirStats, EntryId, EntryMeta, EntryRecord, FileTime, Volume, VolumeId, VolumeInfo, VolumeKind,
-    VolumeLabels, VolumeStatus, unix_millis_now,
+    BusType, DirStats, EntryId, EntryMeta, EntryRecord, FileTime, Volume, VolumeId, VolumeInfo,
+    VolumeKind, VolumeLabels, VolumeStatus, unix_millis_now,
 };
 use crate::names;
 
@@ -27,7 +27,7 @@ pub(crate) fn from_db(v: i64) -> u64 {
 
 const VOLUME_COLS: &str = "id, kind, fs_type, fs_serial, volume_guid, unc_path, os_label, \
     capacity, free_space, user_name, location, notes, color, status, last_mount, \
-    first_seen_at, last_seen_at, last_indexed_at";
+    first_seen_at, last_seen_at, last_indexed_at, bus_type";
 
 fn volume_from_row(row: &Row<'_>) -> rusqlite::Result<Volume> {
     let kind: String = row.get(1)?;
@@ -50,6 +50,10 @@ fn volume_from_row(row: &Row<'_>) -> rusqlite::Result<Volume> {
             os_label: row.get(6)?,
             capacity: row.get::<_, Option<i64>>(7)?.map(from_db),
             free_space: row.get::<_, Option<i64>>(8)?.map(from_db),
+            bus: row
+                .get::<_, Option<String>>(18)?
+                .as_deref()
+                .and_then(BusType::parse),
             last_mount: row.get(14)?,
         },
         labels: VolumeLabels {
@@ -114,8 +118,8 @@ pub fn insert_volume(
     wtx.conn()
         .prepare_cached(
             "INSERT INTO volumes (kind, fs_type, fs_serial, volume_guid, unc_path, os_label, \
-             capacity, free_space, status, last_mount, first_seen_at, last_seen_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
+             capacity, free_space, status, last_mount, first_seen_at, last_seen_at, bus_type) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12)",
         )?
         .execute(params![
             info.kind.as_str(),
@@ -129,10 +133,50 @@ pub fn insert_volume(
             status.as_str(),
             info.last_mount,
             now,
+            info.bus.map(BusType::as_str),
         ])?;
     let id = VolumeId(wtx.conn().last_insert_rowid());
     wtx.notify(StoreEvent::VolumeChanged { volume: id });
     Ok(id)
+}
+
+/// Records what was detected for a connected volume: system information, current mount and
+/// "last seen" time. Identity keys are refreshed too (they matched, or the user confirmed the
+/// match). User labels and status are not touched.
+///
+/// # Errors
+/// [`StoreError::NotFound`] if the volume does not exist; SQLite errors.
+pub fn update_volume_info(
+    wtx: &mut WriteTx<'_>,
+    id: VolumeId,
+    info: &VolumeInfo,
+) -> Result<(), StoreError> {
+    let changed = wtx
+        .conn()
+        .prepare_cached(
+            "UPDATE volumes SET kind = ?2, fs_type = ?3, fs_serial = ?4, volume_guid = ?5, \
+             unc_path = ?6, os_label = ?7, capacity = ?8, free_space = ?9, last_mount = ?10, \
+             bus_type = ?11, last_seen_at = ?12 WHERE id = ?1",
+        )?
+        .execute(params![
+            id.0,
+            info.kind.as_str(),
+            info.fs_type,
+            info.fs_serial.map(to_db),
+            info.volume_guid,
+            info.unc_path,
+            info.os_label,
+            info.capacity.map(to_db),
+            info.free_space.map(to_db),
+            info.last_mount,
+            info.bus.map(BusType::as_str),
+            unix_millis_now(),
+        ])?;
+    if changed == 0 {
+        return Err(StoreError::NotFound(format!("volume {id}")));
+    }
+    wtx.notify(StoreEvent::VolumeChanged { volume: id });
+    Ok(())
 }
 
 /// Changes the status of a volume; `Indexed` also records the indexing time.

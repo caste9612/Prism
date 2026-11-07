@@ -57,12 +57,14 @@ Archivio SQLite in modalità WAL, nella cartella dati dell'app. Lo schema è ver
 migrazioni SQL incorporate (`crates/prism-core/src/store/migrations/`) e `PRAGMA user_version`;
 una migrazione già pubblicata non si modifica, se ne aggiunge una nuova.
 
-**Schema versione 1 (T1, in uso)** — testo completo in `0001_initial.sql`:
+**Schema in uso (versione 2)** — testo completo in `0001_initial.sql` e
+`0002_volume_bus.sql` (aggiunge `bus_type`):
 
 ```sql
 volumes (
   id, kind,                         -- fixed | removable | network
   fs_type, fs_serial, volume_guid, unc_path, os_label, capacity, free_space,   -- ADR-0004
+  bus_type,                         -- usb | sata | nvme | virtual | ...  (v2, ADR-0016)
   user_name, location, notes, color,                                           -- F03
   status,                           -- new | indexing | indexed | ignored | reindex_needed
   last_mount,                       -- ultima lettera o percorso visto (mai una chiave)
@@ -113,6 +115,27 @@ delle cartelle, aggregati) in ADR-0015. Restano da definire in T2: hard link NTF
 lo stesso `file_ref`; lo spazio va contato una sola volta) e flussi alternativi (ADS).
 
 ## 4. Pipeline
+
+### 4.0 Rilevamento e identità dei volumi (ADR-0004, ADR-0016)
+
+```
+VolumeSource::detect()          (prism-win: WinVolumeSource, nessun privilegio richiesto)
+   → DetectedVolume { info: chiavi d'identità + informazioni, mounts, disks }
+   → match_volumes(rilevati, catalogo)  (prism-core, funzione pura)
+   → Known(id) | New | Ambiguous(ids)
+   → record_detected: aggiorna il noto / aggiunge il nuovo con stato `new` / l'ambiguo attende
+     la scelta dell'utente
+```
+
+- Volumi locali: seriale a 64 bit (NTFS/ReFS) o 32 bit, capacità, GUID, tipo di bus (per
+  distinguere interni ed esterni), dischi fisici (solo in memoria). Esclusi i volumi senza punto
+  di montaggio e le unità ottiche.
+- Unità di rete: mappature persistenti dell'utente (`HKCU\Network`) più quelle della sessione;
+  identificate e **lette tramite il percorso UNC**, perché un processo elevato non vede le
+  lettere mappate dall'utente.
+- Abbinamento: GUID + seriale → noto; altrimenti seriale + capacità unici → noto; più candidati
+  o capacità diversa senza GUID → ambiguo (decide l'utente, F02-AC3); UNC normalizzato per la
+  rete. La lettera non è mai una chiave.
 
 ### 4.1 Indicizzazione (ADR-0006)
 

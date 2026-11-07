@@ -455,6 +455,7 @@ name = "prism-win"
 version = "0.1.0"
 dependencies = [
  "prism-core",
+ "tempfile",
  "windows-sys",
 ]
 

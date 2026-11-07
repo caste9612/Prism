@@ -160,24 +160,106 @@ pub struct VolumeLabels {
     pub color: Option<String>,
 }
 
-/// Identity and system information of a volume, as detected (ADR-0004).
+/// Bus through which a disk is connected (from the storage device descriptor).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BusType {
+    Usb,
+    Sata,
+    Nvme,
+    Ata,
+    Scsi,
+    Sas,
+    Raid,
+    Sd,
+    Mmc,
+    Ieee1394,
+    Iscsi,
+    /// Storage Spaces.
+    Spaces,
+    /// Virtual disks, including mounted VHD/VHDX files.
+    Virtual,
+    Other,
+}
+
+impl BusType {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Usb => "usb",
+            Self::Sata => "sata",
+            Self::Nvme => "nvme",
+            Self::Ata => "ata",
+            Self::Scsi => "scsi",
+            Self::Sas => "sas",
+            Self::Raid => "raid",
+            Self::Sd => "sd",
+            Self::Mmc => "mmc",
+            Self::Ieee1394 => "1394",
+            Self::Iscsi => "iscsi",
+            Self::Spaces => "spaces",
+            Self::Virtual => "virtual",
+            Self::Other => "other",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        [
+            Self::Usb,
+            Self::Sata,
+            Self::Nvme,
+            Self::Ata,
+            Self::Scsi,
+            Self::Sas,
+            Self::Raid,
+            Self::Sd,
+            Self::Mmc,
+            Self::Ieee1394,
+            Self::Iscsi,
+            Self::Spaces,
+            Self::Virtual,
+            Self::Other,
+        ]
+        .into_iter()
+        .find(|b| b.as_str() == s)
+    }
+
+    /// Buses of disks that are plugged in from outside (external drives, card readers).
+    #[must_use]
+    pub fn is_external(self) -> bool {
+        matches!(self, Self::Usb | Self::Ieee1394 | Self::Sd | Self::Mmc)
+    }
+}
+
+/// How a volume is presented to the user (F01): internal, external, USB stick, network.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DisplayKind {
+    Internal,
+    External,
+    Stick,
+    Network,
+}
+
+/// Identity and system information of a volume, as detected (ADR-0004, ADR-0016).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VolumeInfo {
     pub kind: VolumeKind,
     pub fs_type: Option<String>,
+    /// File-system serial number: 64 bits on NTFS and ReFS, 32 bits elsewhere.
     pub fs_serial: Option<u64>,
     pub volume_guid: Option<String>,
     pub unc_path: Option<String>,
     pub os_label: Option<String>,
     pub capacity: Option<u64>,
     pub free_space: Option<u64>,
+    pub bus: Option<BusType>,
     /// Last drive letter or path where the volume was seen. Never an identity key.
     pub last_mount: Option<String>,
 }
 
 impl VolumeInfo {
-    /// A development "volume" rooted at an arbitrary folder (used by `prism-cli` until real
-    /// volume detection arrives in T2).
+    /// A development "volume" rooted at an arbitrary folder (used by `prism-cli` for folders
+    /// that are not a volume root).
     #[must_use]
     pub fn dev_folder(path: &str) -> Self {
         Self {
@@ -189,7 +271,22 @@ impl VolumeInfo {
             os_label: None,
             capacity: None,
             free_space: None,
+            bus: None,
             last_mount: Some(path.to_owned()),
+        }
+    }
+
+    /// Internal, external, stick or network (F01). Windows reports external hard disks as
+    /// "fixed": the bus tells them apart.
+    #[must_use]
+    pub fn display_kind(&self) -> DisplayKind {
+        match self.kind {
+            VolumeKind::Network => DisplayKind::Network,
+            VolumeKind::Removable => DisplayKind::Stick,
+            VolumeKind::Fixed if self.bus.is_some_and(BusType::is_external) => {
+                DisplayKind::External
+            }
+            VolumeKind::Fixed => DisplayKind::Internal,
         }
     }
 }

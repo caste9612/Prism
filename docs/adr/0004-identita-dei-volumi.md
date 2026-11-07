@@ -1,6 +1,6 @@
 # ADR-0004 — Identità stabile dei volumi
 
-- **Stato**: Accettata (regole di abbinamento da rifinire in T2)
+- **Stato**: Accettata; regole di abbinamento rifinite in ADR-0016 (T2)
 - **Data**: 2026-11-07
 
 ## Contesto

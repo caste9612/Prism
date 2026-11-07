@@ -90,7 +90,9 @@ salute SMART se disponibile, avanzamento degli hash.
 - **F02-AC4** *Ignora sempre* memorizza il volume come escluso; si può annullare dalle
   impostazioni.
 - **F02-AC5** Le unità di rete mappate e i percorsi UNC si possono aggiungere al catalogo
-  anche manualmente.
+  anche manualmente. Le unità mappate in modo persistente dall'utente sono riconosciute
+  automaticamente anche se Prism gira come amministratore, e vengono lette tramite il percorso
+  UNC (ADR-0016).
 
 ### F03 — Etichette per disco
 
