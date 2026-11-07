@@ -98,7 +98,8 @@ Criteri coperti: F08-AC1/AC2/AC3/AC4/AC5, F09-AC1/AC2/AC3/AC4, F16-AC1/AC2/AC3/A
 ## T5 — Ricerca
 
 - [x] Benchmark e decisione sull'indice di ricerca (ADR-0010: indice in memoria)
-- [ ] Parser dei filtri avanzati con errori espliciti (F07-AC5/AC6)
+- [x] Parser dei filtri avanzati con errori espliciti (F07-AC5/AC6); motore con ordinamento e
+      conteggio limitato; indici mantenuti in background
 - [ ] Finestra di ricerca globale con scorciatoia configurabile (F07-AC1)
 - [ ] Risultati offline con nome e posizione del disco (F07-AC4)
 - [ ] Voce *Cerca* nel menu del tray (F19-AC2, rimandata da T3)

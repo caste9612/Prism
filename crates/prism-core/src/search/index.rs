@@ -174,6 +174,25 @@ impl VolumeIndex {
         out
     }
 
+    /// Calls `f` with the position of every entry whose folded name contains `needle`, in
+    /// index order, until `f` returns `false`.
+    pub fn for_each_match(&self, needle: &[u8], mut f: impl FnMut(u32) -> bool) {
+        if needle.is_empty() {
+            return;
+        }
+        let mut last = u32::MAX;
+        for pos in memmem::find_iter(&self.names, needle) {
+            let i = self.starts.partition_point(|&s| s as usize <= pos) - 1;
+            let i = u32::try_from(i).unwrap_or(u32::MAX);
+            if i != last {
+                last = i;
+                if !f(i) {
+                    return;
+                }
+            }
+        }
+    }
+
     /// Like [`VolumeIndex::find`], on `threads` slices of the buffer in parallel.
     pub fn find_parallel(&self, needle: &[u8], limit: usize, threads: usize) -> Vec<u32> {
         let n = self.starts.len();

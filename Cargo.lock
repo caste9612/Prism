@@ -2888,6 +2888,7 @@ dependencies = [
  "crossbeam-channel",
  "memchr",
  "proptest",
+ "regex",
  "rusqlite",
  "tempfile",
  "thiserror 2.0.21",

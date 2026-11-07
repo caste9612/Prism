@@ -260,9 +260,22 @@ Scelto con i benchmark l'**indice in memoria** (`prism-core::search::index::Volu
 per volume): nomi normalizzati in un buffer unico cercati con `memchr::memmem`, più genitore,
 tipo, dimensione e data per i filtri; 60 B per voce, costruzione 0,57 s per 1,37 milioni di
 voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
-(`docs/benchmarks/2026-11-07-t5-search.md`). Si ricostruisce in background quando il catalogo
-del volume cambia (al massimo ogni 30 s). Il parser dei filtri (F07-AC5) è indipendente
-dall'indice.
+(`docs/benchmarks/2026-11-07-t5-search.md`).
+
+- `search::live::LiveIndexes`: gli indici in uso; un thread segue gli eventi del catalogo e
+  ricostruisce l'indice di un volume cambiato (subito se manca, poi al massimo ogni 30 s,
+  REVIEW L11). Le ricerche leggono un'istantanea e non aspettano mai una ricostruzione.
+- `search::query`: il linguaggio (F07-AC5/AC6). Parole libere = sottostringhe del nome, tutte
+  richieste; filtri `chiave:valore` in AND (`size`, `ext`, `type`, `modified`, `disk`, `path`,
+  `is`, `online`, `regex`, con alcuni alias italiani). Poiché `:` non può stare in un nome di
+  file, ogni `parola:` è un filtro: uno sconosciuto è un errore con codice, valore e posizione;
+  una sola lettera (`d:`) indica l'unità. Le date digitate sono giorni locali (lo scarto dal
+  fuso orario arriva dall'interfaccia).
+- `search::engine`: sceglie i volumi (`disk:` sconosciuto = errore, `online:`), trova i
+  candidati con la parola più lunga, controlla le altre parole e i filtri sull'indice (il
+  filtro `path:` ricostruisce il percorso della cartella, una volta per cartella), conta fino a
+  un tetto (10.000) e ordina: nome identico, nome che inizia con la prima parola, inizio di
+  parola, altrove; poi nomi più corti, poi ordine del catalogo.
 
 ### 4.5 Duplicati, simili, backup
 

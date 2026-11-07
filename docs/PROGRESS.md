@@ -23,6 +23,20 @@
 
 ## Diario
 
+### 2026-11-07 — T5: linguaggio di ricerca e motore
+
+- `search::query`: parole libere e filtri di F07-AC5 (dimensioni con unità, estensioni, tipi,
+  date assolute e relative nel fuso dell'utente, disco, percorso, file/cartelle, online,
+  espressioni regolari), errori con codice, valore e posizione (F07-AC6). 7 test, verdi al primo
+  giro (calendario compreso).
+- `search::engine`: volumi online e offline (F07-AC4), filtri sull'indice in memoria, ordinamento
+  per pertinenza, conteggio fino a 10.000, disco sconosciuto come errore. 5 test; quattro
+  aspettative scritte male sull'ordine a pari punteggio corrette secondo la regola documentata
+  (nomi più corti, poi ordine del catalogo).
+- `search::live::LiveIndexes`: indici ricostruiti in background dagli eventi del catalogo; test
+  con costruzione iniziale, ricostruzione dopo un cambio e rimozione del volume.
+- Decisione D27 sui dettagli del linguaggio.
+
 ### 2026-11-07 — T5: decisione sull'indice di ricerca (ADR-0010)
 
 - `prism-core::search::index::VolumeIndex`: nomi normalizzati in un buffer unico cercati con

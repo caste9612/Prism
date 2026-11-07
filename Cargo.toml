@@ -19,6 +19,7 @@ clap = { version = "4.6", features = ["derive"] }
 crossbeam-channel = "0.5"
 memchr = "2.7"
 notify = { version = "8.2", default-features = false }
+regex = "1.13"
 proptest = "1.12"
 rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache"] }
 tempfile = "3"
