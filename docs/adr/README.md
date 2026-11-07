@@ -18,7 +18,7 @@ e si aggiorna lo stato di quella vecchia ("Sostituita da ADR-NNNN").
 | [0010](0010-indice-di-ricerca.md) | Indice di ricerca | Accettata (indice in memoria) |
 | [0011](0011-hash-e-invalidazione.md) | Hash del contenuto in background e invalidazione | Accettata |
 | [0012](0012-eliminazione-sicura.md) | Eliminazione sicura | Accettata |
-| [0013](0013-video-simili.md) | Decodifica video per i video simili | **Proposta** |
+| [0013](0013-video-simili.md) | Decodifica video per i video simili | Accettata (Media Foundation) |
 | [0014](0014-frontend.md) | Frontend: Svelte 5, IPC tipizzato, i18n, tema | Accettata |
 | [0015](0015-dettagli-modello-dati-t1.md) | Dettagli del modello dati decisi in T1 | Accettata |
 | [0016](0016-abbinamento-volumi-e-unita-di-rete.md) | Abbinamento dei volumi e unità di rete in un processo elevato | Accettata |

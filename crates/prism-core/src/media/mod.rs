@@ -80,6 +80,18 @@ pub fn dhash(img: &DynamicImage) -> u64 {
     bits
 }
 
+/// The difference hash of a grey frame (one byte per pixel, top row first), as the video
+/// frames are decoded (F12).
+#[must_use]
+pub fn dhash_luma(width: u32, height: u32, luma: &[u8]) -> Option<u64> {
+    let pixels = (width as usize).checked_mul(height as usize)?;
+    if width == 0 || height == 0 || luma.len() < pixels {
+        return None;
+    }
+    let img = image::GrayImage::from_raw(width, height, luma[..pixels].to_vec())?;
+    Some(dhash(&DynamicImage::ImageLuma8(img)))
+}
+
 fn decode(data: &[u8], format: Option<ImageFormat>) -> Result<DynamicImage, MediaError> {
     let mut reader = ImageReader::new(Cursor::new(data));
     match format {

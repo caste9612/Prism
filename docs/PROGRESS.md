@@ -7,14 +7,15 @@
 
 - **Tappa**: T7 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
 - **Prossimo passo**: T8 — media: immagini simili con indice per distanza di Hamming, RAW
-  compresi (F11); prototipi e decisione per i video (ADR-0013), poi video simili (F12).
+  compresi (F11, fatto); video simili (F12) con Media Foundation (ADR-0013, decisa).
   Nessuna sosta.
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
   sopravvive al riavvio: lo ricollega il runner stesso; la lettera di unità può cambiare.
 - **Decisioni in sospeso**: Q7 firma del codice (utente, entro T10), Q11 ramo principale (T10).
-  ADR-0010 (indice di ricerca) e ADR-0013 (video) le decide lo sviluppo con benchmark e prototipi.
+  ADR-0010 (indice di ricerca) e ADR-0013 (video, Media Foundation) decise con benchmark e
+  prototipi.
 - **Modalità di lavoro** (aggiornata 2026-11-07, ~15:30): autonomia totale **senza soste**
   fino alla 1.0; la sosta di fine T3 è annullata; le decisioni si prendono in autonomia e si
   registrano in `docs/REVIEW.md`, che guida l'unica revisione dell'utente (stasera). Una
@@ -22,6 +23,19 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T8: prototipo video, ADR-0013 decisa (Media Foundation)
+
+- `prism-win::video::sample_frames`: lettore di sorgente di Media Foundation, uscita NV12 (o
+  RGB32 se il decoder non la offre), luminanza dei fotogrammi ai punti richiesti, decodifica
+  fino al tempo esatto dopo il salto. Comando di sviluppo `prism-cli video-frames`.
+- Misure in sola lettura sui video reali di D: (`docs/benchmarks/2026-11-07-t8-video.md`):
+  nessun errore su MP4 H.264 e WebM; la prima versione in RGB32 impiegava 3,9 s per video,
+  con NV12 486 ms. Test con gli encoder di Windows: la stessa clip ricodificata più piccola e
+  in WMV resta a 0,2 bit per fotogramma, una clip diversa a 31,6.
+- ADR-0013 accettata: Media Foundation; HEVC solo con l'estensione dello Store (L15).
+- Da un errore mio corretto prima del commit: un controllo dei limiti con precedenze sbagliate
+  avrebbe scartato tutte le righe dei fotogrammi memorizzati dal basso.
 
 ### 2026-11-07 — T8: immagini simili nell'app
 

@@ -100,6 +100,15 @@ enum Command {
         #[arg(long)]
         fts: bool,
     },
+    /// Decode frames of videos with Media Foundation and print their prints, with timings
+    /// (ADR-0013 prototype; read-only).
+    VideoFrames {
+        /// Video files, or a text file with one path per line when prefixed with @.
+        paths: Vec<String>,
+        /// Frames decoded at most after the key frame a seek lands on.
+        #[arg(long, default_value_t = 0)]
+        after_seek: usize,
+    },
     /// Catalog size and counters.
     Stats,
     /// Check the consistency of the catalog.
@@ -245,6 +254,7 @@ fn run(store: &Store, command: &Command) -> CliResult {
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             search_bench::run(store, &dir, *copies, *fts)
         }
+        Command::VideoFrames { paths, after_seek } => video_frames(paths, *after_seek),
         Command::Stats => stats(store),
         Command::Check => check(store),
         Command::Bench { .. } => Ok(()),
@@ -855,6 +865,66 @@ fn check(store: &Store) -> CliResult {
         }
         Err(format!("{} problems found", problems.len()))
     }
+}
+
+/// ADR-0013 prototype: frames at 10, 30, 50, 70 and 90 % of each video, decoded by Media
+/// Foundation, with the time taken and the print of each frame.
+fn video_frames(args: &[String], after_seek: usize) -> CliResult {
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for a in args {
+        if let Some(list) = a.strip_prefix('@') {
+            let text = std::fs::read_to_string(list).map_err(err)?;
+            paths.extend(
+                text.lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .map(PathBuf::from),
+            );
+        } else {
+            paths.push(PathBuf::from(a));
+        }
+    }
+    let (mut ok, mut failed) = (0usize, 0usize);
+    let mut total = std::time::Duration::ZERO;
+    for p in &paths {
+        let started = std::time::Instant::now();
+        match prism_win::video::sample_frames(p, &[0.1, 0.3, 0.5, 0.7, 0.9], after_seek) {
+            Ok(v) => {
+                let took = started.elapsed();
+                total += took;
+                ok += 1;
+                let prints: Vec<String> = v
+                    .frames
+                    .iter()
+                    .filter_map(|f| prism_core::media::dhash_luma(f.width, f.height, &f.luma))
+                    .map(|h| format!("{h:016x}"))
+                    .collect();
+                println!(
+                    "ok  {:>6} ms  {}x{}  {} s  {} frames  {}  {}",
+                    took.as_millis(),
+                    v.width,
+                    v.height,
+                    v.duration_ms / 1000,
+                    v.frames.len(),
+                    prints.join(" "),
+                    p.display()
+                );
+            }
+            Err(e) => {
+                failed += 1;
+                println!("ERR {e}  {}", p.display());
+            }
+        }
+    }
+    println!(
+        "{ok} decoded, {failed} failed, {} ms on average",
+        if ok > 0 {
+            total.as_millis() / ok as u128
+        } else {
+            0
+        }
+    );
+    Ok(())
 }
 
 #[cfg(test)]

@@ -16,5 +16,6 @@ pub mod process;
 pub mod shell;
 pub mod trash;
 pub mod usn;
+pub mod video;
 pub mod volumes;
 pub mod watch;

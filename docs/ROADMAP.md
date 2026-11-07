@@ -132,7 +132,8 @@ Criteri coperti: F13-AC1…AC5, F14-AC1…AC3, F15-AC1…AC5.
 ## T8 — Media
 
 - [x] Immagini simili con indice per distanza di Hamming, inclusi i RAW (F11)
-- [ ] Prototipi e decisione per i video (ADR-0013), poi video simili (F12)
+- [~] Prototipi e decisione per i video (ADR-0013, accettata: Media Foundation), poi video
+      simili (F12): decisione presa; impronte, job e schermata da fare
 
 ## T9 — Integrazione con il sistema
 
