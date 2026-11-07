@@ -20,6 +20,9 @@ use prism_core::reconcile::ReconcileTarget;
 use prism_core::refresh;
 use prism_core::sandbox::SandboxGuard;
 use prism_core::scan::WalkEnumerator;
+use prism_core::search::engine::{self, SearchError, SearchOptions, VolumeMeta};
+use prism_core::search::live::LiveIndexes;
+use prism_core::search::query::{self, Clock};
 use prism_core::space::{self, StatsScope, TreemapOptions};
 use prism_core::store::StoreError;
 use prism_core::store::{self, Store};
@@ -31,6 +34,7 @@ use crate::cleanup_views::{self, CleanupResultView, CleanupView, RecycleBinView}
 use crate::dto::{ApiError, JobView, Settings, VolumeView};
 use crate::netprobe::NetProbe;
 use crate::notices::Notices;
+use crate::search_views::{self, QueryErrorView, SearchResultView};
 use crate::space_views::{CrumbView, LargeFileView, MAX_ITEMS, SpaceFolderView, TypeStatsView};
 
 pub struct AppState {
@@ -47,6 +51,10 @@ pub struct AppState {
     pub notices: Mutex<Notices>,
     /// Identifier under which notifications are shown (`prism_win::notify`).
     pub app_id: String,
+    /// The search indexes of the volumes, kept in step with the catalog (ADR-0010).
+    pub search: Arc<LiveIndexes>,
+    /// Why the search shortcut is not registered, if it is not (F07-AC1).
+    pub shortcut_error: Mutex<Option<String>>,
 }
 
 pub fn job_view(j: &JobInfo) -> JobView {
@@ -76,6 +84,12 @@ fn kind_name(v: &Volume) -> String {
 }
 
 impl AppState {
+    pub fn shortcut_error(&self) -> std::sync::MutexGuard<'_, Option<String>> {
+        self.shortcut_error
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     pub fn notices(&self) -> std::sync::MutexGuard<'_, Notices> {
         self.notices.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -433,6 +447,78 @@ pub fn debug_guard_roots(
         .flatten()
         .filter(|p| p.is_dir())
         .collect()
+}
+
+/// Search (F07): parse, run on the in-memory indexes, read the details of the best hits.
+impl AppState {
+    pub fn search(&self, text: &str, utc_offset_min: i32) -> Result<SearchResultView, ApiError> {
+        let started = std::time::Instant::now();
+        let clock = Clock {
+            now_ms: prism_core::model::unix_millis_now(),
+            utc_offset_min,
+        };
+        let query = match query::parse(text, clock) {
+            Ok(q) if q.is_empty() => return Ok(SearchResultView::default()),
+            Ok(q) => q,
+            Err(e) => {
+                return Ok(SearchResultView {
+                    error: Some(QueryErrorView::from_query(&e, text)),
+                    ..SearchResultView::default()
+                });
+            }
+        };
+        let volumes = self.store.read(store::volumes)?;
+        let online: std::collections::HashSet<VolumeId> = self.online().keys().copied().collect();
+        let volumes: HashMap<VolumeId, (Volume, bool)> = volumes
+            .into_iter()
+            .filter(|v| v.status != VolumeStatus::Ignored)
+            .map(|v| (v.id, (v.clone(), online.contains(&v.id))))
+            .collect();
+        let metas: Vec<VolumeMeta> = volumes
+            .values()
+            .map(|(v, on)| VolumeMeta {
+                id: v.id,
+                names: [
+                    v.labels.name.clone(),
+                    v.info.os_label.clone(),
+                    v.info.last_mount.clone(),
+                    v.info.unc_path.clone(),
+                ]
+                .into_iter()
+                .flatten()
+                .filter(|n| !n.trim().is_empty())
+                .collect(),
+                online: *on,
+            })
+            .collect();
+        let indexes = self.search.snapshot();
+        let outcome = match engine::search(&indexes, &metas, &query, SearchOptions::default()) {
+            Ok(o) => o,
+            Err(SearchError::UnknownDisk(name)) => {
+                let start = text.find(&name).unwrap_or(0);
+                return Ok(SearchResultView {
+                    error: Some(QueryErrorView::new(
+                        "unknown_disk",
+                        &name,
+                        text,
+                        start,
+                        start + name.len(),
+                    )),
+                    ..SearchResultView::default()
+                });
+            }
+        };
+        let hits = self
+            .store
+            .read(|c| search_views::hit_views(c, &outcome.hits, &volumes))?;
+        Ok(SearchResultView {
+            hits,
+            total: outcome.total as u64,
+            capped: outcome.capped,
+            error: None,
+            ms: started.elapsed().as_secs_f64() * 1000.0,
+        })
+    }
 }
 
 /// Key of the user settings (F21) in the `settings` table: one JSON document.

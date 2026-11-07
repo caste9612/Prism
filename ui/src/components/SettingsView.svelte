@@ -65,6 +65,21 @@
         <p class="muted hint">{t('settings.autostartHint')}</p>
       </div>
     </div>
+    <div class="row">
+      <label for="set-shortcut">{t('settings.shortcut')}</label>
+      <div>
+        <input
+          id="set-shortcut"
+          value={settings.searchShortcut}
+          spellcheck="false"
+          onchange={(e) => update({ searchShortcut: e.currentTarget.value.trim() || 'Ctrl+Space' })}
+        />
+        <p class="muted hint">{t('settings.shortcutHint')}</p>
+        {#if info?.shortcutError}
+          <p class="warn" role="alert">{t('settings.shortcutError', { value: info.shortcutError })}</p>
+        {/if}
+      </div>
+    </div>
   </div>
 
   <div class="group">
@@ -133,6 +148,11 @@
     width: 18px;
     height: 18px;
     margin-top: 2px;
+  }
+  .warn {
+    margin: 4px 0 0;
+    color: var(--warn);
+    font-size: 13px;
   }
   .hint {
     margin: 2px 0 0;

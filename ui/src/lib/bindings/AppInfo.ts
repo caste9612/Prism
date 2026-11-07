@@ -7,4 +7,8 @@ export type AppInfo = { version: string,
 /**
  * Running with administrator rights (MFT and journal available).
  */
-elevated: boolean, dataDir: string, dev: boolean, };
+elevated: boolean, dataDir: string, dev: boolean, 
+/**
+ * Why the search shortcut could not be registered (F07-AC1), if it could not.
+ */
+shortcutError: string | null, };

@@ -5,6 +5,7 @@
   },
   "nav": {
     "catalog": "Dischi",
+    "search": "Cerca",
     "cleanup": "Pulizia",
     "settings": "Impostazioni"
   },
@@ -105,7 +106,10 @@
     "elevated": "In esecuzione come amministratore: indicizzazione veloce (MFT) e aggiornamenti in tempo reale disponibili.",
     "notElevated": "Non in esecuzione come amministratore: l'indicizzazione legge le cartelle una per una.",
     "dataDir": "Cartella del catalogo: {dir}",
-    "saved": "Impostazioni salvate"
+    "saved": "Impostazioni salvate",
+    "shortcut": "Scorciatoia di ricerca",
+    "shortcutHint": "Apre la finestra di ricerca da qualunque programma.",
+    "shortcutError": "Non è stato possibile registrare la scorciatoia ({value}): scegline un'altra."
   },
   "language": {
     "en": "English",
@@ -121,10 +125,12 @@
     "open_failed": "Non è stato possibile aprire il disco in Esplora risorse.",
     "needs_permanent": "Questo disco non ha il Cestino: conferma l'eliminazione definitiva.",
     "delete_failed": "Non è stato possibile togliere i file.",
+    "shortcut_unavailable": "Questa scorciatoia non è disponibile: scegline un'altra.",
     "unknown": "Qualcosa è andato storto."
   },
   "tray": {
     "open": "Apri Prism",
+    "search": "Cerca",
     "quit": "Esci"
   },
   "notify": {
@@ -226,6 +232,73 @@
     "binsTitle": "Cestino",
     "bin": "Cestino di {name}: {count} elementi, {size}.",
     "binHint": "Quello spazio si libera svuotando il Cestino da Esplora risorse."
+  },
+  "search": {
+    "label": "Cerca in tutti i dischi",
+    "placeholder": "Cerca in tutti i dischi… es. report size:>1MB ext:pdf",
+    "filters": "Filtri",
+    "type": "Tipo",
+    "anyType": "Qualsiasi tipo",
+    "types": {
+      "image": "Immagini",
+      "video": "Video",
+      "audio": "Audio",
+      "document": "Documenti",
+      "archive": "Archivi",
+      "code": "Codice",
+      "program": "Programmi"
+    },
+    "size": "Dimensione",
+    "anySize": "Qualsiasi dimensione",
+    "sizes": {
+      ">1MB": "Oltre 1 MB",
+      ">100MB": "Oltre 100 MB",
+      ">1GB": "Oltre 1 GB",
+      "<100KB": "Sotto 100 KB"
+    },
+    "modified": "Modificato",
+    "anyTime": "Qualsiasi data",
+    "times": {
+      "<7d": "Ultimi 7 giorni",
+      "<30d": "Ultimi 30 giorni",
+      "<1y": "Ultimo anno",
+      ">1y": "Più di un anno fa"
+    },
+    "disk": "Disco",
+    "anyDisk": "Tutti i dischi",
+    "state": "Collegamento",
+    "anyState": "Collegati e no",
+    "onlineOnly": "Dischi collegati",
+    "offlineOnly": "Dischi non collegati",
+    "kind": "Genere",
+    "filesAndFolders": "File e cartelle",
+    "filesOnly": "File",
+    "foldersOnly": "Cartelle",
+    "results": "Risultati: {count}",
+    "manyResults": "Più di {count} risultati",
+    "showing": "mostrati i migliori {count}",
+    "resultsLabel": "Risultati",
+    "nothing": "Nessun risultato.",
+    "offline": "non collegato",
+    "offlineAt": "non collegato · {location}",
+    "open": "Apri",
+    "reveal": "Mostra in Esplora risorse",
+    "copy": "Copia percorso",
+    "copied": "Copiato",
+    "help": "Scrivi una parte del nome: tutte le parole devono comparire. Aggiungi filtri per restringere:",
+    "keys": "↑ ↓ scegli · Invio apre · Maiusc+Invio mostra in Esplora risorse · Ctrl+C copia il percorso · Esc chiude la finestra di ricerca.",
+    "err": {
+      "unclosed_quote": "Manca la virgoletta di chiusura.",
+      "unknown_filter": "Non esiste un filtro chiamato «{value}».",
+      "empty_value": "Il filtro «{value}» richiede un valore.",
+      "bad_size": "«{value}» non è una dimensione (es. >1GB, 10MB..1GB).",
+      "bad_date": "«{value}» non è una data (es. >2024-01-01, <30d, 2024-03).",
+      "bad_type": "«{value}» non è un tipo (image, video, audio, document, archive, code, program).",
+      "bad_is": "«{value}»: usa is:file o is:dir.",
+      "bad_online": "«{value}»: usa online:yes o online:no.",
+      "bad_regex": "L'espressione regolare non è valida: {value}",
+      "unknown_disk": "Nessun disco si chiama «{value}»."
+    }
   },
   "time": {
     "justNow": "proprio ora",

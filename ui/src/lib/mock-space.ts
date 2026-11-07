@@ -214,3 +214,15 @@ export function mockTypeStats(volumeIds: number[]): TypeStatsView {
 export function mockHasEntry(volumeId: number, entryId: number): boolean {
   return tree(volumeId).has(entryId);
 }
+
+/** Every entry of a simulated volume with its folder path (for the simulated search). */
+export function mockEntries(volumeId: number): { id: number; name: string; folder: string; isDir: boolean; size: number; modified: number }[] {
+  const out = [];
+  for (const n of tree(volumeId).values()) {
+    if (n.parent === null) continue;
+    const parts: string[] = [];
+    for (let p = n.parent; p && p.parent; p = p.parent) parts.unshift(p.name);
+    out.push({ id: n.id, name: n.name, folder: parts.join('/'), isDir: n.isDir, size: n.size, modified: n.modified });
+  }
+  return out;
+}

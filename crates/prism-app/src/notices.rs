@@ -18,6 +18,7 @@ impl Default for NativeTexts {
     fn default() -> Self {
         Self {
             open: "Open Prism".into(),
+            search: "Search".into(),
             quit: "Quit".into(),
             new_disk_title: "New disk: {name}".into(),
             new_disks_title: "{count} new disks found".into(),
@@ -119,6 +120,7 @@ mod tests {
     fn italian() -> NativeTexts {
         NativeTexts {
             open: "Apri Prism".into(),
+            search: "Cerca".into(),
             quit: "Esci".into(),
             new_disk_title: "Nuovo disco: {name}".into(),
             new_disks_title: "{count} nuovi dischi trovati".into(),

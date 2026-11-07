@@ -8,6 +8,8 @@ mod dto;
 mod monitor;
 mod netprobe;
 mod notices;
+mod search_views;
+mod search_window;
 mod space_views;
 mod state;
 #[cfg(test)]
@@ -92,6 +94,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let app_id = notification_app_id(app, &dir);
     let state = Arc::new(AppState {
         notices: Mutex::new(Notices::default()),
+        search: Arc::new(prism_core::search::live::LiveIndexes::default()),
+        shortcut_error: Mutex::new(None),
         app_id,
         store,
         engine: JobEngine::start(4),
@@ -106,6 +110,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     });
     tracing::info!(elevated = state.elevated, data = %state.data_dir.display(), "Prism started");
     create_main_window(app, &state.data_dir)?;
+    search_window::create(app, &state.data_dir)?;
+    let shortcut = state.settings().search_shortcut;
+    if let Some(error) = search_window::register(app.handle(), &shortcut) {
+        tracing::warn!(%error, "search shortcut not registered");
+        *state.shortcut_error() = Some(error);
+    }
     app.manage(Arc::clone(&state));
     tray::create(app.handle())?;
     monitor::spawn(app.handle(), &state);
@@ -134,6 +144,16 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
         }))
+        // F07-AC1: the global shortcut shows or hides the search window.
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        search_window::toggle(app);
+                    }
+                })
+                .build(),
+        )
         .setup(setup)
         .on_window_event(|window, event| {
             // F19-AC1: closing the window hides Prism in the notification area.
@@ -155,6 +175,8 @@ fn main() {
             commands::largest_files,
             commands::type_stats,
             commands::open_entry,
+            commands::search,
+            commands::hide_search,
             commands::cleanup_scan,
             commands::delete_entries,
             commands::reveal_entry,

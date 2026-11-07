@@ -5,4 +5,4 @@
  * the interface, which sends them (ARCHITECTURE §7). `{name}` and `{count}` are filled in by
  * the backend.
  */
-export type NativeTexts = { open: string, quit: string, newDiskTitle: string, newDisksTitle: string, newDiskBody: string, };
+export type NativeTexts = { open: string, search: string, quit: string, newDiskTitle: string, newDisksTitle: string, newDiskBody: string, };

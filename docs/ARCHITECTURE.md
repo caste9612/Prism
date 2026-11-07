@@ -276,6 +276,15 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   filtro `path:` ricostruisce il percorso della cartella, una volta per cartella), conta fino a
   un tetto (10.000) e ordina: nome identico, nome che inizia con la prima parola, inizio di
   parola, altrove; poi nomi più corti, poi ordine del catalogo.
+- **App**: comando `search` asincrono (testo e scarto dal fuso dell'utente) che restituisce i
+  200 risultati migliori con nome, cartella, percorso completo, disco, stato e posizione fisica
+  dei dischi scollegati, oppure l'errore del linguaggio con la posizione in caratteri.
+  Finestra di ricerca separata (`search_window.rs`, etichetta `search`, sempre in primo piano,
+  creata nascosta all'avvio, stessa cartella WebView2) aperta e nascosta dalla scorciatoia
+  globale (`tauri-plugin-global-shortcut`, default `Ctrl+Space`, nelle impostazioni; se non è
+  registrabile l'interfaccia lo dice e propone di cambiarla, la scorciatoia precedente resta
+  attiva) e dalla voce *Cerca* del tray. L'interfaccia è la stessa pagina con `?view=search`;
+  nella finestra principale la ricerca è anche una voce del menu laterale.
 
 ### 4.5 Duplicati, simili, backup
 

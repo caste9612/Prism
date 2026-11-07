@@ -10,6 +10,7 @@ import type { JobView } from './bindings/JobView';
 import type { LabelsInput } from './bindings/LabelsInput';
 import type { LargeFileView } from './bindings/LargeFileView';
 import type { NativeTexts } from './bindings/NativeTexts';
+import type { SearchResultView } from './bindings/SearchResultView';
 import type { Settings } from './bindings/Settings';
 import type { SpaceFolderView } from './bindings/SpaceFolderView';
 import type { TypeStatsView } from './bindings/TypeStatsView';
@@ -32,6 +33,9 @@ export interface Backend {
   largestFiles(volumeId: number, folderId: number | null, limit: number): Promise<LargeFileView[]>;
   typeStats(volumeId: number | null): Promise<TypeStatsView>;
   openEntry(volumeId: number, entryId: number): Promise<void>;
+  search(text: string, utcOffsetMin: number): Promise<SearchResultView>;
+  hideSearch(): Promise<void>;
+  onSearchFocus(handler: () => void): Promise<Unlisten>;
   cleanupScan(): Promise<CleanupView>;
   deleteEntries(volumeId: number, entryIds: number[], emptyFolders: boolean, permanent: boolean): Promise<CleanupResultView>;
   revealEntry(volumeId: number, entryId: number): Promise<void>;
@@ -56,6 +60,9 @@ const tauriBackend: Backend = {
   largestFiles: (volumeId, folderId, limit) => invoke('largest_files', { volumeId, folderId, limit }),
   typeStats: (volumeId) => invoke('type_stats', { volumeId }),
   openEntry: (volumeId, entryId) => invoke('open_entry', { volumeId, entryId }),
+  search: (text, utcOffsetMin) => invoke('search', { text, utcOffsetMin }),
+  hideSearch: () => invoke('hide_search'),
+  onSearchFocus: (handler) => listen('search-focus', () => handler()),
   cleanupScan: () => invoke('cleanup_scan'),
   deleteEntries: (volumeId, entryIds, emptyFolders, permanent) =>
     invoke('delete_entries', { volumeId, entryIds, emptyFolders, permanent }),

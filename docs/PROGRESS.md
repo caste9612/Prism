@@ -5,10 +5,11 @@
 
 ## Stato attuale
 
-- **Tappa**: T4 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: T5 — ricerca: benchmark e decisione sull'indice (ADR-0010), parser dei
-  filtri avanzati (F07-AC5/AC6), finestra di ricerca globale con scorciatoia (F07-AC1),
-  risultati offline con nome e posizione del disco (F07-AC4). Nessuna sosta (CLAUDE.md).
+- **Tappa**: T5 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
+- **Prossimo passo**: T6 — hash e duplicati: job di hash in background a priorità minima con
+  sospensione a batteria opzionale (F06, ADR-0011), gruppi di duplicati online e offline (F10),
+  regole di selezione (F10-AC3), eliminazione completa con la regola dell'ultima copia
+  (F16-AC4), stato dei job e pausa degli hash nel tray (F19-AC2). Nessuna sosta (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -22,6 +23,33 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T5 completata: ricerca nell'app
+
+- App: comando `search` (200 risultati migliori con disco, stato e posizione fisica, oppure
+  l'errore con la posizione in caratteri), indici di ricerca mantenuti da un thread dagli
+  eventi del catalogo, finestra di ricerca separata con scorciatoia globale (`Ctrl+Space`,
+  configurabile; se non è registrabile lo si dice e resta la precedente), voce *Cerca* nel tray.
+- Interfaccia: vista di ricerca (pagina del menu e finestra `?view=search`) con menu dei filtri
+  che scrivono il testo, errori sottolineati, tastiera (frecce, Invio, Maiusc+Invio, Ctrl+C),
+  azioni disattivate sui dischi scollegati. 3 Vitest degli helper, 5 Playwright (F07-AC1/AC2/
+  AC4/AC5/AC6/AC7).
+- Prova reale: premuto Ctrl+Space con un tasto simulato, la finestra di ricerca è comparsa in
+  primo piano; "steam" su D: ha dato 414 risultati, con la cartella "Steam" in cima.
+
+**Report di fine tappa T5**
+
+- Fatto: indice in memoria scelto con benchmark (ADR-0010), linguaggio dei filtri con errori
+  posizionati, motore con ordinamento, indici aggiornati in background, ricerca nell'app con
+  finestra globale, scorciatoia configurabile e voce nel tray.
+- Misure: primi 1000 risultati ≤ 1 ms su C: (1,37 milioni di voci) e ≤ 3 ms su 5,5 milioni;
+  60 B per voce in memoria (F07-AC3, NF3).
+- Criteri coperti da test automatici: F07-AC2/AC4/AC5/AC6 (unitari ed e2e), F07-AC1/AC7 (e2e
+  della vista, prova reale della scorciatoia), F07-AC3 (benchmark).
+- Controlli: `scripts/check.ps1` verde.
+- Rimandati: aggiornamento incrementale degli indici (L11), default della scorciatoia con i
+  metodi di input asiatici (L12).
+- Verifica manuale per l'utente: checklist T5 in `docs/REVIEW.md` §4.
 
 ### 2026-11-07 — T5: linguaggio di ricerca e motore
 

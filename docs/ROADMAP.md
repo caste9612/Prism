@@ -95,14 +95,17 @@ alla 1.0 e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
 Criteri coperti: F08-AC1/AC2/AC3/AC4/AC5, F09-AC1/AC2/AC3/AC4, F16-AC1/AC2/AC3/AC5/AC6.
 **Verifica utente**: leggibilità della treemap; prova di pulizia sul disco di test (REVIEW §4).
 
-## T5 — Ricerca
+## T5 — Ricerca  `[x]`
 
 - [x] Benchmark e decisione sull'indice di ricerca (ADR-0010: indice in memoria)
 - [x] Parser dei filtri avanzati con errori espliciti (F07-AC5/AC6); motore con ordinamento e
       conteggio limitato; indici mantenuti in background
-- [ ] Finestra di ricerca globale con scorciatoia configurabile (F07-AC1)
-- [ ] Risultati offline con nome e posizione del disco (F07-AC4)
-- [ ] Voce *Cerca* nel menu del tray (F19-AC2, rimandata da T3)
+- [x] Finestra di ricerca globale con scorciatoia configurabile (F07-AC1)
+- [x] Risultati offline con nome e posizione del disco (F07-AC4)
+- [x] Voce *Cerca* nel menu del tray (F19-AC2, rimandata da T3)
+
+Criteri coperti: F07-AC1/AC2/AC3/AC4/AC5/AC6/AC7, F19-AC2 (parte *Cerca*).
+**Verifica utente**: la scorciatoia Ctrl+Space da altri programmi; leggibilità dei risultati.
 
 ## T6 — Hash e duplicati
 

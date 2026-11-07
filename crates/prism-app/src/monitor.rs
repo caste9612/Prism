@@ -43,6 +43,14 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
     let _ = std::thread::Builder::new()
         .name("prism-net-probes".into())
         .spawn(move || net.run());
+    // Search indexes (ADR-0010): rebuilt from catalog events, at most every 30 s per volume.
+    let s = Arc::clone(state);
+    let _ = std::thread::Builder::new()
+        .name("prism-search-index".into())
+        .spawn(move || {
+            static NEVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            s.search.maintain(&s.store, Duration::from_secs(30), &NEVER);
+        });
 }
 
 fn volume_monitor(app: &AppHandle, state: &Arc<AppState>) {

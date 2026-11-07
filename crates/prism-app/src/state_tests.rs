@@ -35,6 +35,8 @@ fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
         )),
         notices: Mutex::new(Notices::default()),
         app_id: String::new(),
+        search: Arc::new(prism_core::search::live::LiveIndexes::default()),
+        shortcut_error: Mutex::new(None),
     }
 }
 

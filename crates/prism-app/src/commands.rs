@@ -6,13 +6,14 @@ use std::sync::Arc;
 use prism_core::jobs::JobId;
 use prism_core::model::{EntryId, VolumeId, VolumeLabels, VolumeStatus};
 use prism_core::store;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::cleanup_views::{CleanupResultView, CleanupView};
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings, VolumeView};
+use crate::search_views::SearchResultView;
 use crate::space_views::{LargeFileView, SpaceFolderView, TypeStatsView};
 use crate::state::{AppState, IndexKind, SETTINGS_KEY, access_path, job_view};
-use crate::tray;
+use crate::{search_window, tray};
 
 type R<T> = Result<T, ApiError>;
 
@@ -27,6 +28,7 @@ pub fn app_info(state: State<'_, Arc<AppState>>) -> AppInfo {
         elevated: state.elevated,
         data_dir: state.data_dir.display().to_string(),
         dev: state.dev,
+        shortcut_error: state.shortcut_error().clone(),
     }
 }
 
@@ -179,6 +181,26 @@ pub fn reveal_entry(state: State<'_, Arc<AppState>>, volume_id: i64, entry_id: i
     prism_win::shell::reveal(&path).map_err(|e| ApiError::new("open_failed", e))
 }
 
+/// Searches the catalog of every disk, online and offline (F07). `utc_offset_min` is the
+/// user's time zone, for the dates typed in the filters.
+#[tauri::command]
+pub async fn search(
+    state: State<'_, Arc<AppState>>,
+    text: String,
+    utc_offset_min: i32,
+) -> R<SearchResultView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.search(&text, utc_offset_min)).await
+}
+
+/// Hides the search window (Esc, or after opening a result).
+#[tauri::command]
+pub fn hide_search(app: AppHandle) {
+    if let Some(w) = app.get_webview_window(search_window::LABEL) {
+        let _ = w.hide();
+    }
+}
+
 /// What the guided cleanup proposes on the connected disks (F09).
 #[tauri::command]
 pub async fn cleanup_scan(state: State<'_, Arc<AppState>>) -> R<CleanupView> {
@@ -226,13 +248,22 @@ pub fn get_settings(state: State<'_, Arc<AppState>>) -> Settings {
 }
 
 #[tauri::command]
-pub fn set_settings(state: State<'_, Arc<AppState>>, settings: Settings) -> R<()> {
+pub fn set_settings(app: AppHandle, state: State<'_, Arc<AppState>>, settings: Settings) -> R<()> {
     let ok = matches!(settings.language.as_str(), "system" | "en" | "it")
         && matches!(settings.theme.as_str(), "system" | "light" | "dark");
     if !ok {
         return Err(ApiError::new("invalid_settings", format!("{settings:?}")));
     }
     let before = state.settings();
+    // F07-AC1: a new shortcut must be registrable; otherwise the previous one stays.
+    if before.search_shortcut != settings.search_shortcut || state.shortcut_error().is_some() {
+        if let Some(error) = search_window::register(&app, &settings.search_shortcut) {
+            let previous = search_window::register(&app, &before.search_shortcut);
+            *state.shortcut_error() = previous;
+            return Err(ApiError::new("shortcut_unavailable", error));
+        }
+        *state.shortcut_error() = None;
+    }
     let json =
         serde_json::to_string(&settings).map_err(|e| ApiError::new("invalid_settings", e))?;
     state
@@ -248,6 +279,6 @@ pub fn set_settings(state: State<'_, Arc<AppState>>, settings: Settings) -> R<()
 /// shows (ARCHITECTURE §7).
 #[tauri::command]
 pub fn set_native_texts(app: AppHandle, state: State<'_, Arc<AppState>>, texts: NativeTexts) {
-    tray::set_labels(&app, &texts.open, &texts.quit);
+    tray::set_labels(&app, &texts.open, &texts.search, &texts.quit);
     state.notices().set_texts(texts);
 }

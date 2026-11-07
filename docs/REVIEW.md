@@ -43,6 +43,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D25 | 2026-11-07 | T4 | Cartelle di programmi riconosciute anche fuori da `Program Files`: una cartella che contiene direttamente una `.dll` (giochi, Steam, app portatili) e tutto ciò che ha sotto non vengono proposti come cartelle vuote né come file grandi e vecchi. Trovato sui dati reali: Steam in `D:\Programmi` proponeva `steamapps\downloading` e simili | Basarsi solo sui nomi delle cartelle; considerare anche le `.exe` (escluderebbe `Download` con un programma d'installazione) | `ProgramFolders` in `prism-core::cleanup` | F09-AC2 |
 | D26 | 2026-11-07 | T5 | Indice di ricerca **in memoria** (stile Everything) invece di FTS5 trigram: 60 B per voce in RAM, primi risultati in ≤ 3 ms su 5,5 milioni di voci, nessun costo su disco né in indicizzazione, ricerca anche con 1–2 caratteri | FTS5 trigram (17,5 s di costruzione su C:, +127 B per voce su disco, niente ricerche sotto i 3 caratteri) | `prism-core::search` | ADR-0010 |
 | D27 | 2026-11-07 | T5 | Dettagli del linguaggio di ricerca: `size:1GB` senza segno = "almeno"; `>`/`<` su una data = dopo/prima di quel giorno locale, `2024` o `2024-03` = l'anno o il mese; `modified:<30d` = più recenti di 30 giorni, `>1y` = più vecchi; unità decimali (KB, MB, GB) e binarie (KiB…); `d:` = l'unità D:; alias italiani (`tipo`, `disco`, `percorso`, `modificato`, `documenti`…); ordinamento per pertinenza e conteggio fino a 10.000 | Semantica di Everything (`dm:`, `size:` con uguaglianza); solo chiavi inglesi | `prism-core::search::query` ed `engine` | SPEC F07-AC5 |
+| D28 | 2026-11-07 | T5 | Ricerca in una finestra separata sempre in primo piano (nascosta con Esc o dopo aver aperto un risultato) e anche come voce del menu laterale; 200 risultati migliori; menu sotto la casella che scrivono i filtri nel testo; la scorciatoia rifiutata lascia attiva la precedente | Solo una pagina nella finestra principale; più risultati con lista virtualizzata | `prism-app/src/search_window.rs`, `ui/src/components/SearchView.svelte` | SPEC F07 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -71,6 +72,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | S1 | 2026-11-07 | (Supervisione) L'app di debug elimina senza `SandboxGuard` (`prism-app/src/state.rs`, guardia `None`) mentre lo sviluppo la pilota con i cataloghi di C: e D:; nessuna eliminazione reale avvenuta finora | Rischio di eliminare file veri durante le prove dell'app | Istruzione in CLAUDE.md (Sicurezza dei dati): guardia obbligatoria nelle build di debug, con test |
 | L10 | 2026-11-07 | Risposta a S1 | — | **Fatto** (2026-11-07): nelle build di debug `AppState::deletion_guard` limita ogni eliminazione al volume PRISMTEST (trovato dall'etichetta), a `%TEMP%` e a `%LOCALAPPDATA%\PrismDev`; la release non ha guardia. Test `state_tests::debug_build_refuses_deletions_outside_the_sandbox` (eliminazione in una cartella fuori sandbox → rifiutata, file intatto, registro vuoto). Nelle prove sull'app vera non è mai stata avviata un'eliminazione (solo schermate in lettura) |
 | L11 | 2026-11-07 | L'indice di ricerca di un volume si ricostruisce per intero quando il suo catalogo cambia, al massimo ogni 30 s | Risultati in ritardo fino a ~30 s dopo un cambio; ~0,6 s di CPU per ricostruzione su un volume da 1,4 milioni di voci | Accettato per la 1.0; miglioramento: aggiornamento incrementale dalle operazioni di scrittura |
+| L12 | 2026-11-07 | `Ctrl+Space` è usato da alcuni metodi di input (cinese, giapponese) per cambiare lingua | Con quei metodi la scorciatoia può non registrarsi o rubare il tasto | Prism lo segnala e la scorciatoia si cambia nelle impostazioni (F07-AC1); valutare un default diverso prima della 1.0 |
 
 ## 4. Come provare l'app
 
@@ -169,3 +171,18 @@ Note sulle prove di T3:
    (F16-AC1). Sui dischi veri usare la pulizia solo quando lo si vuole davvero: la build di
    sviluppo rifiuta comunque ogni eliminazione fuori da PRISMTEST, `%TEMP%` e
    `%LOCALAPPDATA%\PrismDev` (S1).
+
+### Checklist T5 (ricerca)
+
+1. Da un altro programma premere **Ctrl+Space**: si apre la finestra di ricerca in primo piano;
+   Esc la nasconde; *Cerca* nel menu del tray fa lo stesso (F07-AC1, F19-AC2). In
+   *Impostazioni* la scorciatoia si cambia; se un'altra applicazione la usa già, Prism lo dice e
+   tiene la precedente.
+2. Scrivere una parte di un nome ("port" trova "report"): i risultati arrivano mentre si scrive,
+   anche dai dischi non collegati, marcati con nome e posizione fisica (F07-AC2/AC4).
+3. Filtri scritti o scelti dai menu sotto la casella (tipo, dimensione, data, disco,
+   collegamento, file/cartelle) danno lo stesso testo (F07-AC5); un errore (es. `colour:red`,
+   `size:>big`, `disk:Inesistente`) è spiegato e sottolineato nel punto giusto (F07-AC6).
+4. Frecce per scegliere, Invio apre, Maiusc+Invio mostra in Esplora risorse, Ctrl+C copia il
+   percorso; sui dischi non collegati apertura e Esplora risorse sono disattivati (F07-AC7).
+5. Dopo aver creato o cancellato file, i risultati si aggiornano entro ~30 s (L11).

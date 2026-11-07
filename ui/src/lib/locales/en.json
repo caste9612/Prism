@@ -5,6 +5,7 @@
   },
   "nav": {
     "catalog": "Disks",
+    "search": "Search",
     "cleanup": "Cleanup",
     "settings": "Settings"
   },
@@ -105,7 +106,10 @@
     "elevated": "Running as administrator: fast indexing (MFT) and live updates are available.",
     "notElevated": "Not running as administrator: indexing reads folders one by one.",
     "dataDir": "Catalog folder: {dir}",
-    "saved": "Settings saved"
+    "saved": "Settings saved",
+    "shortcut": "Search shortcut",
+    "shortcutHint": "Opens the search window from any program.",
+    "shortcutError": "The shortcut could not be registered ({value}): choose another one."
   },
   "language": {
     "en": "English",
@@ -121,10 +125,12 @@
     "open_failed": "The disk could not be opened in Explorer.",
     "needs_permanent": "This disk has no Recycle Bin: confirm the permanent deletion.",
     "delete_failed": "The files could not be removed.",
+    "shortcut_unavailable": "This shortcut is not available: choose another one.",
     "unknown": "Something went wrong."
   },
   "tray": {
     "open": "Open Prism",
+    "search": "Search",
     "quit": "Quit"
   },
   "notify": {
@@ -226,6 +232,73 @@
     "binsTitle": "Recycle Bin",
     "bin": "Recycle Bin of {name}: {count} items, {size}.",
     "binHint": "That space is freed when you empty the Recycle Bin from Explorer."
+  },
+  "search": {
+    "label": "Search all disks",
+    "placeholder": "Search all disks… e.g. report size:>1MB ext:pdf",
+    "filters": "Filters",
+    "type": "Type",
+    "anyType": "Any type",
+    "types": {
+      "image": "Images",
+      "video": "Videos",
+      "audio": "Audio",
+      "document": "Documents",
+      "archive": "Archives",
+      "code": "Code",
+      "program": "Programs"
+    },
+    "size": "Size",
+    "anySize": "Any size",
+    "sizes": {
+      ">1MB": "Over 1 MB",
+      ">100MB": "Over 100 MB",
+      ">1GB": "Over 1 GB",
+      "<100KB": "Under 100 KB"
+    },
+    "modified": "Modified",
+    "anyTime": "Any time",
+    "times": {
+      "<7d": "Last 7 days",
+      "<30d": "Last 30 days",
+      "<1y": "Last year",
+      ">1y": "Older than a year"
+    },
+    "disk": "Disk",
+    "anyDisk": "All disks",
+    "state": "Connection",
+    "anyState": "Connected or not",
+    "onlineOnly": "Connected disks",
+    "offlineOnly": "Disks not connected",
+    "kind": "Kind",
+    "filesAndFolders": "Files and folders",
+    "filesOnly": "Files",
+    "foldersOnly": "Folders",
+    "results": "Results: {count}",
+    "manyResults": "More than {count} results",
+    "showing": "showing the best {count}",
+    "resultsLabel": "Results",
+    "nothing": "Nothing found.",
+    "offline": "not connected",
+    "offlineAt": "not connected · {location}",
+    "open": "Open",
+    "reveal": "Show in Explorer",
+    "copy": "Copy path",
+    "copied": "Copied",
+    "help": "Type part of a name: every word must appear. Add filters to narrow the search:",
+    "keys": "↑ ↓ choose · Enter opens · Shift+Enter shows in Explorer · Ctrl+C copies the path · Esc closes the search window.",
+    "err": {
+      "unclosed_quote": "A quote is not closed.",
+      "unknown_filter": "There is no filter called “{value}”.",
+      "empty_value": "The filter “{value}” needs a value.",
+      "bad_size": "“{value}” is not a size (e.g. >1GB, 10MB..1GB).",
+      "bad_date": "“{value}” is not a date (e.g. >2024-01-01, <30d, 2024-03).",
+      "bad_type": "“{value}” is not a type (image, video, audio, document, archive, code, program).",
+      "bad_is": "“{value}”: use is:file or is:dir.",
+      "bad_online": "“{value}”: use online:yes or online:no.",
+      "bad_regex": "The regular expression is not valid: {value}",
+      "unknown_disk": "No disk is called “{value}”."
+    }
   },
   "time": {
     "justNow": "just now",

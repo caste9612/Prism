@@ -15,4 +15,8 @@ theme: string,
 /**
  * Start with Windows (F19-AC3).
  */
-autostart: boolean, };
+autostart: boolean, 
+/**
+ * Global shortcut of the search window (F07-AC1), e.g. `Ctrl+Space`.
+ */
+searchShortcut: string, };

@@ -76,6 +76,7 @@ pub struct JobView {
 #[ts(export)]
 pub struct NativeTexts {
     pub open: String,
+    pub search: String,
     pub quit: String,
     pub new_disk_title: String,
     pub new_disks_title: String,
@@ -104,6 +105,13 @@ pub struct Settings {
     pub theme: String,
     /// Start with Windows (F19-AC3).
     pub autostart: bool,
+    /// Global shortcut of the search window (F07-AC1), e.g. `Ctrl+Space`.
+    #[serde(default = "default_search_shortcut")]
+    pub search_shortcut: String,
+}
+
+pub fn default_search_shortcut() -> String {
+    "Ctrl+Space".to_owned()
 }
 
 impl Default for Settings {
@@ -112,6 +120,7 @@ impl Default for Settings {
             language: "system".into(),
             theme: "system".into(),
             autostart: true,
+            search_shortcut: default_search_shortcut(),
         }
     }
 }
@@ -126,6 +135,8 @@ pub struct AppInfo {
     pub elevated: bool,
     pub data_dir: String,
     pub dev: bool,
+    /// Why the search shortcut could not be registered (F07-AC1), if it could not.
+    pub shortcut_error: Option<String>,
 }
 
 /// Errors as the interface receives them: a stable code (translated by the UI) and a

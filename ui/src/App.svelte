@@ -11,16 +11,17 @@
   import { setTheme, type ThemePreference } from './lib/theme';
   import CatalogView from './components/CatalogView.svelte';
   import CleanupView from './components/CleanupView.svelte';
+  import SearchView from './components/SearchView.svelte';
   import Icon from './components/Icon.svelte';
   import SettingsView from './components/SettingsView.svelte';
   import SpaceView from './components/SpaceView.svelte';
 
-  type Page = 'catalog' | 'cleanup' | 'settings' | 'space';
+  type Page = 'catalog' | 'search' | 'cleanup' | 'settings' | 'space';
 
   let page = $state<Page>('catalog');
   let spaceVolume = $state<number | null>(null);
   let volumes = $state<VolumeView[]>([]);
-  let settings = $state<Settings>({ language: 'system', theme: 'system', autostart: true });
+  let settings = $state<Settings>({ language: 'system', theme: 'system', autostart: true, searchShortcut: 'Ctrl+Space' });
   let info = $state<AppInfo | null>(null);
   let toast = $state<string | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -46,6 +47,7 @@
     // filled in by the backend).
     void backend.setNativeTexts({
       open: t('tray.open'),
+      search: t('tray.search'),
       quit: t('tray.quit'),
       newDiskTitle: t('notify.newDiskTitle'),
       newDisksTitle: t('notify.newDisksTitle'),
@@ -60,7 +62,10 @@
       await backend.setSettings(s);
     } catch (e) {
       showToast(errorMessage(e));
+      // A refused shortcut keeps the previous one (F07-AC1): show what is in effect.
+      settings = await backend.getSettings().catch(() => settings);
     }
+    info = await backend.appInfo().catch(() => info);
   }
 
   onMount(() => {
@@ -74,6 +79,8 @@
       }
       applySettings(settings);
       info = await backend.appInfo().catch(() => null);
+      // F07-AC1: say so when the search shortcut could not be registered.
+      if (info?.shortcutError) showToast(t('settings.shortcutError', { value: info.shortcutError }));
       await refresh();
       const offVolumes = await backend.onVolumesChanged(() => void refresh());
       // Job progress: update the matching cards without reloading the whole list.
@@ -94,6 +101,7 @@
 
   const nav: { page: Page; icon: string }[] = [
     { page: 'catalog', icon: 'disks' },
+    { page: 'search', icon: 'search' },
     { page: 'cleanup', icon: 'broom' },
     { page: 'settings', icon: 'settings' },
   ];
@@ -138,6 +146,8 @@
           page = 'space';
         }}
       />
+    {:else if page === 'search'}
+      <SearchView {volumes} onerror={showToast} />
     {:else if page === 'cleanup'}
       <CleanupView {volumes} onerror={showToast} />
     {:else}

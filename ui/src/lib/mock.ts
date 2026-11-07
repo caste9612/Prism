@@ -9,6 +9,7 @@ import type { VolumeView } from './bindings/VolumeView';
 import type { Backend, Unlisten } from './api';
 import { cardJob } from './catalog';
 import { mockCleanupScan, mockDeleteEntries } from './mock-cleanup';
+import { mockSearch } from './mock-search';
 import { mockHasEntry, mockLargestFiles, mockSpaceFolder, mockTypeStats } from './mock-space';
 
 const GB = 1_000_000_000;
@@ -49,7 +50,7 @@ export function sampleVolumes(now = Date.now()): VolumeView[] {
 
 export function mockBackend(): Backend {
   let volumes = sampleVolumes();
-  let settings: Settings = { language: 'system', theme: 'system', autostart: true };
+  let settings: Settings = { language: 'system', theme: 'system', autostart: true, searchShortcut: 'Ctrl+Space' };
   const jobs: JobView[] = [];
   let nextJob = 1;
   const volumeListeners = new Set<() => void>();
@@ -74,7 +75,7 @@ export function mockBackend(): Backend {
   };
 
   return {
-    appInfo: async (): Promise<AppInfo> => ({ version: '0.1.0', elevated: true, dataDir: '(simulated)', dev: true }),
+    appInfo: async (): Promise<AppInfo> => ({ version: '0.1.0', elevated: true, dataDir: '(simulated)', dev: true, shortcutError: null }),
     volumes: async () => withJobs(),
     jobs: async () => jobs.map((j) => ({ ...j })),
     indexVolume: async (id) => {
@@ -139,6 +140,9 @@ export function mockBackend(): Backend {
       if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
       if (!mockHasEntry(volumeId, entryId)) throw { code: 'not_found', message: String(entryId) };
     },
+    search: async (text) => mockSearch(text, withJobs()),
+    hideSearch: async () => {},
+    onSearchFocus: async () => () => {},
     cleanupScan: async () => mockCleanupScan(),
     deleteEntries: async (volumeId, entryIds, _emptyFolders, permanent) => {
       if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
