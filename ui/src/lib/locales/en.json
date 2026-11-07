@@ -114,6 +114,7 @@
     "volume_busy": "The disk is busy: wait for the current operation to end.",
     "invalid_settings": "These settings are not valid.",
     "store": "The catalog could not be read or written.",
+    "autostart_failed": "Start with Windows could not be changed.",
     "unknown": "Something went wrong."
   },
   "tray": {

@@ -114,6 +114,7 @@
     "volume_busy": "Il disco è occupato: attendi la fine dell'operazione in corso.",
     "invalid_settings": "Queste impostazioni non sono valide.",
     "store": "Non è stato possibile leggere o scrivere il catalogo.",
+    "autostart_failed": "Non è stato possibile cambiare l'avvio con Windows.",
     "unknown": "Qualcosa è andato storto."
   },
   "tray": {

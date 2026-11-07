@@ -8,9 +8,9 @@
 - **Tappa**: T3 in corso. Fatti: motore dei job, app Tauri con tray e istanza singola,
   interfaccia Svelte con schermata catalogo, disco nuovo, etichette e impostazioni. L'app si
   prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: resto di T3 — prototipi attività pianificata (avvio con Windows, F19-AC3)
-  e apertura non elevata (ADR-0003), notifica di sistema per i dischi nuovi (REVIEW L8). Poi T4.
-  Nessuna sosta (CLAUDE.md).
+- **Prossimo passo**: resto di T3 — prototipo di apertura non elevata tramite la shell
+  (ADR-0003), notifica di sistema per i dischi nuovi (REVIEW L8). Poi T4. Nessuna sosta
+  (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -24,6 +24,24 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T3: avvio con Windows e finestra dell'app
+
+- `prism-win::autostart`: attività pianificata all'accesso con i privilegi più elevati,
+  registrata con `schtasks.exe` da una definizione XML (UTF-16); test unitari della
+  definizione e test elevato con un'attività **disattivata** in `\PrismDevTests\` (registrata,
+  riletta, sostituita e rimossa). Primo tentativo fallito: `schtasks` apre il file XML in modo
+  esclusivo e il mio handle era ancora aperto; corretto chiudendolo prima.
+- App: l'opzione "Avvia Prism con Windows" registra o rimuove l'attività `Prism` e Prism la
+  riallinea a ogni avvio; con `--autostart` la finestra parte nascosta nel tray (verificato:
+  finestra principale invisibile, riaperta da un secondo avvio). Le build di sviluppo non creano
+  mai l'attività (REVIEW D18).
+- Scoperto con le prove: anche le build di debug creavano
+  `%LOCALAPPDATA%\com.prism.catalog\EBWebView` (cartella dati di WebView2 legata
+  all'identificativo). Ora la finestra è creata dal codice con la cartella WebView2 accanto al
+  catalogo (`PrismDev\app\webview` in sviluppo). La cartella creata dalle prove precedenti
+  (solo dati di WebView2 delle build di sviluppo) è stata rimossa.
+- Esiti dei prototipi registrati in ADR-0003.
 
 ### 2026-11-07 — T3: unità di rete e sorveglianza cartelle nell'app
 

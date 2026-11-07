@@ -38,3 +38,19 @@ scelto che Prism giri **sempre** come amministratore e parta con Windows senza p
 - **Da verificare con prototipi**: WebView2 in processo elevato (cartella dati utente
   coerente), manifest personalizzato con Tauri 2, avvio dell'attività pianificata da un
   processo non elevato, apertura non elevata tramite la shell.
+
+## Esiti dei prototipi (T3, 2026-11-07)
+
+- **WebView2 elevata**: funziona. La finestra principale è creata dal codice
+  (`create: false` in `tauri.conf.json`) con la cartella dati di WebView2 accanto al catalogo
+  (`<cartella dati>\webview`); senza questo accorgimento anche le build di debug userebbero
+  `%LOCALAPPDATA%\com.prism.catalog\EBWebView`.
+- **Manifest personalizzato**: `crates/prism-app/build.rs` sceglie `windows/release.manifest`
+  (`requireAdministrator`) o `windows/debug.manifest` (`asInvoker`) in base al profilo.
+- **Attività pianificata**: `prism-win::autostart` registra con `schtasks.exe` e una
+  definizione XML un'attività all'accesso dell'utente con i privilegi più elevati (ritardo
+  10 s, nessun limite di durata, nessuna restrizione a batteria), argomento `--autostart` per
+  partire nascosto nel tray. Test elevato su un'attività disattivata in `\PrismDevTests\`.
+  L'avvio di un'attività di questo tipo da un processo non elevato senza UAC è lo stesso
+  meccanismo del runner dei test amministratore, verificato in T2 (TESTING §4).
+- **Apertura non elevata tramite la shell**: da prototipare quando serve aprire file (T4/T5).

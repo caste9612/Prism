@@ -18,9 +18,9 @@ use prism_core::refresh;
 use prism_core::scan::WalkEnumerator;
 use prism_core::store::{self, Store};
 use prism_core::volumes::DetectedVolume;
-use prism_win::ntfs;
+use prism_win::{autostart, ntfs};
 
-use crate::dto::{ApiError, JobView, VolumeView};
+use crate::dto::{ApiError, JobView, Settings, VolumeView};
 use crate::netprobe::NetProbe;
 
 pub struct AppState {
@@ -189,6 +189,37 @@ impl AppState {
                 .map_err(|e| e.to_string())
             }),
         }))
+    }
+}
+
+/// Key of the user settings (F21) in the `settings` table: one JSON document.
+pub const SETTINGS_KEY: &str = "app.settings";
+
+impl AppState {
+    /// The user settings; defaults when never saved or unreadable.
+    pub fn settings(&self) -> Settings {
+        self.store
+            .read(|c| store::setting(c, SETTINGS_KEY))
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    /// Registers or removes the start-with-Windows task (F19-AC3). Development builds only
+    /// keep the setting: a task starting `target\debug\prism.exe` at every logon would be a
+    /// surprise (REVIEW D18).
+    pub fn apply_autostart(&self, enabled: bool) -> Result<(), ApiError> {
+        if self.dev {
+            tracing::info!(
+                enabled,
+                "start with Windows not changed in development builds"
+            );
+            return Ok(());
+        }
+        let exe = std::env::current_exe().map_err(|e| ApiError::new("autostart_failed", e))?;
+        autostart::apply(enabled, &exe, crate::AUTOSTART_ARG)
+            .map_err(|e| ApiError::new("autostart_failed", e))
     }
 }
 

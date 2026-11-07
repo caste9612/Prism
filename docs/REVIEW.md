@@ -32,7 +32,8 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D14 | 2026-11-07 | T3 | Dischi nuovi proposti con un riquadro nella schermata catalogo; da 3 dischi nuovi in su (tipico del primo avvio) un unico pannello compatto con *Indicizza tutti*; *Non ora* vale fino alla chiusura di Prism | Un riquadro per disco; *Non ora* permanente | `ui/src/lib/catalog.ts` (`GROUP_PROMPTS_FROM`) | SPEC F02-AC1 |
 | D15 | 2026-11-07 | T3 | Disco senza etichetta mostrato come Esplora risorse: "Disco interno (C:)", "Unità di rete (Z:)" | Mostrare la lettera nuda | `displayName` in `ui/src/lib/catalog.ts` | F01 |
 | D16 | 2026-11-07 | T3 | Rilevamento dei dischi per interrogazione ogni 2 s (rispetta F01-AC2, ≤ 5 s) invece delle notifiche di Windows sui dispositivi; journal applicato ogni 15 s ai volumi NTFS indicizzati | `RegisterDeviceNotification` / `WM_DEVICECHANGE` | `prism-app/src/monitor.rs` | ARCHITECTURE §7 |
-| D17 | 2026-11-07 | T3 | Impostazioni salvate come un documento JSON nella tabella `settings` del catalogo; l'opzione "Avvia con Windows" è memorizzata ma l'attività pianificata è ancora da collegare (prototipo T3, installer T10) | File di configurazione separato | `prism-app/src/commands.rs` | F21-AC1 |
+| D17 | 2026-11-07 | T3 | Impostazioni salvate come un documento JSON nella tabella `settings` del catalogo; l'opzione "Avvia con Windows" registra o rimuove l'attività pianificata (D18) | File di configurazione separato | `prism-app/src/commands.rs` | F21-AC1 |
+| D18 | 2026-11-07 | T3 | Avvio con Windows: attività pianificata `Prism` all'accesso dell'utente, con i privilegi più elevati, 10 s dopo l'accesso, finestra nascosta nel tray (`--autostart`); Prism la riallinea a ogni avvio (percorso del programma) e quando cambia l'impostazione. Le build di **sviluppo** non la creano mai (solo l'impostazione viene salvata) | Chiave `Run` del registro (non può partire elevato senza UAC); attività creata solo dall'installer | `prism-win::autostart`, `AppState::apply_autostart` | ADR-0003 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -108,7 +109,11 @@ cargo run -p prism-app --features custom-protocol
     pochi secondi la scheda si aggiorna da sola (sorveglianza cartelle, REVIEW L6).
 11. Unità di rete: con il server acceso la scheda mostra lo spazio usato e libero; spegnendo il
     server (o scollegando la rete) entro ~15 s passa tra i "Non collegati" (REVIEW L5).
-12. Giudizio su aspetto e usabilità (U5).
+12. (Build di release) *Impostazioni → Avvia Prism con Windows*: attivandola compare
+    l'attività `Prism` nell'Utilità di pianificazione; al successivo accesso a Windows Prism
+    parte da solo nell'area di notifica, senza richiesta UAC (F19-AC3; prova completa sul PC
+    pulito, U3). Disattivandola l'attività sparisce.
+13. Giudizio su aspetto e usabilità (U5).
 
 Nota: durante le prove di T3 è rimasta sul disco di test la cartella `F:\prism-demo` (file di
 prova creati per verificare l'aggiornamento dal journal); la sua rimozione automatica è stata

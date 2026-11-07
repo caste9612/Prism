@@ -11,12 +11,12 @@ mod tray;
 mod watchers;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use prism_core::jobs::JobEngine;
 use prism_core::store::Store;
-use tauri::{Manager, WindowEvent};
+use tauri::{Manager, WebviewWindowBuilder, WindowEvent};
 
 use crate::netprobe::{NetProbe, ProbeTiming};
 use crate::state::AppState;
@@ -37,6 +37,29 @@ fn data_dir(app: &tauri::App) -> PathBuf {
     }
 }
 
+/// Started with Windows (F19-AC3): Prism starts hidden in the notification area.
+pub const AUTOSTART_ARG: &str = "--autostart";
+
+/// The main window, from its configuration in `tauri.conf.json` (`create: false`). Created here
+/// so that WebView2 keeps its data next to the catalog: by default it would use the folder of
+/// the identifier, also in development builds (TESTING S4).
+fn create_main_window(app: &tauri::App, data_dir: &Path) -> tauri::Result<()> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "main")
+        .cloned()
+        .unwrap_or_default();
+    let hidden = std::env::args().any(|a| a == AUTOSTART_ARG);
+    WebviewWindowBuilder::from_config(app.handle(), &config)?
+        .data_directory(data_dir.join("webview"))
+        .visible(!hidden)
+        .build()?;
+    Ok(())
+}
+
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir(app);
     let store = Store::open(&dir.join("catalog.db"))?;
@@ -53,9 +76,20 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )),
     });
     tracing::info!(elevated = state.elevated, data = %state.data_dir.display(), "Prism started");
+    create_main_window(app, &state.data_dir)?;
     app.manage(Arc::clone(&state));
     tray::create(app.handle())?;
     monitor::spawn(app.handle(), &state);
+    // F19-AC3: keep the task in line with the setting and with the current location of the
+    // program (it may have moved or been updated). Off the startup path.
+    let s = Arc::clone(&state);
+    let _ = std::thread::Builder::new()
+        .name("prism-autostart".into())
+        .spawn(move || {
+            if let Err(e) = s.apply_autostart(s.settings().autostart) {
+                tracing::warn!(code = %e.code, message = %e.message, "start with Windows");
+            }
+        });
     Ok(())
 }
 

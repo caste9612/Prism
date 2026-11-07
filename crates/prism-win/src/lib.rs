@@ -7,6 +7,7 @@
 #![cfg(windows)]
 #![allow(unsafe_code)]
 
+pub mod autostart;
 pub(crate) mod ioctl;
 pub mod mft;
 pub mod ntfs;

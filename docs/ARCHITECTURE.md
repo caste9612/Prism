@@ -343,7 +343,10 @@ Implementazione (T3):
   cartelle interessate (`prism-core::refresh`); i cambi nella cartella dati di Prism sono
   ignorati. I job automatici `journal` e `refresh` non compaiono sulle schede.
 - Le impostazioni (F21) sono un documento JSON nella tabella `settings` (chiave
-  `app.settings`).
+  `app.settings`). L'opzione di avvio con Windows registra o rimuove l'attività pianificata
+  `Prism` (`prism-win::autostart`, ADR-0003); con `--autostart` la finestra parte nascosta.
+- La finestra principale è creata in `main.rs` dalla sua configurazione (`create: false`), con
+  la cartella dati di WebView2 accanto al catalogo.
 - `ui/`: Svelte 5 + Vite + TypeScript. `src/lib/api.ts` è l'unico punto di contatto con il
   backend (`invoke`/`listen`); fuori da Tauri usa un backend simulato (`src/lib/mock.ts`) con
   dati d'esempio, per lo sviluppo nel browser e i test. `i18n.svelte.ts` (EN/IT, lingua di

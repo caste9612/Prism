@@ -9,7 +9,7 @@ use prism_core::store;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, Settings, VolumeView};
-use crate::state::{AppState, IndexKind, job_view};
+use crate::state::{AppState, IndexKind, SETTINGS_KEY, job_view};
 use crate::tray;
 
 type R<T> = Result<T, ApiError>;
@@ -125,14 +125,9 @@ pub fn remove_volume(app: AppHandle, state: State<'_, Arc<AppState>>, id: i64) -
     Ok(())
 }
 
-const SETTINGS_KEY: &str = "app.settings";
-
 #[tauri::command]
-pub fn get_settings(state: State<'_, Arc<AppState>>) -> R<Settings> {
-    let raw = state.store.read(|c| store::setting(c, SETTINGS_KEY))?;
-    Ok(raw
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default())
+pub fn get_settings(state: State<'_, Arc<AppState>>) -> Settings {
+    state.settings()
 }
 
 #[tauri::command]
@@ -142,11 +137,15 @@ pub fn set_settings(state: State<'_, Arc<AppState>>, settings: Settings) -> R<()
     if !ok {
         return Err(ApiError::new("invalid_settings", format!("{settings:?}")));
     }
+    let before = state.settings();
     let json =
         serde_json::to_string(&settings).map_err(|e| ApiError::new("invalid_settings", e))?;
     state
         .store
         .write(move |w| store::set_setting(w, SETTINGS_KEY, &json))?;
+    if before.autostart != settings.autostart {
+        state.apply_autostart(settings.autostart)?;
+    }
     Ok(())
 }
 
