@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use common::{Sandbox, TestCatalog};
 use prism_core::cancel::CancelToken;
-use prism_core::duplicates::{DupFilter, LastCopyError, check_last_copies, groups};
+use prism_core::duplicates::{DupFilter, LastCopyError, check_last_copies, find, groups};
 use prism_core::fileops::{DeleteRequest, Disposal, FolderCheck, Outcome, Remover, delete_entries};
 use prism_core::hashing::{HashProgress, hash_volume};
 use prism_core::model::{EntryId, VolumeId};
@@ -82,6 +82,26 @@ fn f10_groups_with_filters() {
     assert_eq!(all[0].files.len(), 3);
     assert_eq!(all[0].recoverable(), 400_000);
     assert_eq!((all[0].online(), all[0].offline()), (3, 0));
+    // The totals count every group, the paths are built only for those shown.
+    let none_shown = cat
+        .store
+        .read(|c| find(c, &online, &DupFilter::default(), 0))
+        .unwrap();
+    assert!(none_shown.groups.is_empty());
+    assert_eq!(
+        (none_shown.total_groups, none_shown.total_recoverable),
+        (1, 400_000)
+    );
+    let by_volume = DupFilter {
+        volume: Some(VolumeId(volume.0 + 1)),
+        ..DupFilter::default()
+    };
+    assert!(
+        cat.store
+            .read(|c| groups(c, &online, &by_volume))
+            .unwrap()
+            .is_empty()
+    );
     // F10-AC5: filters.
     let big = DupFilter {
         min_size: 1_000_000,

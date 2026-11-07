@@ -44,6 +44,23 @@ pub struct VolumeView {
     pub last_seen_at: Option<i64>,
     /// The running or queued job of this volume, if any (F01-AC3).
     pub job: Option<JobView>,
+    /// Content hashes of the volume, once counted (F06-AC5).
+    pub hashes: Option<HashesView>,
+}
+
+/// How far the content hashes of a volume are (F06-AC5).
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct HashesView {
+    /// Files with content.
+    #[ts(type = "number")]
+    pub total: u64,
+    /// Of which with a valid hash.
+    #[ts(type = "number")]
+    pub hashed: u64,
+    /// A hash job runs on the volume now.
+    pub running: bool,
 }
 
 /// A job of the engine (ADR-0009).
@@ -81,6 +98,15 @@ pub struct NativeTexts {
     pub new_disk_title: String,
     pub new_disks_title: String,
     pub new_disk_body: String,
+    #[serde(default)]
+    pub pause_hashing: String,
+    #[serde(default)]
+    pub resume_hashing: String,
+    /// Tray status line (F19-AC2): no job, or `{count}` jobs.
+    #[serde(default)]
+    pub jobs_idle: String,
+    #[serde(default)]
+    pub jobs_running: String,
 }
 
 /// User labels of a volume (F03).
@@ -108,6 +134,16 @@ pub struct Settings {
     /// Global shortcut of the search window (F07-AC1), e.g. `Ctrl+Space`.
     #[serde(default = "default_search_shortcut")]
     pub search_shortcut: String,
+    /// Background hashing paused by the user, from the tray or here (F06-AC5, F19-AC2).
+    #[serde(default)]
+    pub hashing_paused: bool,
+    /// Pause hashing while the PC runs on battery (F21-AC3); off by default.
+    #[serde(default)]
+    pub pause_hashing_on_battery: bool,
+    /// Volumes whose content is never analysed (F21-AC3).
+    #[serde(default)]
+    #[ts(type = "number[]")]
+    pub hashing_excluded: Vec<i64>,
 }
 
 pub fn default_search_shortcut() -> String {
@@ -121,6 +157,9 @@ impl Default for Settings {
             theme: "system".into(),
             autostart: true,
             search_shortcut: default_search_shortcut(),
+            hashing_paused: false,
+            pause_hashing_on_battery: false,
+            hashing_excluded: Vec::new(),
         }
     }
 }

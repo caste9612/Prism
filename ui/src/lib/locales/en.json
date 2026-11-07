@@ -6,6 +6,7 @@
   "nav": {
     "catalog": "Disks",
     "search": "Search",
+    "duplicates": "Duplicates",
     "cleanup": "Cleanup",
     "settings": "Settings"
   },
@@ -25,7 +26,12 @@
     "indexedSize": "{size} indexed",
     "location": "Location: {location}",
     "offlineSection": "Not connected",
-    "onlineSection": "Connected"
+    "onlineSection": "Connected",
+    "hashes": "Content analysis: {percent}%",
+    "hashesDone": "Content analysed",
+    "hashesRunning": "in progress",
+    "hashesPaused": "paused",
+    "hashesTitle": "{hashed} of {total} files analysed: needed to find duplicates and to check backups"
   },
   "kind": {
     "internal": "Internal disk",
@@ -109,7 +115,12 @@
     "saved": "Settings saved",
     "shortcut": "Search shortcut",
     "shortcutHint": "Opens the search window from any program.",
-    "shortcutError": "The shortcut could not be registered ({value}): choose another one."
+    "shortcutError": "The shortcut could not be registered ({value}): choose another one.",
+    "hashing": "Content analysis",
+    "hashingHint": "Prism reads the files of the connected disks in the background, at the lowest priority, to recognise identical files. Network drives are not read.",
+    "hashingPaused": "Pause the content analysis",
+    "hashingBattery": "Pause it while the PC runs on battery",
+    "hashingDisks": "Disks to analyse"
   },
   "language": {
     "en": "English",
@@ -126,12 +137,20 @@
     "needs_permanent": "This disk has no Recycle Bin: confirm the permanent deletion.",
     "delete_failed": "The files could not be removed.",
     "shortcut_unavailable": "This shortcut is not available: choose another one.",
-    "unknown": "Something went wrong."
+    "unknown": "Something went wrong.",
+    "last_copy": "This would delete every copy of a file: at least one must stay.",
+    "only_offline_copies": "Only copies on disconnected disks would remain.",
+    "not_hashed": "A file changed since it was analysed: refresh the list.",
+    "not_found": "The item is no longer in the catalog."
   },
   "tray": {
     "open": "Open Prism",
     "search": "Search",
-    "quit": "Quit"
+    "quit": "Quit",
+    "pauseHashing": "Pause content analysis",
+    "resumeHashing": "Resume content analysis",
+    "jobsIdle": "No jobs in progress",
+    "jobsRunning": "Jobs in progress: {count}"
   },
   "notify": {
     "newDiskTitle": "New disk: {name}",
@@ -305,5 +324,60 @@
     "minutes": "{count} min ago",
     "hours": "{count} h ago",
     "days": "{count} days ago"
+  },
+  "duplicates": {
+    "title": "Duplicates",
+    "subtitle": "Identical files on all your disks, connected or not. Nothing is removed until you confirm.",
+    "refresh": "Refresh",
+    "loading": "Looking for identical files…",
+    "nothing": "No identical files found with these filters.",
+    "summary": "{groups} groups · {size} recoverable",
+    "shownOf": "showing the {count} largest",
+    "pending": "Content analysis still has {count} files to read: more duplicates may appear.",
+    "pendingPaused": "Content analysis is paused with {count} files still to read.",
+    "resume": "Resume",
+    "filters": "Filters",
+    "minSize": "Minimum size",
+    "anySize": "Any size",
+    "type": "Type",
+    "anyType": "Any type",
+    "disk": "Disk",
+    "anyDisk": "All disks",
+    "folder": "Path contains",
+    "folderPlaceholder": "e.g. Photos\\2019",
+    "rules": "Selection rules",
+    "rulesHint": "The rules choose, in order, the copy to keep; the others are selected. You can change every check afterwards.",
+    "addRule": "Add a rule",
+    "removeRule": "Remove rule",
+    "apply": "Apply rules",
+    "rule": {
+      "keepOnVolume": "Keep the copy on a disk",
+      "keepOldest": "Keep the oldest copy",
+      "keepNewest": "Keep the most recent copy",
+      "keepShortestPath": "Keep the copy with the shortest path",
+      "neverIn": "Never select in folders containing"
+    },
+    "ruleText": "Text",
+    "copies": "{count} copies",
+    "recoverable": "{size} recoverable",
+    "offline": "not connected",
+    "offlineHint": "The disk is not connected: this copy cannot be selected.",
+    "keepOne": "One copy always stays.",
+    "onlyOfflineLeft": "Only copies on disconnected disks would remain.",
+    "selected": "{count} copies selected · {size}",
+    "deleteSelected": "Delete selected copies ({size})",
+    "clearSelection": "Clear selection",
+    "confirmTitle": "Delete {count} copies ({size})?",
+    "confirmRecycle": "On internal disks the copies go to the Recycle Bin.",
+    "confirmPermanent": "Some copies are on disks without a Recycle Bin: they will be deleted permanently.",
+    "confirmCheck": "Prism reads each file again first: a file whose content changed is left where it is.",
+    "confirmOfflineTitle": "Keep only copies on disconnected disks?",
+    "confirmOffline": "For some files the only copies left would be on disks that are not connected now. Make sure those disks still work before going on.",
+    "deleteNow": "Delete",
+    "deleteAnyway": "Delete anyway",
+    "result": "Deleted: {count}. Freed: {size}.",
+    "resultSkipped": "Left alone because they changed: {count}.",
+    "resultFailed": "Not removed (in use?): {count}.",
+    "open": "Show in Explorer"
   }
 }

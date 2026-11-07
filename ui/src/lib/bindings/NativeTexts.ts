@@ -5,4 +5,8 @@
  * the interface, which sends them (ARCHITECTURE §7). `{name}` and `{count}` are filled in by
  * the backend.
  */
-export type NativeTexts = { open: string, search: string, quit: string, newDiskTitle: string, newDisksTitle: string, newDiskBody: string, };
+export type NativeTexts = { open: string, search: string, quit: string, newDiskTitle: string, newDisksTitle: string, newDiskBody: string, pauseHashing: string, resumeHashing: string, 
+/**
+ * Tray status line (F19-AC2): no job, or `{count}` jobs.
+ */
+jobsIdle: string, jobsRunning: string, };

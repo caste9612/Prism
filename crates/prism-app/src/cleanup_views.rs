@@ -92,7 +92,7 @@ pub struct CleanupView {
 }
 
 /// What a deletion did (F16-AC6 has the details in the actions log).
-#[derive(Clone, Debug, Serialize, TS)]
+#[derive(Clone, Debug, Default, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct CleanupResultView {
@@ -101,6 +101,16 @@ pub struct CleanupResultView {
     pub failed: u32,
     #[ts(type = "number")]
     pub freed: u64,
+}
+
+impl CleanupResultView {
+    /// Adds the outcome of another deletion (several disks).
+    pub fn add(&mut self, other: &Self) {
+        self.done += other.done;
+        self.skipped += other.skipped;
+        self.failed += other.failed;
+        self.freed += other.freed;
+    }
 }
 
 impl From<&DeleteReport> for CleanupResultView {

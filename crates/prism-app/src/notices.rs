@@ -23,6 +23,10 @@ impl Default for NativeTexts {
             new_disk_title: "New disk: {name}".into(),
             new_disks_title: "{count} new disks found".into(),
             new_disk_body: "Open Prism to index or ignore it.".into(),
+            pause_hashing: "Pause content analysis".into(),
+            resume_hashing: "Resume content analysis".into(),
+            jobs_idle: "No jobs in progress".into(),
+            jobs_running: "Jobs in progress: {count}".into(),
         }
     }
 }
@@ -125,6 +129,10 @@ mod tests {
             new_disk_title: "Nuovo disco: {name}".into(),
             new_disks_title: "{count} nuovi dischi trovati".into(),
             new_disk_body: "Apri Prism per indicizzarlo.".into(),
+            pause_hashing: "Sospendi l'analisi del contenuto".into(),
+            resume_hashing: "Riprendi l'analisi del contenuto".into(),
+            jobs_idle: "Nessuna attività in corso".into(),
+            jobs_running: "Attività in corso: {count}".into(),
         }
     }
 

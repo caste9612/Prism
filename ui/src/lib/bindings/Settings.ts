@@ -19,4 +19,16 @@ autostart: boolean,
 /**
  * Global shortcut of the search window (F07-AC1), e.g. `Ctrl+Space`.
  */
-searchShortcut: string, };
+searchShortcut: string, 
+/**
+ * Background hashing paused by the user, from the tray or here (F06-AC5, F19-AC2).
+ */
+hashingPaused: boolean, 
+/**
+ * Pause hashing while the PC runs on battery (F21-AC3); off by default.
+ */
+pauseHashingOnBattery: boolean, 
+/**
+ * Volumes whose content is never analysed (F21-AC3).
+ */
+hashingExcluded: number[], };

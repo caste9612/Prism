@@ -62,6 +62,57 @@ pub fn is_elevated() -> bool {
     ok != 0 && elevation.TokenIsElevated != 0
 }
 
+/// Background mode of the current thread while alive: Windows lowers its CPU, disk and memory
+/// priority so that the work does not slow the user down (F06-AC2). Ends when dropped.
+/// Not `Send`: the mode belongs to the thread that entered it.
+pub struct BackgroundMode(bool, std::marker::PhantomData<*const ()>);
+
+impl BackgroundMode {
+    #[must_use]
+    pub fn enter() -> Self {
+        use windows_sys::Win32::System::Threading::{
+            GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN,
+        };
+        // SAFETY: the pseudo-handle of the current thread is always valid.
+        let ok = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN) };
+        Self(ok != 0, std::marker::PhantomData)
+    }
+
+    /// Whether Windows accepted the background mode.
+    pub fn active(&self) -> bool {
+        self.0
+    }
+}
+
+impl Drop for BackgroundMode {
+    fn drop(&mut self) {
+        use windows_sys::Win32::System::Threading::{
+            GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_END,
+        };
+        if self.0 {
+            // SAFETY: as in `enter`, on the same thread (the guard is not `Send`).
+            unsafe { SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END) };
+        }
+    }
+}
+
+/// Whether the PC runs on battery (F21-AC3). `false` when Windows cannot tell (desktops).
+#[must_use]
+pub fn on_battery() -> bool {
+    use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    let mut status = SYSTEM_POWER_STATUS {
+        ACLineStatus: 255,
+        BatteryFlag: 0,
+        BatteryLifePercent: 0,
+        SystemStatusFlag: 0,
+        BatteryLifeTime: 0,
+        BatteryFullLifeTime: 0,
+    };
+    // SAFETY: `status` is a writable SYSTEM_POWER_STATUS.
+    let ok = unsafe { GetSystemPowerStatus(&raw mut status) };
+    ok != 0 && status.ACLineStatus == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,6 +128,16 @@ mod tests {
         assert!(m.working_set > 0);
         assert!(m.peak_working_set > 0);
         assert!(m.private_bytes > 0);
+    }
+
+    #[test]
+    fn background_mode_enters_and_leaves() {
+        let guard = BackgroundMode::enter();
+        assert!(guard.active());
+        drop(guard);
+        // A second time on the same thread works too (the first one ended).
+        assert!(BackgroundMode::enter().active());
+        let _ = on_battery();
     }
 
     #[test]

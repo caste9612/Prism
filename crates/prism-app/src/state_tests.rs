@@ -10,7 +10,7 @@ use prism_core::cancel::CancelToken;
 use prism_core::exclusion::ExclusionPolicy;
 use prism_core::indexer::{self, IndexProgress, IndexRequest};
 use prism_core::jobs::JobEngine;
-use prism_core::model::{VolumeId, VolumeInfo, VolumeStatus};
+use prism_core::model::{EntryId, VolumeId, VolumeInfo, VolumeStatus};
 use prism_core::reconcile::ReconcileTarget;
 use prism_core::sandbox::{GuardedFs, SandboxGuard};
 use prism_core::scan::WalkEnumerator;
@@ -37,6 +37,7 @@ fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
         app_id: String::new(),
         search: Arc::new(prism_core::search::live::LiveIndexes::default()),
         shortcut_error: Mutex::new(None),
+        hashing: crate::hash_jobs::HashingState::default(),
     }
 }
 
@@ -122,4 +123,216 @@ fn release_builds_have_no_guard_and_debug_roots_exist() {
         Some(tmp.path().to_path_buf()),
     );
     assert_eq!(roots, [std::env::temp_dir(), tmp.path().to_path_buf()]);
+}
+
+// F06: the background hashes of a connected, indexed volume; nothing while paused, one job of
+// background priority otherwise, progress counted per volume and shown on the card.
+#[test]
+fn background_hashing_runs_pauses_and_counts() {
+    use crate::hash_jobs::{self, HashStatus};
+    use prism_core::jobs::{JobState, Priority};
+    use std::sync::atomic::Ordering;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let disk = tmp.path().join("disk");
+    std::fs::create_dir_all(disk.join("sub")).unwrap();
+    let same = vec![7u8; 200 * 1024];
+    std::fs::write(disk.join("a.bin"), &same).unwrap();
+    std::fs::write(disk.join("sub").join("b.bin"), &same).unwrap();
+    std::fs::write(disk.join("c.bin"), vec![8u8; 200 * 1024]).unwrap();
+    std::fs::write(disk.join("notes.txt"), b"unique").unwrap();
+
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let info = VolumeInfo::dev_folder(&disk.to_string_lossy());
+    let detected = DetectedVolume {
+        info: info.clone(),
+        mounts: vec![disk.to_string_lossy().into_owned()],
+        disks: Vec::new(),
+    };
+    let volume: VolumeId = store
+        .write(move |w| store::insert_volume(w, &info, VolumeStatus::New))
+        .unwrap();
+    indexer::index(
+        &store,
+        &WalkEnumerator::default(),
+        &IndexRequest {
+            volume,
+            path: &disk,
+            relative: &[],
+            target: ReconcileTarget::VolumeRoot,
+            policy: &ExclusionPolicy::with_defaults(),
+        },
+        &CancelToken::new(),
+        &IndexProgress::default(),
+    )
+    .unwrap();
+    let app = Arc::new(state(store, true, tmp.path()));
+    app.online().insert(volume, detected);
+
+    // Paused: the progress is counted, no job starts.
+    app.hashing.paused.store(true, Ordering::Relaxed);
+    assert!(hash_jobs::tick(&app));
+    assert_eq!(
+        app.hashing.progress(volume),
+        Some(HashStatus {
+            total: 4,
+            hashed: 0
+        })
+    );
+    assert!(app.engine.jobs().is_empty());
+
+    // Resumed but excluded by the user (F21-AC3): still nothing.
+    hash_jobs::configure(&app, false, &[volume.0]);
+    let _ = hash_jobs::tick(&app);
+    assert!(app.engine.jobs().is_empty());
+
+    // Resumed: one background job hashes the volume.
+    hash_jobs::configure(&app, false, &[]);
+    let _ = hash_jobs::tick(&app);
+    let jobs = app.engine.jobs();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].kind, "hash");
+    assert_eq!(jobs[0].priority, Priority::Background);
+    assert!(
+        app.foreground_jobs(volume).is_empty(),
+        "never blocks an update"
+    );
+    assert_eq!(app.engine.wait(jobs[0].id).unwrap().state, JobState::Done);
+    assert_eq!(
+        app.hashing.progress(volume),
+        Some(HashStatus {
+            total: 4,
+            hashed: 4
+        })
+    );
+    let card = app.volume_views().unwrap();
+    let hashes = card[0].hashes.as_ref().unwrap();
+    assert_eq!((hashes.total, hashes.hashed, hashes.running), (4, 4, false));
+    let dups = app.store.read(|c| store::duplicate_files(c, 1)).unwrap();
+    assert_eq!(dups.len(), 2, "a.bin and sub/b.bin");
+
+    // Nothing left to do: no new job.
+    let _ = hash_jobs::tick(&app);
+    assert_eq!(app.engine.jobs().len(), 1);
+}
+
+// F10/F16 in the app: groups with the copies the rules propose, the last-copy rule, the
+// deletion of a copy (permanent: a removable test volume in the temporary folder, inside the
+// development sandbox) and the catalog updated after it.
+#[test]
+fn duplicates_are_grouped_selected_and_deleted_safely() {
+    use crate::duplicates_views::{DupFilterInput, RuleInput};
+    use prism_core::jobs::JobState;
+    use prism_core::model::VolumeKind;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let disk = tmp.path().join("disk");
+    std::fs::create_dir_all(disk.join("copies").join("old")).unwrap();
+    let same = vec![3u8; 300 * 1024];
+    std::fs::write(disk.join("photo.jpg"), &same).unwrap();
+    let copy = disk.join("copies").join("old").join("photo.jpg");
+    std::fs::write(&copy, &same).unwrap();
+    std::fs::write(disk.join("unique.txt"), b"only one").unwrap();
+
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let mut info = VolumeInfo::dev_folder(&disk.to_string_lossy());
+    info.kind = VolumeKind::Removable;
+    let detected = DetectedVolume {
+        info: info.clone(),
+        mounts: vec![disk.to_string_lossy().into_owned()],
+        disks: Vec::new(),
+    };
+    let volume: VolumeId = store
+        .write(move |w| store::insert_volume(w, &info, VolumeStatus::New))
+        .unwrap();
+    indexer::index(
+        &store,
+        &WalkEnumerator::default(),
+        &IndexRequest {
+            volume,
+            path: &disk,
+            relative: &[],
+            target: ReconcileTarget::VolumeRoot,
+            policy: &ExclusionPolicy::with_defaults(),
+        },
+        &CancelToken::new(),
+        &IndexProgress::default(),
+    )
+    .unwrap();
+    let app = Arc::new(state(store, true, tmp.path()));
+    app.online().insert(volume, detected);
+    let _ = crate::hash_jobs::tick(&app);
+    let job = app.engine.jobs()[0].id;
+    assert_eq!(app.engine.wait(job).unwrap().state, JobState::Done);
+
+    let keep_short = [RuleInput {
+        kind: "keepShortestPath".into(),
+        volume_id: None,
+        text: None,
+    }];
+    let view = app
+        .duplicates(&DupFilterInput::default(), &keep_short)
+        .unwrap();
+    assert_eq!(view.total_groups, 1);
+    assert_eq!(view.total_recoverable, 300 * 1024);
+    assert_eq!(view.pending_files, 0);
+    let group = &view.groups[0];
+    assert_eq!(group.kind, "images");
+    assert_eq!(group.files.len(), 2);
+    let deep = group
+        .files
+        .iter()
+        .find(|f| f.path == r"copies\old\photo.jpg")
+        .unwrap();
+    assert_eq!(group.selected, [deep.entry_id]);
+    assert!(deep.full_path.ends_with(r"disk\copies\old\photo.jpg"));
+    assert!(
+        deep.permanent && deep.online,
+        "a removable disk has no Recycle Bin"
+    );
+    // A filter that matches nothing.
+    let videos = DupFilterInput {
+        category: Some("videos".into()),
+        ..DupFilterInput::default()
+    };
+    assert_eq!(app.duplicates(&videos, &[]).unwrap().total_groups, 0);
+
+    // F16-AC4: every copy, or a unique file, is refused before anything is touched.
+    let all: Vec<EntryId> = group.files.iter().map(|f| EntryId(f.entry_id)).collect();
+    assert_eq!(
+        app.delete_duplicates(&all, false, true).unwrap_err().code,
+        "last_copy"
+    );
+    let unique = app
+        .store
+        .read(|c| store::resolve_relative_path(c, volume, "unique.txt"))
+        .unwrap()
+        .unwrap()
+        .id;
+    assert_eq!(
+        app.delete_duplicates(&[unique], false, true)
+            .unwrap_err()
+            .code,
+        "last_copy"
+    );
+    assert!(copy.exists() && disk.join("photo.jpg").exists());
+    // No Recycle Bin on a removable disk: only with the permanent deletion confirmed.
+    let doomed = [EntryId(deep.entry_id)];
+    assert_eq!(
+        app.delete_duplicates(&doomed, false, false)
+            .unwrap_err()
+            .code,
+        "needs_permanent"
+    );
+    assert!(copy.exists());
+
+    let done = app.delete_duplicates(&doomed, false, true).unwrap();
+    assert_eq!((done.done, done.skipped, done.failed), (1, 0, 0));
+    assert_eq!(done.freed, 300 * 1024);
+    assert!(!copy.exists());
+    assert!(disk.join("photo.jpg").exists(), "the copy kept stays");
+    let after = app.duplicates(&DupFilterInput::default(), &[]).unwrap();
+    assert_eq!(after.total_groups, 0);
+    let log = app.store.read(|c| store::actions_log(c, 10)).unwrap();
+    assert_eq!(log.len(), 1);
 }

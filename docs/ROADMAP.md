@@ -107,14 +107,18 @@ Criteri coperti: F08-AC1/AC2/AC3/AC4/AC5, F09-AC1/AC2/AC3/AC4, F16-AC1/AC2/AC3/A
 Criteri coperti: F07-AC1/AC2/AC3/AC4/AC5/AC6/AC7, F19-AC2 (parte *Cerca*).
 **Verifica utente**: la scorciatoia Ctrl+Space da altri programmi; leggibilità dei risultati.
 
-## T6 — Hash e duplicati
+## T6 — Hash e duplicati  `[x]`
 
-- [~] Job di hash in background a priorità minima, sospensione a batteria opzionale (F06):
-      calcolo e validità fatti (`prism-core::hashing`); job nell'app, pausa e batteria da fare
-- [~] Gruppi di duplicati online e offline (F10): nucleo fatto; schermata da fare
+- [x] Job di hash in background a priorità minima, in modalità background di Windows, che cede
+      il disco alle indicizzazioni; pausa, sospensione a batteria opzionale, dischi esclusi (F06,
+      F21-AC3)
+- [x] Gruppi di duplicati online e offline, schermata con filtri (F10)
 - [x] Regole di selezione (F10-AC3)
-- [ ] Eliminazione sicura completa: Cestino, riverifica, ultima copia, registro azioni (F16)
-- [ ] Stato dei job e Pausa/Riprendi hash nel menu del tray (F19-AC2, rimandata da T3)
+- [x] Eliminazione sicura completa: Cestino, riverifica, ultima copia, registro azioni (F16)
+- [x] Stato dei job e Pausa/Riprendi hash nel menu del tray (F19-AC2, rimandata da T3)
+
+Criteri coperti: F06-AC1…AC6, F10-AC1…AC5, F16-AC3/AC4, F19-AC2, F21-AC3.
+**Verifica utente**: checklist T6 in `docs/REVIEW.md` §4 (eliminazione solo sul disco di test).
 
 ## T7 — Backup
 

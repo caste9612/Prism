@@ -29,6 +29,8 @@ use crate::watchers::Watchers;
 
 const DETECT_EVERY: Duration = Duration::from_secs(2);
 const JOURNAL_EVERY: Duration = Duration::from_secs(15);
+const HASH_START: Duration = Duration::from_secs(20);
+const HASH_EVERY: Duration = Duration::from_secs(30);
 
 pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
     let (a, s) = (app.clone(), Arc::clone(state));
@@ -43,6 +45,19 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
     let _ = std::thread::Builder::new()
         .name("prism-net-probes".into())
         .spawn(move || net.run());
+    // Content hashes in the background (F06), after the start has settled.
+    let (a, s) = (app.clone(), Arc::clone(state));
+    let _ = std::thread::Builder::new()
+        .name("prism-hashing".into())
+        .spawn(move || {
+            std::thread::sleep(HASH_START);
+            loop {
+                if crate::hash_jobs::tick(&s) {
+                    let _ = a.emit("volumes-changed", ());
+                }
+                std::thread::sleep(HASH_EVERY);
+            }
+        });
     // Search indexes (ADR-0010): rebuilt from catalog events, at most every 30 s per volume.
     let s = Arc::clone(state);
     let _ = std::thread::Builder::new()
@@ -210,7 +225,7 @@ fn journal_tick(state: &AppState) {
             .collect()
     };
     for id in candidates {
-        if state.engine.active_for(id).is_empty() {
+        if state.foreground_jobs(id).is_empty() {
             let _ = state.submit_index(id, IndexKind::Journal);
         }
     }
@@ -222,7 +237,9 @@ fn job_relay(app: &AppHandle, state: &AppState) {
         // Wait for a change, or poll progress while something runs (~4 per second).
         let event = events.recv_timeout(Duration::from_millis(250));
         let jobs = state.engine.jobs();
-        let running = jobs.iter().any(|j| !j.state.is_finished());
+        let active = jobs.iter().filter(|j| !j.state.is_finished()).count();
+        let running = active > 0;
+        crate::tray::set_job_count(app, active);
         if event.is_ok() || running {
             let views: Vec<_> = jobs.iter().map(job_view).collect();
             let _ = app.emit("jobs-changed", views);

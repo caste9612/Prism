@@ -5,11 +5,10 @@
 
 ## Stato attuale
 
-- **Tappa**: T5 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: T6 — hash e duplicati: job di hash in background a priorità minima con
-  sospensione a batteria opzionale (F06, ADR-0011), gruppi di duplicati online e offline (F10),
-  regole di selezione (F10-AC3), eliminazione completa con la regola dell'ultima copia
-  (F16-AC4), stato dei job e pausa degli hash nel tray (F19-AC2). Nessuna sosta (CLAUDE.md).
+- **Tappa**: T6 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
+- **Prossimo passo**: T7 — backup: verifica dei backup anche con destinazioni offline (F13),
+  confronto tra dischi o cartelle (F14), copia dei file mancanti verificata, annullabile e
+  riprendibile (F15), con la guardia sandbox per ogni scrittura (CLAUDE.md). Nessuna sosta.
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -23,6 +22,42 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T6 completata: analisi del contenuto e duplicati nell'app
+
+- `prism-win::process`: modalità background del thread (`BackgroundMode`, CPU e disco a
+  priorità minima, F06-AC2) e stato della batteria (`on_battery`).
+- `prism-core::jobs`: `should_yield`, un job di background cede il disco a un job più urgente
+  (test con quattro thread: altro disco e stessa priorità non contano). `hashing` usa
+  l'avanzamento del job, con le fasi `hashQuick` e `hashFull`. `duplicates::find`: totali di
+  tutti i gruppi, percorsi solo per quelli mostrati.
+- App: thread dell'analisi (`hash_jobs.rs`), job `hash` a priorità background che si ferma per
+  pausa, batteria o un'indicizzazione in attesa; avanzamento per disco sulle schede; nel tray
+  la riga dei job in corso e Sospendi/Riprendi; impostazioni di pausa, batteria e dischi
+  esclusi; comandi `duplicate_groups` e `delete_duplicates` (ultima copia, conferma per le
+  sole copie offline, hash ricontrollato, guardia di debug). Il journal e la sorveglianza non
+  aspettano più gli hash; rimuovere un disco li ferma.
+- Interfaccia: schermata *Duplicati* (filtri, regole, selezione con i limiti di F10-AC4,
+  conferme), avanzamento sulle schede, impostazioni dell'analisi. 4 Vitest, 6 Playwright.
+- Test dell'app su file veri in `%TEMP%`: analisi in pausa, disco escluso, job di background
+  che non blocca gli aggiornamenti, avanzamento sulla scheda; gruppi con la selezione delle
+  regole, ultima copia e file unico rifiutati, eliminazione definitiva solo con conferma su un
+  disco rimovibile, registro delle azioni.
+- Trovato da un test e2e: l'avviso "analisi in pausa" sulla schermata dei duplicati leggeva lo
+  stato caricato con l'elenco e restava vecchio dopo *Riprendi*; ora segue l'impostazione.
+
+**Report di fine tappa T6**
+
+- Fatto: hash in tre passate con validità legata a dimensione e data (ADR-0011), job di
+  background che cede il disco, pausa dal tray e dalle impostazioni, sospensione a batteria,
+  dischi esclusi, duplicati online e offline con filtri e regole, eliminazione con la regola
+  dell'ultima copia e il contenuto ricontrollato.
+- Criteri coperti da test automatici: F06-AC1/AC3/AC4/AC5/AC6 (integrazione e app), F06-AC2
+  (modalità background verificata dal test di `prism-win`), F10-AC1…AC5 (core, app, e2e),
+  F16-AC3/AC4 (core, app, e2e), F19-AC2 e F21-AC3 (app, e2e della vista).
+- Controlli: `scripts/check.ps1` verde.
+- Rimandati: analisi delle unità di rete (L13).
+- Verifica manuale per l'utente: checklist T6 in `docs/REVIEW.md` §4.
 
 ### 2026-11-07 — T6: hash del contenuto e duplicati (nucleo)
 

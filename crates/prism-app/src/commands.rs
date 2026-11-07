@@ -10,9 +10,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::cleanup_views::{CleanupResultView, CleanupView};
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings, VolumeView};
+use crate::duplicates_views::{DupFilterInput, DuplicatesView, RuleInput};
 use crate::search_views::SearchResultView;
 use crate::space_views::{LargeFileView, SpaceFolderView, TypeStatsView};
-use crate::state::{AppState, IndexKind, SETTINGS_KEY, access_path, job_view};
+use crate::state::{AppState, IndexKind, access_path, job_view};
 use crate::{search_window, tray};
 
 type R<T> = Result<T, ApiError>;
@@ -227,12 +228,44 @@ pub async fn delete_entries(
     result
 }
 
+/// Groups of identical files on every disk, with the copies the rules propose (F10).
+#[tauri::command]
+pub async fn duplicate_groups(
+    state: State<'_, Arc<AppState>>,
+    filter: DupFilterInput,
+    rules: Vec<RuleInput>,
+) -> R<DuplicatesView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.duplicates(&filter, &rules)).await
+}
+
+/// Deletes copies of duplicates on the connected disks (F16-AC3/AC4).
+#[tauri::command]
+pub async fn delete_duplicates(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    entry_ids: Vec<i64>,
+    allow_offline_only: bool,
+    permanent: bool,
+) -> R<CleanupResultView> {
+    let s = Arc::clone(&state);
+    let entries: Vec<EntryId> = entry_ids.into_iter().map(EntryId).collect();
+    let result =
+        blocking(move || s.delete_duplicates(&entries, allow_offline_only, permanent)).await;
+    emit_volumes(&app);
+    result
+}
+
 /// F01-AC5: removes the catalog data of a volume; files on the disk are never touched.
 #[tauri::command]
 pub fn remove_volume(app: AppHandle, state: State<'_, Arc<AppState>>, id: i64) -> R<()> {
     let volume = VolumeId(id);
-    if !state.engine.active_for(volume).is_empty() {
+    if !state.foreground_jobs(volume).is_empty() {
         return Err(ApiError::new("volume_busy", id));
+    }
+    // Hashes in progress stop; what they would still save is dropped with the entries.
+    for job in state.engine.active_for(volume) {
+        state.engine.cancel(job.id);
     }
     state
         .store
@@ -264,11 +297,9 @@ pub fn set_settings(app: AppHandle, state: State<'_, Arc<AppState>>, settings: S
         }
         *state.shortcut_error() = None;
     }
-    let json =
-        serde_json::to_string(&settings).map_err(|e| ApiError::new("invalid_settings", e))?;
-    state
-        .store
-        .write(move |w| store::set_setting(w, SETTINGS_KEY, &json))?;
+    state.save_settings(&settings)?;
+    state.apply_hashing(&settings);
+    tray::set_hashing_paused(&app, settings.hashing_paused);
     if before.autostart != settings.autostart {
         state.apply_autostart(settings.autostart)?;
     }
@@ -279,6 +310,6 @@ pub fn set_settings(app: AppHandle, state: State<'_, Arc<AppState>>, settings: S
 /// shows (ARCHITECTURE §7).
 #[tauri::command]
 pub fn set_native_texts(app: AppHandle, state: State<'_, Arc<AppState>>, texts: NativeTexts) {
-    tray::set_labels(&app, &texts.open, &texts.search, &texts.quit);
+    tray::set_labels(&app, &texts, state.settings().hashing_paused);
     state.notices().set_texts(texts);
 }

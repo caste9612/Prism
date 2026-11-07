@@ -266,6 +266,22 @@ offline (F06-AC6). La passata si ferma pulita tra un file e l'altro su richiesta
 batteria) o annullamento; il chiamante la esegue in modalità background di Windows (priorità
 minima di CPU e disco, F06-AC2).
 
+Nell'app (`prism-app/src/hash_jobs.rs`) un thread, 20 s dopo l'avvio e poi ogni 30 s:
+
+- conta per ogni volume indicizzato file e file con hash valido (ogni 5 minuti, ogni minuto
+  mentre l'analisi gira: il conteggio costa centinaia di ms su un catalogo grande) e lo mette
+  sulle schede (`VolumeView.hashes`, F06-AC5);
+- accoda un job `hash` a priorità *background* per ogni volume locale collegato, indicizzato,
+  con lavoro da fare, non escluso dall'utente (F21-AC3) e senza altri job, al massimo ogni 2
+  minuti; le unità di rete non si leggono in background (REVIEW D30).
+
+Il job entra in modalità background di Windows (`prism_win::process::BackgroundMode`) e si
+ferma tra due file se l'utente mette in pausa (tray o impostazioni), se il PC va a batteria e
+l'opzione lo chiede (`prism_win::process::on_battery`), o se un job più urgente aspetta lo
+stesso disco (`JobEngine::should_yield`, REVIEW D31). Non serve un record persistente per
+riprendere dopo un riavvio: l'avanzamento è la tabella degli hash stessa, e il giro successivo
+riparte dai file senza hash.
+
 ### 4.4 Ricerca (ADR-0010)
 
 Indice dei nomi di **tutti** i volumi, online e offline, con ricerca per sottostringa e filtri.
@@ -301,6 +317,11 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
 
 ### 4.5 Duplicati, simili, backup
 
+- **Duplicati nell'app** (T6): il comando `duplicate_groups` (filtri e regole) restituisce i 300
+  gruppi più grandi con i totali di tutti (`duplicates::find` costruisce i percorsi solo per i
+  gruppi mostrati) e la selezione proposta dalle regole; `delete_duplicates` controlla la
+  regola dell'ultima copia su tutta la selezione, poi elimina disco per disco attraverso
+  `fileops` con l'hash ricontrollato e la guardia di debug (REVIEW D32).
 - **Duplicati** (`prism-core::duplicates`): gruppi per (`size`, `full`) sugli hash validi, su
   tutti i volumi anche offline, con copie collegate e non, e spazio recuperabile; filtri per
   dimensione, tipo, volume e cartella (F10-AC5). Regole di selezione pure (F10-AC3): le regole
@@ -452,8 +473,12 @@ coda più urgente i cui dischi fisici sono liberi (FIFO a parità di priorità);
 un `JobContext` (token di annullamento, avanzamento con fase); un job in coda annullato non
 parte, uno in esecuzione riceve la richiesta di stop; un job che va in panico risulta fallito.
 `subscribe` notifica i cambi di stato; l'avanzamento si legge con `jobs()` a frequenza limitata.
-Il motore è in memoria (REVIEW D10): il record persistente e la ripresa dopo un crash arrivano
-con i job di background (T6).
+Il motore è in memoria (REVIEW D10). `should_yield(id)` dice a un job se un job più urgente
+aspetta uno dei suoi dischi: i job di background (hash) lo chiedono ogni mezzo secondo e
+cedono il disco invece di far aspettare un'indicizzazione per ore (T6, REVIEW D31). I job di
+background non contano come "disco occupato" per l'app: aggiornamenti dal journal, dalla
+sorveglianza e richieste dell'utente partono comunque (`AppState::foreground_jobs`). Gli hash
+non hanno bisogno di un record persistente per riprendere (§4.3).
 
 ## 7. Interfaccia e IPC (ADR-0014)
 
@@ -489,6 +514,9 @@ Implementazione (T3):
 - `notices.rs`: i dischi nuovi trovati mentre la finestra è nascosta diventano una notifica di
   Windows (`prism-win::notify`), una sola per più dischi, con i testi inviati dall'interfaccia
   (`set_native_texts`, insieme alle voci del tray); a finestra visibile basta il riquadro.
+- `tray.rs`: Apri, Cerca, una riga non cliccabile con il numero di job in corso (aggiornata dal
+  relè dei job solo quando cambia), Sospendi/Riprendi l'analisi del contenuto (salva
+  l'impostazione e avvisa l'interfaccia con `settings-changed`), Esci (F19-AC2).
 - Le impostazioni (F21) sono un documento JSON nella tabella `settings` (chiave
   `app.settings`). L'opzione di avvio con Windows registra o rimuove l'attività pianificata
   `Prism` (`prism-win::autostart`, ADR-0003); con `--autostart` la finestra parte nascosta.

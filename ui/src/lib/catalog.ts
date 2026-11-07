@@ -70,3 +70,9 @@ export function primaryAction(v: VolumeView): 'index' | 'update' | null {
 
 /** Colours offered for the volume labels (F03-AC1). */
 export const LABEL_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#0ea5e9', '#6366f1', '#d946ef', '#64748b'];
+
+/** Percentage of analysed files, rounded down: 100 only when every file is done (F06-AC5). */
+export function hashPercent(h: { total: number; hashed: number }): number {
+  if (h.total <= 0) return 100;
+  return Math.min(100, Math.floor((h.hashed / h.total) * 100));
+}

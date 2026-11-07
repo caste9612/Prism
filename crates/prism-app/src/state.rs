@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use prism_core::cancel::CancelToken;
 use prism_core::cleanup::{self, Category};
+use prism_core::duplicates::{self, LastCopyError};
 use prism_core::exclusion::ExclusionPolicy;
 use prism_core::fileops::{self, DeleteRequest, Disposal, FolderCheck};
 use prism_core::indexer::{self, IndexProgress, IndexRequest};
@@ -31,7 +32,9 @@ use prism_win::trash::ShellRemover;
 use prism_win::{autostart, ntfs};
 
 use crate::cleanup_views::{self, CleanupResultView, CleanupView, RecycleBinView};
-use crate::dto::{ApiError, JobView, Settings, VolumeView};
+use crate::dto::{ApiError, HashesView, JobView, Settings, VolumeView};
+use crate::duplicates_views::{self, DupFilterInput, DuplicatesView, RuleInput};
+use crate::hash_jobs::HashingState;
 use crate::netprobe::NetProbe;
 use crate::notices::Notices;
 use crate::search_views::{self, QueryErrorView, SearchResultView};
@@ -55,6 +58,8 @@ pub struct AppState {
     pub search: Arc<LiveIndexes>,
     /// Why the search shortcut is not registered, if it is not (F07-AC1).
     pub shortcut_error: Mutex<Option<String>>,
+    /// Background hashing: pause flags and progress per volume (F06).
+    pub hashing: HashingState,
 }
 
 pub fn job_view(j: &JobInfo) -> JobView {
@@ -157,6 +162,13 @@ impl AppState {
                     last_indexed_at: v.last_indexed_at,
                     last_seen_at: v.last_seen_at,
                     job,
+                    hashes: self.hashing.progress(v.id).map(|h| HashesView {
+                        total: h.total,
+                        hashed: h.hashed,
+                        running: jobs.iter().any(|j| {
+                            j.volume == Some(v.id) && j.kind == "hash" && !j.state.is_finished()
+                        }),
+                    }),
                 }
             })
             .collect())
@@ -169,10 +181,20 @@ impl AppState {
             .ok_or_else(|| ApiError::new("volume_offline", format!("volume {volume}")))
     }
 
+    /// The running or queued jobs of a volume that are not background work (hashes): those
+    /// give way to an indexing (`JobEngine::should_yield`) and never make it wait.
+    pub fn foreground_jobs(&self, volume: VolumeId) -> Vec<JobInfo> {
+        self.engine
+            .active_for(volume)
+            .into_iter()
+            .filter(|j| j.priority != Priority::Background)
+            .collect()
+    }
+
     /// Queues an indexing or an update of an online volume; if a job already runs on it,
     /// returns that one.
     pub fn submit_index(&self, volume: VolumeId, kind: IndexKind) -> Result<JobId, ApiError> {
-        if let Some(active) = self.engine.active_for(volume).first() {
+        if let Some(active) = self.foreground_jobs(volume).first() {
             return Ok(active.id);
         }
         let detected = self.detected(volume)?;
@@ -375,16 +397,39 @@ impl AppState {
         empty_folders: bool,
         permanent: bool,
     ) -> Result<CleanupResultView, ApiError> {
+        let folders = if empty_folders {
+            FolderCheck::NoFiles
+        } else {
+            FolderCheck::Exists
+        };
+        let report = self.delete_on(volume, entries, folders, permanent, false)?;
+        Ok((&report).into())
+    }
+
+    /// How the files of a connected volume are disposed of (F16-AC2).
+    fn disposal(&self, volume: VolumeId, permanent: bool) -> Result<Disposal, ApiError> {
+        let detected = self.detected(volume)?;
+        if detected.info.kind == VolumeKind::Fixed {
+            Ok(Disposal::RecycleBin)
+        } else if permanent {
+            Ok(Disposal::Permanent)
+        } else {
+            Err(ApiError::new("needs_permanent", format!("volume {volume}")))
+        }
+    }
+
+    fn delete_on(
+        &self,
+        volume: VolumeId,
+        entries: &[EntryId],
+        folders: FolderCheck,
+        permanent: bool,
+        verify_hash: bool,
+    ) -> Result<fileops::DeleteReport, ApiError> {
+        let disposal = self.disposal(volume, permanent)?;
         let detected = self.detected(volume)?;
         let root = access_path(&detected)
             .ok_or_else(|| ApiError::new("volume_offline", format!("volume {volume}")))?;
-        let disposal = if detected.info.kind == VolumeKind::Fixed {
-            Disposal::RecycleBin
-        } else if permanent {
-            Disposal::Permanent
-        } else {
-            return Err(ApiError::new("needs_permanent", format!("volume {volume}")));
-        };
         let report = fileops::delete_entries(
             &self.store,
             &DeleteRequest {
@@ -392,12 +437,8 @@ impl AppState {
                 root: &root,
                 entries,
                 disposal,
-                folders: if empty_folders {
-                    FolderCheck::NoFiles
-                } else {
-                    FolderCheck::Exists
-                },
-                verify_hash: false,
+                folders,
+                verify_hash,
             },
             &ShellRemover,
             self.deletion_guard()?.as_ref(),
@@ -409,7 +450,95 @@ impl AppState {
             freed = report.freed(),
             "deletion finished"
         );
-        Ok((&report).into())
+        Ok(report)
+    }
+
+    /// The duplicate groups (F10) with the copies the rules propose.
+    pub fn duplicates(
+        &self,
+        filter: &DupFilterInput,
+        rules: &[RuleInput],
+    ) -> Result<DuplicatesView, ApiError> {
+        let online: HashMap<VolumeId, Option<String>> = self
+            .online()
+            .iter()
+            .map(|(id, d)| {
+                (
+                    *id,
+                    access_path(d).map(|p| p.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        let online_ids = online.keys().copied().collect();
+        let (result, volumes) = self.store.read(|c| {
+            let result = duplicates::find(
+                c,
+                &online_ids,
+                &filter.to_filter(),
+                duplicates_views::MAX_GROUPS,
+            )?;
+            Ok((result, store::volumes(c)?))
+        })?;
+        let volumes = volumes
+            .into_iter()
+            .map(|v| {
+                let mount = online.get(&v.id).cloned().flatten();
+                (v.id, (v, mount))
+            })
+            .collect();
+        let pending = self.hashing.pending_files();
+        Ok(duplicates_views::view(
+            &result,
+            &duplicates_views::rules(rules),
+            &volumes,
+            pending,
+        ))
+    }
+
+    /// Deletes copies of duplicates, on several disks (F16): refused if a content would lose
+    /// its last copy, and, unless confirmed, if only copies on disconnected disks would stay
+    /// (F16-AC4); each file is hashed again just before and skipped if it changed (F16-AC3).
+    pub fn delete_duplicates(
+        &self,
+        entries: &[EntryId],
+        allow_offline_only: bool,
+        permanent: bool,
+    ) -> Result<CleanupResultView, ApiError> {
+        let online: std::collections::HashSet<VolumeId> = self.online().keys().copied().collect();
+        let (check, records) = self.store.read(|c| {
+            let check = duplicates::check_last_copies(c, entries, &online, allow_offline_only)?;
+            let mut records = Vec::with_capacity(entries.len());
+            for &e in entries {
+                records.push((e, store::entry(c, e)?));
+            }
+            Ok((check, records))
+        })?;
+        if let Err(e) = check {
+            let (code, entry) = match e {
+                LastCopyError::LastCopy(e) => ("last_copy", e),
+                LastCopyError::OnlyOffline(e) => ("only_offline_copies", e),
+                LastCopyError::NoHash(e) => ("not_hashed", e),
+            };
+            return Err(ApiError::new(code, entry.0));
+        }
+        let mut by_volume: std::collections::BTreeMap<VolumeId, Vec<EntryId>> =
+            std::collections::BTreeMap::new();
+        for (id, record) in records {
+            let record = record.ok_or_else(|| ApiError::new("not_found", id.0))?;
+            by_volume.entry(record.volume).or_default().push(id);
+        }
+        // Everything is checked before the first file goes: disconnected disks, permanent
+        // deletion where there is no Recycle Bin.
+        for &volume in by_volume.keys() {
+            self.disposal(volume, permanent)?;
+        }
+        let mut total = CleanupResultView::default();
+        for (volume, ids) in by_volume {
+            let report = self.delete_on(volume, &ids, FolderCheck::Exists, permanent, true)?;
+            total.add(&(&report).into());
+            crate::hash_jobs::refresh(self, volume);
+        }
+        Ok(total)
     }
 
     /// The guard of every destructive operation of the app (CLAUDE.md, TESTING S2): development
@@ -536,6 +665,24 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    /// Saves the settings as they are (validation is the caller's).
+    pub fn save_settings(&self, settings: &Settings) -> Result<(), ApiError> {
+        let json =
+            serde_json::to_string(settings).map_err(|e| ApiError::new("invalid_settings", e))?;
+        self.store
+            .write(move |w| store::set_setting(w, SETTINGS_KEY, &json))?;
+        Ok(())
+    }
+
+    /// Applies the hashing settings to the running jobs (F06-AC5, F21-AC3).
+    pub fn apply_hashing(&self, settings: &Settings) {
+        self.hashing.battery_pause.store(
+            settings.pause_hashing_on_battery,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        crate::hash_jobs::configure(self, settings.hashing_paused, &settings.hashing_excluded);
+    }
+
     /// Registers or removes the start-with-Windows task (F19-AC3). Development builds only
     /// keep the setting: a task starting `target\debug\prism.exe` at every logon would be a
     /// surprise (REVIEW D18).
@@ -581,7 +728,7 @@ pub fn shown_on_card(kind: &str) -> bool {
 }
 
 /// The physical resources a job on this volume keeps busy (one heavy job per disk, ADR-0009).
-fn job_disks(d: &DetectedVolume) -> Vec<String> {
+pub(crate) fn job_disks(d: &DetectedVolume) -> Vec<String> {
     if d.info.kind == VolumeKind::Network {
         vec![format!(
             "net:{}",

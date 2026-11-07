@@ -9,6 +9,7 @@ import type { VolumeView } from './bindings/VolumeView';
 import type { Backend, Unlisten } from './api';
 import { cardJob } from './catalog';
 import { mockCleanupScan, mockDeleteEntries } from './mock-cleanup';
+import { mockDeleteDuplicates, mockDuplicates } from './mock-duplicates';
 import { mockSearch } from './mock-search';
 import { mockHasEntry, mockLargestFiles, mockSpaceFolder, mockTypeStats } from './mock-space';
 
@@ -34,14 +35,15 @@ function volume(v: Partial<VolumeView> & Pick<VolumeView, 'id' | 'name' | 'kind'
     lastIndexedAt: null,
     lastSeenAt: null,
     job: null,
+    hashes: null,
     ...v,
   };
 }
 
 export function sampleVolumes(now = Date.now()): VolumeView[] {
   return [
-    volume({ id: 1, name: 'Windows', osLabel: 'Windows', kind: 'internal', mount: 'C:\\', capacity: 439 * GB, freeSpace: 184 * GB, indexedSize: 210 * GB, fileCount: 951_644, folderCount: 307_861, lastIndexedAt: now - 3 * 60_000, lastSeenAt: now }),
-    volume({ id: 2, name: 'Data', osLabel: 'Data', kind: 'internal', mount: 'D:\\', capacity: 977 * GB, freeSpace: 329 * GB, indexedSize: 612 * GB, fileCount: 544_808, folderCount: 76_107, lastIndexedAt: now - 2 * 3_600_000, lastSeenAt: now }),
+    volume({ id: 1, name: 'Windows', osLabel: 'Windows', kind: 'internal', mount: 'C:\\', capacity: 439 * GB, freeSpace: 184 * GB, indexedSize: 210 * GB, fileCount: 951_644, folderCount: 307_861, lastIndexedAt: now - 3 * 60_000, lastSeenAt: now, hashes: { total: 900_000, hashed: 412_000, running: true } }),
+    volume({ id: 2, name: 'Data', osLabel: 'Data', kind: 'internal', mount: 'D:\\', capacity: 977 * GB, freeSpace: 329 * GB, indexedSize: 612 * GB, fileCount: 544_808, folderCount: 76_107, lastIndexedAt: now - 2 * 3_600_000, lastSeenAt: now, hashes: { total: 500_000, hashed: 500_000, running: false } }),
     volume({ id: 3, name: 'Backup Foto', userName: 'Backup Foto', location: 'cassetto 2', color: '#f59e0b', kind: 'external', mount: 'G:\\', online: false, capacity: 2000 * GB, freeSpace: 700 * GB, indexedSize: 1240 * GB, fileCount: 182_340, folderCount: 9_811, lastIndexedAt: now - 12 * DAY, lastSeenAt: now - 12 * DAY }),
     volume({ id: 4, name: 'NAS Big-Storage', userName: 'NAS Big-Storage', kind: 'network', fsType: null, mount: 'Y:\\', indexedSize: 634 * GB, fileCount: 187_683, folderCount: 12_400, lastIndexedAt: now - DAY, lastSeenAt: now }),
     volume({ id: 5, name: 'KINGSTON', osLabel: 'KINGSTON', kind: 'stick', fsType: 'exFAT', mount: 'H:\\', status: 'new', capacity: 64 * GB, freeSpace: 51 * GB, lastSeenAt: now }),
@@ -50,7 +52,17 @@ export function sampleVolumes(now = Date.now()): VolumeView[] {
 
 export function mockBackend(): Backend {
   let volumes = sampleVolumes();
-  let settings: Settings = { language: 'system', theme: 'system', autostart: true, searchShortcut: 'Ctrl+Space' };
+  let settings: Settings = {
+    language: 'system',
+    theme: 'system',
+    autostart: true,
+    searchShortcut: 'Ctrl+Space',
+    hashingPaused: false,
+    pauseHashingOnBattery: false,
+    hashingExcluded: [],
+  };
+  const deletedCopies = new Set<number>();
+  const settingsListeners = new Set<() => void>();
   const jobs: JobView[] = [];
   let nextJob = 1;
   const volumeListeners = new Set<() => void>();
@@ -150,6 +162,12 @@ export function mockBackend(): Backend {
       emitVolumes();
       return result;
     },
+    duplicateGroups: async (filter, rules) => mockDuplicates(volumes, filter, rules, deletedCopies),
+    deleteDuplicates: async (ids, allowOfflineOnly, permanent) => {
+      const result = mockDeleteDuplicates(volumes, ids, allowOfflineOnly, permanent, deletedCopies);
+      emitVolumes();
+      return result;
+    },
     revealEntry: async (volumeId, entryId) => {
       if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
       if (!mockHasEntry(volumeId, entryId)) throw { code: 'not_found', message: String(entryId) };
@@ -164,6 +182,7 @@ export function mockBackend(): Backend {
     },
     setNativeTexts: async () => {},
     onVolumesChanged: (h) => on(volumeListeners, h),
+    onSettingsChanged: (h) => on(settingsListeners, h),
     onJobsChanged: (h) => on(jobListeners, h),
   };
 }

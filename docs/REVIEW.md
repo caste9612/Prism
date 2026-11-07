@@ -45,6 +45,10 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D27 | 2026-11-07 | T5 | Dettagli del linguaggio di ricerca: `size:1GB` senza segno = "almeno"; `>`/`<` su una data = dopo/prima di quel giorno locale, `2024` o `2024-03` = l'anno o il mese; `modified:<30d` = più recenti di 30 giorni, `>1y` = più vecchi; unità decimali (KB, MB, GB) e binarie (KiB…); `d:` = l'unità D:; alias italiani (`tipo`, `disco`, `percorso`, `modificato`, `documenti`…); ordinamento per pertinenza e conteggio fino a 10.000 | Semantica di Everything (`dm:`, `size:` con uguaglianza); solo chiavi inglesi | `prism-core::search::query` ed `engine` | SPEC F07-AC5 |
 | D28 | 2026-11-07 | T5 | Ricerca in una finestra separata sempre in primo piano (nascosta con Esc o dopo aver aperto un risultato) e anche come voce del menu laterale; 200 risultati migliori; menu sotto la casella che scrivono i filtri nel testo; la scorciatoia rifiutata lascia attiva la precedente | Solo una pagina nella finestra principale; più risultati con lista virtualizzata | `prism-app/src/search_window.rs`, `ui/src/components/SearchView.svelte` | SPEC F07 |
 | D29 | 2026-11-07 | T6 | Hash in tre passate: rapido (dimensione + 64 KiB iniziali e finali) dei file con dimensione condivisa, completo dei possibili duplicati, poi completo di tutto il resto dal file più piccolo; un file cambiato durante la lettura non riceve l'hash. Regole di selezione: le "tieni" restringono in ordine (una regola che non trova nulla si salta), a parità resta la prima copia; le copie su dischi scollegati non si selezionano mai | Solo hash completi (molte più letture); regole come filtri indipendenti | `prism-core::hashing`, `prism-core::duplicates` | ADR-0011, F10-AC3 |
+| D30 | 2026-11-07 | T6 | Le unità di rete non si analizzano in background: ogni byte attraverserebbe la rete per ore e il NAS potrebbe essere condiviso. Le copie sul NAS non entrano quindi nei gruppi di duplicati (L13) | Analizzarle a bassa priorità come i dischi locali | `prism-app/src/hash_jobs.rs` | F06-AC1 |
+| D31 | 2026-11-07 | T6 | Un job di background cede il disco: ogni mezzo secondo chiede al motore se un job più urgente aspetta uno dei suoi dischi e, se sì, si ferma tra due file; il giro successivo (dopo almeno 2 minuti) riparte dai file senza hash. Gli aggiornamenti dal journal e dalla sorveglianza non aspettano gli hash; aggiornare o rimuovere un disco li ferma. Nessun record persistente per riprendere: l'avanzamento è la tabella degli hash | Priorità più bassa senza cessione (un'indicizzazione aspetterebbe la fine di un'analisi di ore); record dei job su disco | `JobEngine::should_yield`, `AppState::foreground_jobs` | ADR-0009, F06-AC2 |
+| D32 | 2026-11-07 | T6 | Schermata *Duplicati*: i 300 gruppi con più spazio recuperabile e il totale di tutti; filtro predefinito ≥ 1 MB; regola predefinita "tieni la più vecchia"; le regole si applicano con un pulsante e poi ogni casella si cambia a mano entro i limiti di F10-AC4; una sola conferma, che dice se qualche copia sta su un disco senza Cestino (eliminazione definitiva); una seconda conferma se resterebbero solo copie su dischi scollegati. Nell'interfaccia si parla di "analisi del contenuto", non di hash | Lista completa paginata; nessuna regola predefinita; una conferma per disco | `duplicates_views.rs`, `DuplicatesView.svelte` | F10, F16-AC4 |
+| D33 | 2026-11-07 | T6 | Avanzamento dell'analisi sulle schede come percentuale arrotondata per difetto (100% solo a lavoro finito), contato ogni 5 minuti (ogni minuto mentre gira); nel tray una riga con il numero di job in corso e la voce Sospendi/Riprendi, che salva l'impostazione; in *Impostazioni* pausa, batteria e dischi da analizzare (le unità di rete non compaiono) | Elenco dei job nel menu del tray; conteggio continuo | `hash_jobs.rs`, `tray.rs`, `SettingsView.svelte` | F06-AC5, F19-AC2, F21-AC3 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -74,6 +78,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | L10 | 2026-11-07 | Risposta a S1 | — | **Fatto** (2026-11-07): nelle build di debug `AppState::deletion_guard` limita ogni eliminazione al volume PRISMTEST (trovato dall'etichetta), a `%TEMP%` e a `%LOCALAPPDATA%\PrismDev`; la release non ha guardia. Test `state_tests::debug_build_refuses_deletions_outside_the_sandbox` (eliminazione in una cartella fuori sandbox → rifiutata, file intatto, registro vuoto). Nelle prove sull'app vera non è mai stata avviata un'eliminazione (solo schermate in lettura) |
 | L11 | 2026-11-07 | L'indice di ricerca di un volume si ricostruisce per intero quando il suo catalogo cambia, al massimo ogni 30 s | Risultati in ritardo fino a ~30 s dopo un cambio; ~0,6 s di CPU per ricostruzione su un volume da 1,4 milioni di voci | Accettato per la 1.0; miglioramento: aggiornamento incrementale dalle operazioni di scrittura |
 | L12 | 2026-11-07 | `Ctrl+Space` è usato da alcuni metodi di input (cinese, giapponese) per cambiare lingua | Con quei metodi la scorciatoia può non registrarsi o rubare il tasto | Prism lo segnala e la scorciatoia si cambia nelle impostazioni (F07-AC1); valutare un default diverso prima della 1.0 |
+| L13 | 2026-11-07 | Le unità di rete non vengono analizzate in background (D30) | Un file presente sul NAS e su un disco locale non risulta duplicato; la verifica dei backup su NAS (T7) dovrà leggere i file al momento | Accettato; valutare in T7 un'analisi su richiesta per singola unità di rete |
 
 ## 4. Come provare l'app
 
@@ -100,6 +105,9 @@ cargo run -p prism-app --features custom-protocol
   `target\release\prism.exe`.
 - Solo l'interfaccia, con dati d'esempio, nel browser: `npm --prefix ui run dev` e aprire
   `http://localhost:5173`.
+- Da T6 l'app legge in sottofondo, a priorità minima, il contenuto dei file dei dischi locali
+  collegati e indicizzati (solo lettura: serve a riconoscere i duplicati). Si sospende dal
+  menu del tray o da *Impostazioni*, dove si possono anche escludere singoli dischi.
 
 ### Checklist T3 (catalogo, disco nuovo, etichette, impostazioni, tray)
 
@@ -187,3 +195,34 @@ Note sulle prove di T3:
 4. Frecce per scegliere, Invio apre, Maiusc+Invio mostra in Esplora risorse, Ctrl+C copia il
    percorso; sui dischi non collegati apertura e Esplora risorse sono disattivati (F07-AC7).
 5. Dopo aver creato o cancellato file, i risultati si aggiornano entro ~30 s (L11).
+
+### Checklist T6 (analisi del contenuto e duplicati)
+
+Le eliminazioni si provano **solo** sul disco PRISMTEST: per esempio copiare due volte una
+cartella di foto su PRISMTEST, aggiornare il disco dalla sua scheda e attendere che l'analisi
+del contenuto arrivi al 100%.
+
+1. Sulle schede dei dischi collegati compare "Analisi del contenuto: N% · in corso", che sale
+   nel tempo; a lavoro finito "Contenuto analizzato" (F06-AC1/AC5). Mentre gira il PC resta
+   reattivo; in Gestione attività `prism.exe` ha priorità bassa (F06-AC2).
+2. Menu del tray: una riga con le attività in corso e *Sospendi l'analisi del contenuto*; dopo
+   il clic la voce diventa *Riprendi…* e l'opzione in *Impostazioni* risulta attiva (F06-AC5,
+   F19-AC2). In *Impostazioni* → *Analisi del contenuto*: sospensione, sospensione a batteria
+   (spenta per default), dischi da analizzare (le unità di rete non compaiono, D30) (F21-AC3).
+3. Aggiornare un disco mentre l'analisi gira: l'aggiornamento parte subito, l'analisi riprende
+   dopo qualche minuto (D31).
+4. *Duplicati*: gruppi con nome, tipo, dimensione, numero di copie e spazio recuperabile; per
+   ogni copia il disco, la posizione fisica e la cartella; le copie su dischi non collegati
+   sono marcate e non selezionabili (F10-AC1/AC2/AC4). Filtri per dimensione minima, tipo,
+   disco e testo del percorso (F10-AC5).
+5. Regole di selezione: cambiarle, aggiungerne (tieni sul disco X, più vecchia, più recente,
+   percorso più corto, mai nelle cartelle con un testo) e premere *Applica le regole*; le
+   caselle cambiano di conseguenza e restano modificabili a mano; in un gruppo l'ultima copia
+   non selezionata non si può spuntare (F10-AC3/AC4).
+6. **Solo su PRISMTEST**: selezionare una copia ed eliminarla; la conferma dice che va nel
+   Cestino (o che l'eliminazione è definitiva su un disco senza Cestino) e che il contenuto
+   viene riletto; poi il risultato e il gruppo sparisce (F16-AC1/AC3). Modificare il
+   contenuto di una copia prima di confermare: resta al suo posto ("lasciati perché cambiati").
+7. Con il disco PRISMTEST scollegato e una copia ancora su un disco collegato, eliminare quella
+   copia porta a una seconda conferma ("resterebbero solo copie su dischi non collegati")
+   (F16-AC4).

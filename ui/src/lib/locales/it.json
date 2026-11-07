@@ -6,6 +6,7 @@
   "nav": {
     "catalog": "Dischi",
     "search": "Cerca",
+    "duplicates": "Duplicati",
     "cleanup": "Pulizia",
     "settings": "Impostazioni"
   },
@@ -25,7 +26,12 @@
     "indexedSize": "{size} indicizzati",
     "location": "Si trova: {location}",
     "offlineSection": "Non collegati",
-    "onlineSection": "Collegati"
+    "onlineSection": "Collegati",
+    "hashes": "Analisi del contenuto: {percent}%",
+    "hashesDone": "Contenuto analizzato",
+    "hashesRunning": "in corso",
+    "hashesPaused": "in pausa",
+    "hashesTitle": "{hashed} file analizzati su {total}: serve a trovare i duplicati e a verificare i backup"
   },
   "kind": {
     "internal": "Disco interno",
@@ -109,7 +115,12 @@
     "saved": "Impostazioni salvate",
     "shortcut": "Scorciatoia di ricerca",
     "shortcutHint": "Apre la finestra di ricerca da qualunque programma.",
-    "shortcutError": "Non è stato possibile registrare la scorciatoia ({value}): scegline un'altra."
+    "shortcutError": "Non è stato possibile registrare la scorciatoia ({value}): scegline un'altra.",
+    "hashing": "Analisi del contenuto",
+    "hashingHint": "Prism legge in sottofondo, con la priorità più bassa, i file dei dischi collegati per riconoscere i file identici. Le unità di rete non vengono lette.",
+    "hashingPaused": "Sospendi l'analisi del contenuto",
+    "hashingBattery": "Sospendila quando il PC va a batteria",
+    "hashingDisks": "Dischi da analizzare"
   },
   "language": {
     "en": "English",
@@ -126,12 +137,20 @@
     "needs_permanent": "Questo disco non ha il Cestino: conferma l'eliminazione definitiva.",
     "delete_failed": "Non è stato possibile togliere i file.",
     "shortcut_unavailable": "Questa scorciatoia non è disponibile: scegline un'altra.",
-    "unknown": "Qualcosa è andato storto."
+    "unknown": "Qualcosa è andato storto.",
+    "last_copy": "Così si eliminerebbero tutte le copie di un file: almeno una deve restare.",
+    "only_offline_copies": "Resterebbero solo copie su dischi non collegati.",
+    "not_hashed": "Un file è cambiato dopo l'analisi: aggiorna l'elenco.",
+    "not_found": "L'elemento non è più nel catalogo."
   },
   "tray": {
     "open": "Apri Prism",
     "search": "Cerca",
-    "quit": "Esci"
+    "quit": "Esci",
+    "pauseHashing": "Sospendi l'analisi del contenuto",
+    "resumeHashing": "Riprendi l'analisi del contenuto",
+    "jobsIdle": "Nessuna attività in corso",
+    "jobsRunning": "Attività in corso: {count}"
   },
   "notify": {
     "newDiskTitle": "Nuovo disco: {name}",
@@ -305,5 +324,60 @@
     "minutes": "{count} min fa",
     "hours": "{count} ore fa",
     "days": "{count} giorni fa"
+  },
+  "duplicates": {
+    "title": "Duplicati",
+    "subtitle": "File identici su tutti i dischi, collegati o no. Nulla viene rimosso finché non confermi.",
+    "refresh": "Aggiorna",
+    "loading": "Cerco i file identici…",
+    "nothing": "Nessun file identico con questi filtri.",
+    "summary": "{groups} gruppi · {size} recuperabili",
+    "shownOf": "mostrati i {count} più grandi",
+    "pending": "L'analisi del contenuto deve ancora leggere {count} file: potrebbero comparire altri duplicati.",
+    "pendingPaused": "L'analisi del contenuto è in pausa con {count} file ancora da leggere.",
+    "resume": "Riprendi",
+    "filters": "Filtri",
+    "minSize": "Dimensione minima",
+    "anySize": "Qualsiasi",
+    "type": "Tipo",
+    "anyType": "Tutti i tipi",
+    "disk": "Disco",
+    "anyDisk": "Tutti i dischi",
+    "folder": "Il percorso contiene",
+    "folderPlaceholder": "es. Foto\\2019",
+    "rules": "Regole di selezione",
+    "rulesHint": "Le regole scelgono, in ordine, la copia da tenere; le altre vengono selezionate. Puoi poi cambiare ogni casella.",
+    "addRule": "Aggiungi una regola",
+    "removeRule": "Togli la regola",
+    "apply": "Applica le regole",
+    "rule": {
+      "keepOnVolume": "Tieni la copia su un disco",
+      "keepOldest": "Tieni la copia più vecchia",
+      "keepNewest": "Tieni la copia più recente",
+      "keepShortestPath": "Tieni la copia con il percorso più corto",
+      "neverIn": "Non selezionare mai nelle cartelle che contengono"
+    },
+    "ruleText": "Testo",
+    "copies": "{count} copie",
+    "recoverable": "{size} recuperabili",
+    "offline": "non collegato",
+    "offlineHint": "Il disco non è collegato: questa copia non si può selezionare.",
+    "keepOne": "Una copia resta sempre.",
+    "onlyOfflineLeft": "Resterebbero solo copie su dischi non collegati.",
+    "selected": "{count} copie selezionate · {size}",
+    "deleteSelected": "Elimina le copie selezionate ({size})",
+    "clearSelection": "Deseleziona tutto",
+    "confirmTitle": "Eliminare {count} copie ({size})?",
+    "confirmRecycle": "Sui dischi interni le copie vanno nel Cestino.",
+    "confirmPermanent": "Alcune copie sono su dischi senza Cestino: verranno eliminate definitivamente.",
+    "confirmCheck": "Prima Prism rilegge ogni file: se il contenuto è cambiato, il file resta dov'è.",
+    "confirmOfflineTitle": "Tenere solo copie su dischi non collegati?",
+    "confirmOffline": "Per alcuni file le uniche copie rimaste sarebbero su dischi non collegati ora. Assicurati che quei dischi funzionino ancora prima di proseguire.",
+    "deleteNow": "Elimina",
+    "deleteAnyway": "Elimina comunque",
+    "result": "Eliminati: {count}. Liberati: {size}.",
+    "resultSkipped": "Lasciati perché cambiati: {count}.",
+    "resultFailed": "Non rimossi (in uso?): {count}.",
+    "open": "Mostra in Esplora risorse"
   }
 }

@@ -264,6 +264,21 @@ impl JobEngine {
             .collect()
     }
 
+    /// Whether running job `id` should stop to let a more urgent queued job use one of its
+    /// disks: a background job (hashes) gives way to indexing instead of making it wait hours.
+    #[must_use]
+    pub fn should_yield(&self, id: JobId) -> bool {
+        let state = self.shared.lock();
+        let Some(me) = state.jobs.iter().find(|e| e.info.id == id) else {
+            return false;
+        };
+        state.jobs.iter().any(|e| {
+            e.info.state == JobState::Queued
+                && e.info.priority < me.info.priority
+                && e.disks.iter().any(|d| me.disks.contains(d))
+        })
+    }
+
     /// Receives a snapshot whenever a job is queued, starts or finishes. Progress is read with
     /// [`JobEngine::jobs`] (the interface polls it at a limited rate, ADR-0009).
     #[must_use]
@@ -513,6 +528,59 @@ mod tests {
             assert_eq!(engine.wait(id).unwrap().state, JobState::Done);
         }
         assert_eq!(max_seen.load(Ordering::SeqCst), 1);
+    }
+
+    // A background job sees that a more urgent job waits for its disk, and only then.
+    #[test]
+    fn background_jobs_yield_their_disk() {
+        let engine = Arc::new(JobEngine::start(4));
+        let (started_tx, started_rx) = crossbeam_channel::bounded::<()>(1);
+        let (seen_tx, seen_rx) = crossbeam_channel::bounded::<()>(1);
+        let e = Arc::clone(&engine);
+        let bg = engine.submit(spec(
+            "hash",
+            Priority::Background,
+            &["disk0"],
+            Box::new(move |ctx| {
+                started_tx.send(()).unwrap();
+                while !e.should_yield(ctx.id) {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                seen_tx.send(()).unwrap();
+                Ok(())
+            }),
+        ));
+        started_rx.recv().unwrap();
+        // Another disk, or the same priority, do not matter.
+        let other = engine.submit(spec(
+            "other",
+            Priority::Indexing,
+            &["disk1"],
+            Box::new(|_| Ok(())),
+        ));
+        assert_eq!(engine.wait(other).unwrap().state, JobState::Done);
+        assert!(!engine.should_yield(bg));
+        let same = engine.submit(spec(
+            "hash2",
+            Priority::Background,
+            &["disk0"],
+            Box::new(|_| Ok(())),
+        ));
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(!engine.should_yield(bg));
+        assert!(seen_rx.try_recv().is_err());
+        // An update of the same disk: the background job stops, then the update runs.
+        let update = engine.submit(spec(
+            "update",
+            Priority::Indexing,
+            &["disk0"],
+            Box::new(|_| Ok(())),
+        ));
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(engine.wait(bg).unwrap().state, JobState::Done);
+        assert_eq!(engine.wait(update).unwrap().state, JobState::Done);
+        assert_eq!(engine.wait(same).unwrap().state, JobState::Done);
+        assert!(!engine.should_yield(JobId(9999)));
     }
 
     #[test]

@@ -155,7 +155,7 @@ fn watch_loop(
                 rescan = true;
             }
         }
-        if (rescan || !pending.is_empty()) && state.engine.active_for(volume).is_empty() {
+        if (rescan || !pending.is_empty()) && state.foreground_jobs(volume).is_empty() {
             match state.submit_refresh(volume, std::mem::take(&mut pending), rescan) {
                 Ok(_) => rescan = false,
                 Err(e) => {

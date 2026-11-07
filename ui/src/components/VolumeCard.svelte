@@ -3,7 +3,7 @@
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { ago, formatBytes, formatCount, usedFraction } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
-  import { primaryAction, volumeName } from '../lib/catalog';
+  import { hashPercent, primaryAction, volumeName } from '../lib/catalog';
   import Icon from './Icon.svelte';
 
   let {
@@ -90,6 +90,18 @@
     </p>
   {/if}
 
+  {#if volume.hashes && volume.hashes.total > 0}
+    {@const h = volume.hashes}
+    <!-- F06-AC5: how far the content analysis is on this disk. -->
+    <p class="hashes muted" title={t('catalog.hashesTitle', { hashed: formatCount(h.hashed, lang), total: formatCount(h.total, lang) })}>
+      {#if h.hashed >= h.total}
+        {t('catalog.hashesDone')}
+      {:else}
+        {t('catalog.hashes', { percent: hashPercent(h) })}{#if h.running}{' · '}{t('catalog.hashesRunning')}{/if}
+      {/if}
+    </p>
+  {/if}
+
   {#if volume.job}
     <div class="job" aria-live="polite">
       <div class="job-head">
@@ -144,6 +156,10 @@
 </article>
 
 <style>
+  .hashes {
+    margin: -6px 0 0;
+    font-size: 12.5px;
+  }
   .card {
     background: var(--surface);
     border: 1px solid var(--border);

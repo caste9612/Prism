@@ -1,5 +1,6 @@
 <script lang="ts">
-  // F21 (first part): language, theme, start with Windows, ignored disks (F02-AC4), about.
+  // F21: language, theme, start with Windows, search shortcut, content analysis (F06-AC5,
+  // F21-AC3), ignored disks (F02-AC4), about.
   import type { AppInfo } from '../lib/bindings/AppInfo';
   import type { Settings } from '../lib/bindings/Settings';
   import type { VolumeView } from '../lib/bindings/VolumeView';
@@ -22,6 +23,8 @@
   } = $props();
 
   const ignored = $derived(volumes.filter((v) => v.status === 'ignored'));
+  // Network drives are never analysed (REVIEW D30): no choice to offer for them.
+  const analysable = $derived(volumes.filter((v) => v.lastIndexedAt !== null && v.kind !== 'network'));
 
   function update(patch: Partial<Settings>) {
     onchange({ ...settings, ...patch });
@@ -83,6 +86,44 @@
   </div>
 
   <div class="group">
+    <h2>{t('settings.hashing')}</h2>
+    <p class="muted hint">{t('settings.hashingHint')}</p>
+    <div class="row check">
+      <input id="set-hash-paused" type="checkbox" checked={settings.hashingPaused} onchange={(e) => update({ hashingPaused: e.currentTarget.checked })} />
+      <label for="set-hash-paused">{t('settings.hashingPaused')}</label>
+    </div>
+    <div class="row check">
+      <input
+        id="set-hash-battery"
+        type="checkbox"
+        checked={settings.pauseHashingOnBattery}
+        onchange={(e) => update({ pauseHashingOnBattery: e.currentTarget.checked })}
+      />
+      <label for="set-hash-battery">{t('settings.hashingBattery')}</label>
+    </div>
+    {#if analysable.length > 0}
+      <fieldset class="disks">
+        <legend>{t('settings.hashingDisks')}</legend>
+        {#each analysable as v (v.id)}
+          <label class="disk">
+            <input
+              type="checkbox"
+              checked={!settings.hashingExcluded.includes(v.id)}
+              onchange={(e) =>
+                update({
+                  hashingExcluded: e.currentTarget.checked
+                    ? settings.hashingExcluded.filter((id) => id !== v.id)
+                    : [...settings.hashingExcluded, v.id],
+                })}
+            />
+            <span>{volumeName(v)}{#if v.mount}{' '}<span class="muted">· {v.mount}</span>{/if}</span>
+          </label>
+        {/each}
+      </fieldset>
+    {/if}
+  </div>
+
+  <div class="group">
     <h2>{t('settings.ignored')}</h2>
     {#if ignored.length === 0}
       <p class="muted">{t('settings.ignoredEmpty')}</p>
@@ -109,6 +150,25 @@
 </section>
 
 <style>
+  .disks {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .disks legend {
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
+  .disk {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    color: var(--text);
+    font-size: 14px;
+  }
   .settings {
     max-width: 640px;
     display: flex;

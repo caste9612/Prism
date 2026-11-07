@@ -6,10 +6,13 @@ import type { ApiError } from './bindings/ApiError';
 import type { AppInfo } from './bindings/AppInfo';
 import type { CleanupResultView } from './bindings/CleanupResultView';
 import type { CleanupView } from './bindings/CleanupView';
+import type { DupFilterInput } from './bindings/DupFilterInput';
+import type { DuplicatesView } from './bindings/DuplicatesView';
 import type { JobView } from './bindings/JobView';
 import type { LabelsInput } from './bindings/LabelsInput';
 import type { LargeFileView } from './bindings/LargeFileView';
 import type { NativeTexts } from './bindings/NativeTexts';
+import type { RuleInput } from './bindings/RuleInput';
 import type { SearchResultView } from './bindings/SearchResultView';
 import type { Settings } from './bindings/Settings';
 import type { SpaceFolderView } from './bindings/SpaceFolderView';
@@ -39,11 +42,14 @@ export interface Backend {
   cleanupScan(): Promise<CleanupView>;
   deleteEntries(volumeId: number, entryIds: number[], emptyFolders: boolean, permanent: boolean): Promise<CleanupResultView>;
   revealEntry(volumeId: number, entryId: number): Promise<void>;
+  duplicateGroups(filter: DupFilterInput, rules: RuleInput[]): Promise<DuplicatesView>;
+  deleteDuplicates(entryIds: number[], allowOfflineOnly: boolean, permanent: boolean): Promise<CleanupResultView>;
   removeVolume(id: number): Promise<void>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
   setNativeTexts(texts: NativeTexts): Promise<void>;
   onVolumesChanged(handler: () => void): Promise<Unlisten>;
+  onSettingsChanged(handler: () => void): Promise<Unlisten>;
   onJobsChanged(handler: (jobs: JobView[]) => void): Promise<Unlisten>;
 }
 
@@ -67,11 +73,15 @@ const tauriBackend: Backend = {
   deleteEntries: (volumeId, entryIds, emptyFolders, permanent) =>
     invoke('delete_entries', { volumeId, entryIds, emptyFolders, permanent }),
   revealEntry: (volumeId, entryId) => invoke('reveal_entry', { volumeId, entryId }),
+  duplicateGroups: (filter, rules) => invoke('duplicate_groups', { filter, rules }),
+  deleteDuplicates: (entryIds, allowOfflineOnly, permanent) =>
+    invoke('delete_duplicates', { entryIds, allowOfflineOnly, permanent }),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),
   setSettings: (settings) => invoke('set_settings', { settings }),
   setNativeTexts: (texts) => invoke('set_native_texts', { texts }),
   onVolumesChanged: (handler) => listen('volumes-changed', () => handler()),
+  onSettingsChanged: (handler) => listen('settings-changed', () => handler()),
   onJobsChanged: (handler) => listen<JobView[]>('jobs-changed', (e) => handler(e.payload)),
 };
 

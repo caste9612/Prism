@@ -5,6 +5,8 @@
 mod cleanup_views;
 mod commands;
 mod dto;
+mod duplicates_views;
+mod hash_jobs;
 mod monitor;
 mod netprobe;
 mod notices;
@@ -96,6 +98,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         notices: Mutex::new(Notices::default()),
         search: Arc::new(prism_core::search::live::LiveIndexes::default()),
         shortcut_error: Mutex::new(None),
+        hashing: hash_jobs::HashingState::default(),
         app_id,
         store,
         engine: JobEngine::start(4),
@@ -109,6 +112,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )),
     });
     tracing::info!(elevated = state.elevated, data = %state.data_dir.display(), "Prism started");
+    state.apply_hashing(&state.settings());
     create_main_window(app, &state.data_dir)?;
     search_window::create(app, &state.data_dir)?;
     let shortcut = state.settings().search_shortcut;
@@ -117,7 +121,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         *state.shortcut_error() = Some(error);
     }
     app.manage(Arc::clone(&state));
-    tray::create(app.handle())?;
+    tray::create(app.handle(), state.settings().hashing_paused)?;
     monitor::spawn(app.handle(), &state);
     // F19-AC3: keep the task in line with the setting and with the current location of the
     // program (it may have moved or been updated). Off the startup path.
@@ -179,6 +183,8 @@ fn main() {
             commands::hide_search,
             commands::cleanup_scan,
             commands::delete_entries,
+            commands::duplicate_groups,
+            commands::delete_duplicates,
             commands::reveal_entry,
             commands::remove_volume,
             commands::get_settings,

@@ -97,12 +97,9 @@ pub struct HashReport {
     pub interrupted: bool,
 }
 
-/// Progress of a run, in bytes to read.
-#[derive(Debug, Default)]
-pub struct HashProgress {
-    pub done: AtomicU64,
-    pub total: AtomicU64,
-}
+/// Progress of a run, in bytes to read, with the phase (`hashQuick`, `hashFull`): the progress
+/// of the job that runs it.
+pub type HashProgress = crate::jobs::JobProgress;
 
 /// Errors that stop a run.
 #[derive(Debug, thiserror::Error)]
@@ -165,6 +162,7 @@ pub fn hash_volume(
     // Pass 1: quick hashes of the files that share their size.
     let work = plan(&states, &shared);
     let quick_bytes: u64 = work.len() as u64 * (2 * QUICK_CHUNK as u64);
+    progress.set_phase("hashQuick");
     progress.total.store(quick_bytes, Ordering::Relaxed);
     let mut pending: Vec<HashRecord> = Vec::new();
     let stop = |report: &mut HashReport| {
@@ -232,6 +230,7 @@ pub fn hash_volume(
             if candidate { u64::MAX - s.size } else { s.size },
         )
     });
+    progress.set_phase("hashFull");
     progress.done.store(0, Ordering::Relaxed);
     progress.total.store(
         full_work.iter().map(|&i| states[i].size).sum(),

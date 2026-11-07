@@ -74,53 +74,121 @@ pub fn groups(
     online: &HashSet<VolumeId>,
     filter: &DupFilter,
 ) -> Result<Vec<DupGroup>, StoreError> {
-    let files = store::duplicate_files(conn, filter.min_size.max(1))?;
-    let mut out: Vec<DupGroup> = Vec::new();
-    for f in files {
-        let new_group = out
+    Ok(find(conn, online, filter, usize::MAX)?.groups)
+}
+
+/// The first `limit` groups and the totals of all those that match the filter.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DupResult {
+    pub groups: Vec<DupGroup>,
+    pub total_groups: u64,
+    pub total_recoverable: u64,
+}
+
+/// Like [`groups`], but builds the paths only of the first `limit` groups: a catalog may hold
+/// hundreds of thousands of copies and walking the parents of each takes time. Only the folder
+/// filter needs every path of the groups it looks at.
+///
+/// # Errors
+/// SQLite errors.
+pub fn find(
+    conn: &Connection,
+    online: &HashSet<VolumeId>,
+    filter: &DupFilter,
+    limit: usize,
+) -> Result<DupResult, StoreError> {
+    struct Raw {
+        size: u64,
+        hash: Digest,
+        members: Vec<(EntryId, VolumeId)>,
+        paths: Option<Vec<String>>,
+    }
+    let mut raw: Vec<Raw> = Vec::new();
+    for f in store::duplicate_files(conn, filter.min_size.max(1))? {
+        let new_group = raw
             .last()
             .is_none_or(|g| g.size != f.size || g.hash != f.full);
         if new_group {
-            out.push(DupGroup {
+            raw.push(Raw {
                 size: f.size,
                 hash: f.full,
-                files: Vec::new(),
+                members: Vec::new(),
+                paths: None,
             });
         }
-        let e = store::entry(conn, f.entry)?;
-        let modified = e.and_then(|e| e.meta.modified);
-        let path = display_path(conn, f.entry)?;
-        if let Some(g) = out.last_mut() {
-            g.files.push(DupFile {
-                entry: f.entry,
-                volume: f.volume,
-                path,
-                modified,
-                online: online.contains(&f.volume),
-            });
+        if let Some(g) = raw.last_mut() {
+            g.members.push((f.entry, f.volume));
         }
     }
-    let folder = filter.folder.as_deref().map(names::fold);
-    out.retain(|g| {
-        let category_ok = filter.category.is_none_or(|c| {
-            g.files
-                .first()
-                .is_some_and(|f| space::category_of(&space::extension(&f.path)) == c)
-        });
-        let copy_ok = g.files.iter().any(|f| {
-            filter.volume.is_none_or(|v| f.volume == v)
-                && folder
-                    .as_deref()
-                    .is_none_or(|p| names::fold(&f.path).contains(p))
-        });
-        g.files.len() > 1 && category_ok && copy_ok
-    });
-    out.sort_by(|a, b| {
-        b.recoverable()
-            .cmp(&a.recoverable())
+    let folder = filter
+        .folder
+        .as_deref()
+        .map(names::fold)
+        .filter(|f| !f.is_empty());
+    let mut kept = Vec::new();
+    for mut g in raw {
+        if g.members.len() < 2
+            || filter
+                .volume
+                .is_some_and(|v| g.members.iter().all(|(_, mv)| *mv != v))
+        {
+            continue;
+        }
+        if let Some(c) = filter.category {
+            let name = store::entry(conn, g.members[0].0)?.map(|e| e.name);
+            if name.is_none_or(|n| space::category_of(&space::extension(&n)) != c) {
+                continue;
+            }
+        }
+        if let Some(folder) = folder.as_deref() {
+            let paths = g
+                .members
+                .iter()
+                .map(|(e, _)| display_path(conn, *e))
+                .collect::<Result<Vec<_>, _>>()?;
+            let any = g.members.iter().zip(&paths).any(|((_, v), p)| {
+                filter.volume.is_none_or(|fv| *v == fv) && names::fold(p).contains(folder)
+            });
+            if !any {
+                continue;
+            }
+            g.paths = Some(paths);
+        }
+        kept.push(g);
+    }
+    let recoverable = |g: &Raw| g.size * (g.members.len() as u64 - 1);
+    kept.sort_by(|a, b| {
+        recoverable(b)
+            .cmp(&recoverable(a))
             .then(b.size.cmp(&a.size))
     });
-    Ok(out)
+    let mut result = DupResult {
+        groups: Vec::new(),
+        total_groups: kept.len() as u64,
+        total_recoverable: kept.iter().map(recoverable).sum(),
+    };
+    for g in kept.into_iter().take(limit) {
+        let mut files = Vec::with_capacity(g.members.len());
+        for (i, (entry, volume)) in g.members.iter().enumerate() {
+            let path = match &g.paths {
+                Some(p) => p[i].clone(),
+                None => display_path(conn, *entry)?,
+            };
+            files.push(DupFile {
+                entry: *entry,
+                volume: *volume,
+                path,
+                modified: store::entry(conn, *entry)?.and_then(|e| e.meta.modified),
+                online: online.contains(volume),
+            });
+        }
+        result.groups.push(DupGroup {
+            size: g.size,
+            hash: g.hash,
+            files,
+        });
+    }
+    Ok(result)
 }
 
 /// A selection rule (F10-AC3). The `Keep*` rules choose, in order, which copy stays; the others
