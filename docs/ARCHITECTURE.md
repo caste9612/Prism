@@ -218,8 +218,15 @@ Componenti del journal (`prism-win`, ADR-0018):
   `$ATTRIBUTE_LIST` non residente letto dai cluster) tramite `FSCTL_GET_NTFS_FILE_RECORD`,
   coerente con la cache del file system e con la stessa semantica della lettura completa
   (codice `entry_meta` condiviso).
-- Applicazione al catalogo (in corso): elenchi superficiali delle cartelle toccate in una sola
-  esecuzione del reconciler con più bersagli (ADR-0018).
+- `prism-core::changes::apply_changes`: dai file cambiati (`FileChange`: stato attuale e
+  genitori nominati dai record) agli elenchi superficiali delle cartelle toccate (figli
+  invariati con i metadati del catalogo, sottocartelle `NotListed`), applicati con
+  `reconcile_many` (più bersagli in una sola esecuzione, ordinati per profondità reale,
+  eliminazioni rimandate alla fine).
+- `prism-win::ntfs`: `index_ntfs` (posizione del journal letta prima della lettura della MFT e
+  salvata dopo) e `update_ntfs` (journal → `apply_changes`; ripiego su `index_ntfs` se la
+  posizione manca o è persa, o se le modifiche non si possono applicare: es. cartella con
+  contenuto ripristinata dal Cestino).
 
 ### 4.3 Hash (ADR-0011)
 

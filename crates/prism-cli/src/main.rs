@@ -23,6 +23,7 @@ use prism_core::scan::{Enumerator, WalkEnumerator};
 use prism_core::store::{self, Store};
 use prism_core::volumes::{self, DetectedVolume, VolumeMatch, VolumeSource, match_volumes};
 use prism_win::mft::MftEnumerator;
+use prism_win::ntfs;
 use prism_win::volumes::WinVolumeSource;
 
 use crate::format::{human_size, human_time};
@@ -45,6 +46,12 @@ enum Command {
     /// Index a folder or a drive (read-only on the disk); a second scan updates the catalog.
     Scan {
         /// Folder or drive root, e.g. C:\ or D:\Photos.
+        path: PathBuf,
+        #[command(flatten)]
+        walk: WalkArgs,
+    },
+    /// Update an NTFS volume indexed with `scan --mft` from its change journal (administrator).
+    Update {
         path: PathBuf,
         #[command(flatten)]
         walk: WalkArgs,
@@ -186,6 +193,7 @@ fn open_store(db: Option<&Path>) -> Result<Store, String> {
 fn run(store: &Store, command: &Command) -> CliResult {
     match command {
         Command::Scan { path, walk } => scan(store, path, walk),
+        Command::Update { path, walk } => update(store, path, walk),
         Command::Volumes => list_volumes(store),
         Command::Detect { record } => detect(store, *record),
         Command::Ls { path } => ls(store, path),
@@ -223,26 +231,40 @@ pub fn index_with_progress(
     root: &Path,
     walk: &WalkArgs,
 ) -> Result<IndexReport, String> {
+    let policy = walk.policy();
+    if walk.mft {
+        // Through the MFT, saving the journal position for later updates (ADR-0018).
+        return with_progress(|progress, cancel| {
+            ntfs::index_ntfs(store, volume, root, &policy, cancel, progress).map_err(err)
+        });
+    }
+    let enumerator = walk.enumerator();
+    with_progress(|progress, cancel| {
+        indexer::index(
+            store,
+            enumerator.as_ref(),
+            &IndexRequest {
+                volume,
+                path: root,
+                relative: &[],
+                target: ReconcileTarget::VolumeRoot,
+                policy: &policy,
+            },
+            cancel,
+            progress,
+        )
+        .map_err(err)
+    })
+}
+
+/// Runs `work` on a thread while printing its progress to stderr.
+fn with_progress<T: Send>(
+    work: impl FnOnce(&IndexProgress, &CancelToken) -> Result<T, String> + Send,
+) -> Result<T, String> {
     let progress = IndexProgress::default();
     let cancel = CancelToken::new();
-    let enumerator = walk.enumerator();
-    let policy = walk.policy();
     std::thread::scope(|s| {
-        let job = s.spawn(|| {
-            indexer::index(
-                store,
-                enumerator.as_ref(),
-                &IndexRequest {
-                    volume,
-                    path: root,
-                    relative: &[],
-                    target: ReconcileTarget::VolumeRoot,
-                    policy: &policy,
-                },
-                &cancel,
-                &progress,
-            )
-        });
+        let job = s.spawn(|| work(&progress, &cancel));
         while !job.is_finished() {
             std::thread::sleep(Duration::from_millis(200));
             eprint!(
@@ -254,7 +276,6 @@ pub fn index_with_progress(
         eprintln!();
         job.join()
             .map_err(|_| "the indexing thread panicked".to_owned())?
-            .map_err(err)
     })
 }
 
@@ -342,6 +363,32 @@ fn scan(store: &Store, path: &Path, walk: &WalkArgs) -> CliResult {
     eprintln!("indexing {mount} through {access} (volume {volume}) ...");
     let report = index_with_progress(store, volume, Path::new(&access), walk)?;
     print_report(&report);
+    Ok(())
+}
+
+fn update(store: &Store, path: &Path, walk: &WalkArgs) -> CliResult {
+    let mount = normalize_root(path)?;
+    let (volume, access) = volume_for(store, &mount)?;
+    let policy = walk.policy();
+    let started = std::time::Instant::now();
+    let outcome = with_progress(|progress, cancel| {
+        ntfs::update_ntfs(store, volume, Path::new(&access), &policy, cancel, progress).map_err(err)
+    })?;
+    match outcome {
+        ntfs::UpdateOutcome::Journal { records, stats } => println!(
+            "journal: {records} records; catalog: {} inserted, {} updated, {} moved, {} deleted \
+             in {:.2?}",
+            stats.inserted,
+            stats.updated,
+            stats.moved,
+            stats.deleted,
+            started.elapsed()
+        ),
+        ntfs::UpdateOutcome::Reindexed { reason, report } => {
+            println!("indexed again ({reason})");
+            print_report(&report);
+        }
+    }
     Ok(())
 }
 

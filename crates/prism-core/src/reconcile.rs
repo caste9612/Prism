@@ -89,10 +89,26 @@ pub fn reconcile(
     cancel: &CancelToken,
     progress: &AtomicU64,
 ) -> Result<ReconcileStats, ReconcileError> {
+    reconcile_many(store, volume, &[(target, tree)], cancel, progress)
+}
+
+/// Applies several snapshots in **one** reconciliation (partial updates from a change
+/// journal, ADR-0018). Targets must be ordered so that a folder comes after every folder that
+/// is its ancestor on the disk now; then a move between two targets keeps the entry (deletes
+/// are deferred to the end of the whole run) and can never create a cycle.
+///
+/// # Errors
+/// See [`reconcile`].
+pub fn reconcile_many(
+    store: &Store,
+    volume: VolumeId,
+    targets: &[(ReconcileTarget, &ScanTree)],
+    cancel: &CancelToken,
+    progress: &AtomicU64,
+) -> Result<ReconcileStats, ReconcileError> {
     let mut run = Run {
         store,
         volume,
-        tree,
         cancel,
         progress,
         session: store.session(),
@@ -105,7 +121,7 @@ pub fn reconcile(
         ref_map: None,
         stats: ReconcileStats::default(),
     };
-    let outcome = store.read(|conn| Ok(run.execute(conn, target)))?;
+    let outcome = store.read(|conn| Ok(run.execute(conn, targets)))?;
     // Whatever happened, wait for the submitted batches so the caller sees a settled catalog.
     let flushed = run.session.flush();
     let stats = outcome?;
@@ -125,7 +141,6 @@ enum Plan {
 struct Run<'a> {
     store: &'a Store,
     volume: VolumeId,
-    tree: &'a ScanTree,
     cancel: &'a CancelToken,
     progress: &'a AtomicU64,
     session: WriteSession,
@@ -148,9 +163,36 @@ impl Run<'_> {
     fn execute(
         &mut self,
         conn: &Connection,
-        target: ReconcileTarget,
+        targets: &[(ReconcileTarget, &ScanTree)],
     ) -> Result<ReconcileStats, ReconcileError> {
-        let root_meta = self.tree.root().meta;
+        for (i, (target, tree)) in targets.iter().enumerate() {
+            if i > 0 {
+                // Later targets read the catalog as left by the earlier ones.
+                self.submit()?;
+                self.session.flush()?;
+            }
+            self.execute_target(conn, *target, tree)?;
+        }
+        let deletes = std::mem::take(&mut self.pending_deletes);
+        for id in deletes {
+            if !self.used.contains(id) {
+                self.push(WriteOp::DeleteSubtree { id });
+                self.stats.deleted += 1;
+            }
+        }
+        let dirs = std::mem::take(&mut self.seeds);
+        self.push(WriteOp::RecomputeDirStats { dirs });
+        self.submit()?;
+        Ok(self.stats)
+    }
+
+    fn execute_target(
+        &mut self,
+        conn: &Connection,
+        target: ReconcileTarget,
+        tree: &ScanTree,
+    ) -> Result<(), ReconcileError> {
+        let root_meta = tree.root().meta;
         let (root_id, root_is_new) = match target {
             ReconcileTarget::VolumeRoot => match store::root_entry(conn, self.volume)? {
                 Some(root) => {
@@ -183,29 +225,19 @@ impl Run<'_> {
             self.protected = store::ancestors_and_self(conn, root_id)?
                 .into_iter()
                 .collect();
-            self.lookups =
-                self.tree.has_file_refs() && store::volume_has_entries(conn, self.volume)?;
+            self.lookups = tree.has_file_refs() && store::volume_has_entries(conn, self.volume)?;
         }
-        self.used.insert(root_id);
+        // The target is not marked as used: in a multi-target run it may still have to be
+        // removed by its parent's snapshot (moved into an excluded area). It cannot be claimed
+        // inside its own subtree, because `protected` contains it.
 
         let mut queue: VecDeque<(NodeId, EntryId, bool)> = VecDeque::new();
         queue.push_back((ScanTree::ROOT, root_id, root_is_new));
         while let Some((node, dir, is_new)) = queue.pop_front() {
             self.cancel.check()?;
-            self.diff_dir(conn, node, dir, is_new, &mut queue)?;
+            self.diff_dir(conn, tree, node, dir, is_new, &mut queue)?;
         }
-
-        let deletes = std::mem::take(&mut self.pending_deletes);
-        for id in deletes {
-            if !self.used.contains(id) {
-                self.push(WriteOp::DeleteSubtree { id });
-                self.stats.deleted += 1;
-            }
-        }
-        let dirs = std::mem::take(&mut self.seeds);
-        self.push(WriteOp::RecomputeDirStats { dirs });
-        self.submit()?;
-        Ok(self.stats)
+        Ok(())
     }
 
     fn update_if_changed(&mut self, existing: &EntryRecord, meta: &crate::model::EntryMeta) {
@@ -224,12 +256,16 @@ impl Run<'_> {
     fn diff_dir(
         &mut self,
         conn: &Connection,
+        tree: &ScanTree,
         node: NodeId,
         dir: EntryId,
         is_new: bool,
         queue: &mut VecDeque<(NodeId, EntryId, bool)>,
     ) -> Result<(), ReconcileError> {
-        let tree = self.tree;
+        if tree.node(node).listing == Listing::NotListed {
+            // Content not part of this snapshot: leave the catalog children as they are.
+            return Ok(());
+        }
         let kids: Vec<NodeId> = tree.children(node).collect();
         self.progress
             .fetch_add(kids.len() as u64, Ordering::Relaxed);

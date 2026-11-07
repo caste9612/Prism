@@ -4,6 +4,8 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use prism_core::changes::{ChangeSource, ChangedFile, ChangedName, FileChange};
+use prism_core::exclusion::{ChildCheck, ExclusionPolicy, RuleCursor};
 use prism_core::model::{ATTR_DIRECTORY, EntryMeta, FileTime};
 use prism_core::names;
 use prism_core::scan::{
@@ -29,6 +31,11 @@ pub struct FakeFs {
     clock: i64,
     /// Folders whose listing fails.
     pub unreadable: HashSet<u64>,
+    /// Files changed since the last `take_changes`, as a change journal records them: the
+    /// changed file itself, never its parent folder (whose modification time still changes).
+    /// The value tells whether the file was created and which parent folders the records
+    /// named.
+    pub touched: BTreeMap<u64, (bool, Vec<u64>)>,
 }
 
 impl Default for FakeFs {
@@ -94,6 +101,7 @@ impl FakeFs {
             next_ref: 100,
             clock: 10,
             unreadable: HashSet::new(),
+            touched: BTreeMap::new(),
         }
     }
 
@@ -166,6 +174,7 @@ impl FakeFs {
             },
         );
         self.touch(parent);
+        self.touched.insert(r, (true, vec![parent]));
         Some(r)
     }
 
@@ -221,8 +230,10 @@ impl FakeFs {
         let mut stack = vec![r];
         while let Some(x) = stack.pop() {
             stack.extend(self.children(x));
+            let p = self.nodes.get(&x).and_then(|n| n.parent);
             self.nodes.remove(&x);
             self.unreadable.remove(&x);
+            self.record(x, p);
         }
         if let Some(p) = parent {
             self.touch(p);
@@ -247,6 +258,8 @@ impl FakeFs {
             self.touch(p);
         }
         self.touch(new_parent);
+        self.record(r, old_parent);
+        self.record(r, Some(new_parent));
         true
     }
 
@@ -255,7 +268,59 @@ impl FakeFs {
         if let Some(n) = self.nodes.get_mut(&r).filter(|n| !n.is_dir) {
             n.size = size;
             n.modified = t;
+            let parent = n.parent;
+            self.record(r, parent);
         }
+    }
+
+    /// Notes a journal record for `r` naming `parent`.
+    fn record(&mut self, r: u64, parent: Option<u64>) {
+        let entry = self.touched.entry(r).or_insert((false, Vec::new()));
+        if let Some(p) = parent
+            && !entry.1.contains(&p)
+        {
+            entry.1.push(p);
+        }
+    }
+
+    /// The recycle bin at the root (excluded by the default policy), created if missing.
+    pub fn ensure_recycle_bin(&mut self) -> u64 {
+        if let Some(r) = self.find("$RECYCLE.BIN") {
+            return r;
+        }
+        self.create(ROOT, "$RECYCLE.BIN", true, 0).unwrap_or(ROOT)
+    }
+
+    /// Current state of a file, as `fetch_file` reports it on NTFS.
+    pub fn state_of(&self, r: u64) -> Option<ChangedFile> {
+        let n = self.nodes.get(&r)?;
+        Some(ChangedFile {
+            is_dir: n.is_dir,
+            names: vec![ChangedName {
+                // The root's name is "." in itself, as on NTFS.
+                parent_ref: n.parent.unwrap_or(ROOT),
+                name: if n.parent.is_some() {
+                    n.name.clone()
+                } else {
+                    ".".to_owned()
+                },
+                meta: Self::meta(r, n),
+            }],
+        })
+    }
+
+    /// The changes recorded since the last call, with the current state of each file.
+    pub fn take_changes(&mut self) -> Vec<FileChange> {
+        let touched = std::mem::take(&mut self.touched);
+        touched
+            .into_iter()
+            .map(|(file_ref, (created, parents_seen))| FileChange {
+                file_ref,
+                created,
+                parents_seen,
+                state: self.state_of(file_ref),
+            })
+            .collect()
     }
 
     fn meta(r: u64, n: &FakeNode) -> EntryMeta {
@@ -271,19 +336,32 @@ impl FakeFs {
 
     /// Snapshot of the subtree rooted at `from`, as an MFT-based enumerator would produce it.
     pub fn tree(&self, from: u64) -> ScanTree {
+        let none = ExclusionPolicy::default();
+        self.tree_with(from, &none, none.root_cursor())
+    }
+
+    /// Like [`FakeFs::tree`], applying an exclusion policy as every enumerator must.
+    pub fn tree_with(&self, from: u64, policy: &ExclusionPolicy, cursor: RuleCursor) -> ScanTree {
         let mut b = ScanTreeBuilder::new(Self::meta(from, &self.nodes[&from]));
         let mut stats = ScanStats::default();
-        let mut queue = std::collections::VecDeque::from([(ScanTree::ROOT, from)]);
-        while let Some((node, r)) = queue.pop_front() {
+        let mut queue = std::collections::VecDeque::from([(ScanTree::ROOT, from, cursor)]);
+        while let Some((node, r, cursor)) = queue.pop_front() {
             if self.unreadable.contains(&r) {
                 b.mark_unreadable(node);
                 stats.unreadable_dirs += 1;
                 continue;
             }
-            let kids = self.children(r);
+            let mut kids = Vec::new();
+            for k in self.children(r) {
+                let n = &self.nodes[&k];
+                match policy.child(&cursor, &n.name, n.is_dir) {
+                    ChildCheck::Excluded => stats.excluded += 1,
+                    ChildCheck::Included(next) => kids.push((k, next)),
+                }
+            }
             let range = b.add_listing(
                 node,
-                kids.iter().map(|k| {
+                kids.iter().map(|(k, _)| {
                     let n = &self.nodes[k];
                     ScanChild {
                         name: n.name.clone(),
@@ -292,10 +370,10 @@ impl FakeFs {
                     }
                 }),
             );
-            for (id, k) in range.zip(kids) {
+            for (id, (k, next)) in range.zip(kids) {
                 if self.nodes[&k].is_dir {
                     stats.dirs += 1;
-                    queue.push_back((id, k));
+                    queue.push_back((id, k, next));
                 } else {
                     stats.files += 1;
                 }
@@ -324,7 +402,7 @@ impl FakeFs {
             let all: Vec<u64> = self.refs().into_iter().filter(|r| *r != ROOT).collect();
             let dirs = self.dirs();
             let name = *rng.pick(NAMES).unwrap_or(&"x");
-            match rng.below(9) {
+            match rng.below(11) {
                 0 | 1 => {
                     let parent = *rng.pick(&dirs).unwrap_or(&ROOT);
                     if self
@@ -395,6 +473,29 @@ impl FakeFs {
                         dirty.insert(parent);
                     }
                 }
+                9 => {
+                    // Move something to the recycle bin (an excluded area), if there is one.
+                    if let (Some(bin), Some(&r)) = (self.find("$RECYCLE.BIN"), rng.pick(&all)) {
+                        let from = self.nodes[&r].parent.unwrap_or(ROOT);
+                        let unique = format!("$R{r}");
+                        if r != bin && self.rename(r, bin, &unique) {
+                            dirty.insert(from);
+                            dirty.insert(bin);
+                        }
+                    }
+                }
+                10 => {
+                    // Restore something from the recycle bin (folders keep their content).
+                    if let Some(bin) = self.find("$RECYCLE.BIN") {
+                        let inside = self.children(bin);
+                        if let Some(&r) = rng.pick(&inside)
+                            && self.rename(r, ROOT, name)
+                        {
+                            dirty.insert(bin);
+                            dirty.insert(ROOT);
+                        }
+                    }
+                }
                 _ => {
                     // Swap the names of two siblings through a temporary name.
                     if let Some(&r) = rng.pick(&all) {
@@ -420,6 +521,12 @@ impl FakeFs {
     }
 }
 
+impl ChangeSource for FakeFs {
+    fn current(&self, file_ref: u64) -> Result<Option<ChangedFile>, String> {
+        Ok(self.state_of(file_ref))
+    }
+}
+
 impl Enumerator for FakeFs {
     fn scan(&self, request: &ScanRequest<'_>) -> Result<ScanTree, ScanError> {
         request.cancel.check()?;
@@ -427,7 +534,11 @@ impl Enumerator for FakeFs {
         let from = self
             .find(&path)
             .ok_or_else(|| ScanError::RootNotADirectory(request.root.to_path_buf()))?;
-        Ok(self.tree(from))
+        let cursor = request
+            .policy
+            .cursor_for(request.relative)
+            .ok_or_else(|| ScanError::RootExcluded(request.root.to_path_buf()))?;
+        Ok(self.tree_with(from, request.policy, cursor))
     }
 }
 

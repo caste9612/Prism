@@ -31,6 +31,9 @@ pub enum Listing {
     /// The folder could not be read, or only partly (access denied, disappeared, I/O error).
     /// The reconciler keeps the catalog children it does not see instead of deleting them.
     Unreadable,
+    /// The content of the folder is not part of this snapshot (partial updates from a change
+    /// journal, ADR-0018): the reconciler leaves its catalog children untouched.
+    NotListed,
 }
 
 /// A file or folder found by an enumeration.
@@ -183,6 +186,13 @@ impl ScanTreeBuilder {
     pub fn set_meta(&mut self, id: NodeId, meta: EntryMeta) {
         if let Some(node) = self.nodes.get_mut(id as usize) {
             node.meta = meta;
+        }
+    }
+
+    /// Marks folder `dir` as not listed: its catalog content is left as it is.
+    pub fn mark_not_listed(&mut self, dir: NodeId) {
+        if let Some(node) = self.nodes.get_mut(dir as usize) {
+            node.listing = Listing::NotListed;
         }
     }
 

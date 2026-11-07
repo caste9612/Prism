@@ -1,6 +1,6 @@
 # ADR-0018 — Applicazione del journal USN al catalogo
 
-- **Stato**: Accettata (lettura del journal implementata; applicazione in corso in T2)
+- **Stato**: Accettata e implementata (T2)
 - **Data**: 2026-11-07
 - **Rifinisce**: ADR-0007
 
@@ -43,7 +43,11 @@ risultato. Quando il volume diventa `reindex_needed` la posizione si cancella.
 4. **Cartelle toccate**: i genitori nel catalogo delle voci dei file toccati (vecchie
    posizioni), i genitori attuali di tutti i loro nomi (nuove posizioni, e tutti i nomi dei file
    con hard link, perché il nome che conta lo spazio può cambiare), e i genitori indicati dai
-   record.
+   record (`FileChange::parents_seen`: per esempio un file creato in una cartella e spostato
+   altrove nello stesso intervallo cambia la data di quella cartella, che non è né la vecchia né
+   la nuova posizione). La posizione e le regole di esclusione di una cartella toccata sono
+   quelle **reali** (catena dei genitori attuali), non quelle del catalogo: una cartella finita
+   in una zona esclusa non è un bersaglio e viene rimossa dallo snapshot del genitore.
 5. Per ogni cartella toccata si costruisce un **elenco superficiale** dei figli: i figli già nel
    catalogo con i loro metadati del catalogo (se fossero cambiati, sarebbero nel journal), più
    lo stato letto dei file toccati che ora stanno lì; i metadati della cartella stessa si
@@ -64,6 +68,28 @@ risultato. Quando il volume diventa `reindex_needed` la posizione si cancella.
 journal attivo si aggiornano con una nuova enumerazione al ricollegamento e, mentre Prism è
 attivo, con la sorveglianza delle cartelle (ADR-0007). Solo il disco di test PRISMTEST riceve un
 journal, creato dai test.
+
+## Implementazione e verifica (2026-11-07)
+
+- `prism-core::changes::apply_changes` (indipendente dalla piattaforma), `reconcile_many` e
+  `Listing::NotListed` nel reconciler; `prism-win::ntfs::{index_ntfs, update_ntfs}`
+  (orchestrazione con ripiego sulla lettura completa); CLI `scan --mft` e `update`.
+- File system simulato: 160 casi casuali × 3 giri e uno stress di 3.000 semi × 4 giri
+  (`journal_updates_stress`, da lanciare a mano): catalogo aggiornato = reindicizzazione, id
+  conservati. Lo stress ha trovato due difetti, corretti: cartelle toccate dimenticate (i
+  genitori dei record) e un bersaglio spostato in zona esclusa che non veniva rimosso.
+- Disco di test PRISMTEST (test elevato `ntfs_update.rs`): 4 giri di modifiche reali
+  (creazioni, cancellazioni, rinomine, spostamenti, hard link) aggiornati dal journal = lettura
+  completa della MFT, ripetuto tre volte senza differenze.
+- C: reale: 253 record applicati in 0,6 s (di cui ~0,25 s per caricare la mappa dei riferimenti
+  di 1,3 milioni di voci; da tenere in memoria quando gli aggiornamenti saranno continui, T3).
+
+**NTFS scrive in ritardo le date delle cartelle nei record MFT**: il valore in memoria è più
+recente di quello nel record finché il file system non lo scarica. Due letture in momenti
+diversi possono quindi vedere date diverse di pochi millisecondi per la stessa cartella, senza
+alcun record nel journal. Il test elevato forza la scrittura (`FlushFileBuffers` sul volume di
+test) prima di confrontare; in uso normale la differenza si corregge alla modifica successiva
+di quella cartella ed è solo estetica.
 
 ## Conseguenze
 

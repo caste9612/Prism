@@ -5,15 +5,13 @@
 
 ## Stato attuale
 
-- **Tappa**: T2 in corso — rilevamento volumi (ADR-0016), lettore MFT (ADR-0017, "go") e
-  lettura del journal USN fatti.
-- **Prossimo passo**: T2 — applicazione del journal al catalogo secondo ADR-0018: reconciler
-  con più bersagli e `Listing::NotListed`, costruzione degli elenchi superficiali, test di
-  equivalenza (file system simulato con riferimenti e disco di test PRISMTEST).
-- **Da fare in T2**: istantanea `ScanTree` compatta (memoria massima ~315 B per voce durante
-  l'indicizzazione con MFT: per 5 milioni di voci sarebbe ~1,5 GB); lettore MFT completo
-  (`$MFT` con `$ATTRIBUTE_LIST` nel record 0, file compressi/sparsi verificati);
-  sorveglianza cartelle per i volumi non NTFS.
+- **Tappa**: T2 in corso — rilevamento volumi (ADR-0016), lettore MFT (ADR-0017) e journal USN
+  completo (lettura e applicazione, ADR-0018) fatti.
+- **Prossimo passo**: T2 — sorveglianza cartelle per i volumi non NTFS
+  (`ReadDirectoryChangesW` + riconciliazione mirata, ADR-0007).
+- **Poi, per chiudere T2**: istantanea `ScanTree` compatta (memoria massima ~315 B per voce
+  durante l'indicizzazione con MFT: per 5 milioni di voci sarebbe ~1,5 GB); lettore MFT completo
+  (`$MFT` con `$ATTRIBUTE_LIST` nel record 0, file compressi/sparsi verificati).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -24,6 +22,27 @@
   consentito solo del branch `rewrite` (vedi CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T2: applicazione del journal USN al catalogo
+
+- `prism-core::changes::apply_changes`: dai file cambiati agli elenchi superficiali delle
+  cartelle toccate; `reconcile_many` (più bersagli in una sola esecuzione, eliminazioni
+  rimandate) e `Listing::NotListed` nel reconciler.
+- `prism-win::ntfs`: `index_ntfs` salva la posizione del journal letta **prima** della lettura
+  della MFT; `update_ntfs` applica il journal e ricade sulla lettura completa quando serve.
+  CLI: `scan --mft` salva la posizione, nuovo comando `update`.
+- Test: proprietà sul file system simulato (160 casi × 3 giri, con Cestino escluso e
+  ripristini), stress da 3.000 semi × 4 giri (manuale), test elevato sul disco di test con
+  modifiche reali (4 giri, ripetuto 3 volte): aggiornamento dal journal = reindicizzazione.
+- **Difetti trovati dai test e corretti**: (1) il simulatore non applicava le esclusioni come un
+  vero enumeratore (corretto il simulatore); (2) mancavano tra le cartelle toccate i genitori
+  nominati dai record (es. file creato e poi spostato); (3) una cartella bersaglio spostata in
+  zona esclusa non veniva rimossa e la sua esclusione si calcolava sul percorso del catalogo
+  invece che su quello reale.
+- **Scoperta**: NTFS scrive in ritardo nei record MFT le date delle cartelle; due letture in
+  momenti diversi possono differire di pochi millisecondi senza alcun record nel journal
+  (documentato in ADR-0018; il test elevato forza la scrittura prima di confrontare).
+- Su C: reale: 253 record applicati in 0,6 s, catalogo coerente.
 
 ### 2026-11-07 — T2: lettura del journal USN
 

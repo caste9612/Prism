@@ -13,6 +13,7 @@
 //! - [`sandbox`]: the guard for destructive file operations in tests (TESTING S2).
 
 pub mod cancel;
+pub mod changes;
 pub mod exclusion;
 pub mod indexer;
 pub mod model;
