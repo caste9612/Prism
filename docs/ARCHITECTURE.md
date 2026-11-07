@@ -153,7 +153,7 @@ una riconciliazione su un insieme di voci più piccolo. Così sono garantiti gli
 ### 4.3 Hash (ADR-0011)
 
 Job di background a priorità bassa (`THREAD_MODE_BACKGROUND_BEGIN`, quindi I/O e CPU in
-background), in pausa durante l'uso attivo del PC o a batteria. Ordine: prima i file con
+background), attivo anche durante l'uso del PC; sospensione a batteria opzionale. Ordine: prima i file con
 dimensioni condivise da altri file (possibili duplicati), poi gli altri. Due livelli:
 `quick` (inizio e fine del file) e `full` (BLAKE3 completo). Un hash vale solo per la coppia
 (`size`, `modified_at`) con cui è stato calcolato.

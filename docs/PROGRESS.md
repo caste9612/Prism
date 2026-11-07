@@ -5,10 +5,14 @@
 
 ## Stato attuale
 
-- **Tappa**: T0 completata, in attesa della revisione della SPEC da parte dell'utente.
+- **Tappa**: T0 completata.
 - **Prossimo passo**: T1 — schema SQLite, archivio con scrittore unico, walker, riconciliazione.
-- **Bloccanti**: nessuno.
-- **Decisioni in sospeso**: SPEC §8 (Q3–Q8, Q11); ADR-0010 (indice di ricerca) e ADR-0013 (video).
+- **Bloccanti**: nessuno per T1. Per T2 serve che l'utente esegua una volta
+  `scripts/admin/install-admin-runner.ps1` da PowerShell amministratore.
+- **Decisioni in sospeso**: Q7 firma del codice (utente, entro T10), Q11 ramo principale (T10).
+  ADR-0010 (indice di ricerca) e ADR-0013 (video) le decide lo sviluppo con benchmark e prototipi.
+- **Modalità di lavoro**: autonomia completa; unica sosta per la revisione a fine T3; push
+  consentito solo del branch `rewrite` (vedi CLAUDE.md).
 
 ## Diario
 
@@ -33,3 +37,12 @@
 - Decise con l'utente: solo Windows 11 (Q1); esclusioni di default solo `$RECYCLE.BIN` e
   `System Volume Information` (Q2); nessuna telemetria nella 1.0 (Q9); avvio con Windows attivo
   per default (Q10).
+- Decise con l'utente (secondo giro): hash sempre attivi a priorità minima (Q3); pulizia con
+  temporanei, cartelle vuote, file grandi e vecchi, cache di browser/app (Q4); immagini RAW
+  oltre ai formati base, niente HEIC/AVIF (Q5); licenza MIT, repository pubblico (Q8); firma
+  del codice decisa dall'utente verso la fine (Q7); scelte tecniche delegate allo sviluppo;
+  sosta di revisione solo a fine T3; push consentito solo del branch `rewrite`.
+- Scritti in anticipo gli script del runner amministratore (`scripts/admin/`) e i test di
+  verifica (`prism-win/tests/admin_runner.rs`); da shell non elevata i test falliscono con
+  "Accesso negato" come previsto. Documentata la verifica dell'interfaccia sull'app vera
+  (debug `asInvoker`, WebDriver, screenshot).

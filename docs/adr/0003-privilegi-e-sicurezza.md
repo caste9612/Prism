@@ -29,6 +29,9 @@ scelto che Prism giri **sempre** come amministratore e parta con Windows senza p
 
 ## Conseguenze
 
+- Le build di **debug** usano `asInvoker` (nessuna richiesta di elevazione): girano senza MFT,
+  USN e SMART, ripiegando sul walker, così sviluppo e test dell'interfaccia funzionano da una
+  shell non elevata. Solo le build di **release** hanno `requireAdministrator`.
 - Il trascinamento di file da Esplora risorse a Prism non funziona (UIPI di Windows).
 - Senza firma del codice il prompt UAC dell'installer mostra "Autore sconosciuto" e SmartScreen
   avvisa sul download: la firma diventa necessaria per la distribuzione pubblica (SPEC Q7).

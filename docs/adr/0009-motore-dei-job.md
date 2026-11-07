@@ -16,8 +16,8 @@ sovrapponevano.
   annullamento, record persistente.
 - Priorità: interattiva > indicizzazione > background.
 - Concorrenza limitata per **disco fisico**: al massimo un job pesante sullo stesso disco.
-- I job di background (hash, impronte) girano con priorità di I/O bassa e si sospendono quando
-  l'utente usa il PC o a batteria.
+- I job di background (hash, impronte) girano sempre con la priorità minima di I/O e CPU
+  (modalità background di Windows); la sospensione a batteria è un'opzione (SPEC F06-AC2).
 - Eventi verso l'interfaccia, con frequenza limitata (circa 4 al secondo per job):
   `job-updated`, `catalog-changed`, `volume-status`, `notification`. Nessun altro canale.
 

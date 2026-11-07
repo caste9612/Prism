@@ -18,8 +18,14 @@ da zero**: questo branch (`rewrite`) sostituirà il ramo principale alla 1.0.
   SPEC; se cambia la struttura, ARCHITECTURE o una nuova ADR; a ogni passo significativo, una
   voce in `docs/PROGRESS.md` e le checkbox in `docs/ROADMAP.md`.
 - **Passi piccoli, sempre verdi.** Prima di ogni commit `scripts/check.ps1` deve passare
-  (fmt, clippy con `-D warnings`, test). Commit locali in autonomia; **nessun push** senza
-  approvazione esplicita dell'utente.
+  (fmt, clippy con `-D warnings`, test). Commit in autonomia.
+- **Push**: consentito **solo** per il branch `rewrite` su `origin`, periodicamente (CI e
+  backup). Mai force push, mai push di altri branch, mai merge sul ramo principale senza
+  approvazione dell'utente.
+- **Autonomia**: si procede tappa dopo tappa senza fermarsi, con un report in
+  `docs/PROGRESS.md` a fine tappa. **Unica sosta obbligatoria**: a fine T3 (prima interfaccia
+  vera) per la revisione dell'utente. Le scelte tecniche (ADR proposte, librerie) si prendono in
+  autonomia sulla base di benchmark e prototipi, documentandole in un'ADR con i dati.
 - **Test per ogni criterio.** Ogni criterio `Fxx-ACn` implementato ha un test che ne cita l'ID,
   oppure una voce nella checklist manuale della tappa.
 - **Mai indebolire un test** per farlo passare. Se la causa di un fallimento non è chiara,

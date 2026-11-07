@@ -139,8 +139,9 @@ salute SMART se disponibile, avanzamento degli hash.
 
 - **F06-AC1** Dopo l'indicizzazione, Prism calcola in background gli hash BLAKE3 dei file, con
   priorità di I/O e CPU bassa.
-- **F06-AC2** Il calcolo si mette in pausa quando l'utente usa attivamente il PC o quando il
-  PC è a batteria, e riprende da solo **[soglie DA CONFERMARE: inattività ≥ 2 minuti]**.
+- **F06-AC2** Il calcolo gira **sempre**, anche mentre l'utente usa il PC, ma con la priorità
+  minima di disco e CPU (modalità background di Windows), così da non rallentare il lavoro.
+  La sospensione a batteria è un'opzione delle impostazioni, disattivata per default (F21-AC3).
 - **F06-AC3** Un hash vale solo finché dimensione e data di modifica del file non cambiano;
   se cambiano, l'hash viene invalidato e ricalcolato.
 - **F06-AC4** L'ordine di calcolo privilegia i file che potrebbero avere duplicati (stessa
@@ -184,11 +185,19 @@ salute SMART se disponibile, avanzamento degli hash.
 
 ### F09 — Pulizia guidata
 
-- **F09-AC1** Prism propone categorie di spazio recuperabile, ognuna con dimensione totale e
-  spiegazione: file temporanei di Windows e dell'utente, cartelle vuote, file grandi non
-  modificati da molto tempo (soglie configurabili), duplicati (rimanda a F10), contenuto del
-  Cestino **[elenco categorie DA CONFERMARE]**.
+- **F09-AC1** Prism propone queste categorie di spazio recuperabile, ognuna con dimensione
+  totale e spiegazione:
+  - **file temporanei** di Windows e dell'utente (`%TEMP%`, `Windows\Temp`), solo file non in uso;
+  - **cartelle vuote**;
+  - **file grandi e vecchi**: sopra una dimensione e non modificati da un periodo, entrambi
+    configurabili (default proposto: ≥ 500 MB, non modificati da 1 anno);
+  - **cache di browser e app**: solo le cartelle di cache note (es. `Cache`, `Code Cache`,
+    `GPUCache` dei profili di Chrome, Edge, Firefox), **mai** cookie, password, cronologia o
+    dati dei profili;
+  - in più, a titolo informativo: spazio occupato dal Cestino e collegamento ai duplicati (F10).
 - **F09-AC2** Nessuna categoria include file di sistema o cartelle di programmi.
+- **F09-AC4** Le cache di un browser si propongono solo se quel browser non è in esecuzione;
+  altrimenti la categoria mostra "chiudi il browser per pulire".
 - **F09-AC3** L'utente vede e può deselezionare ogni elemento prima di procedere; le
   eliminazioni seguono F16.
 
@@ -212,8 +221,9 @@ salute SMART se disponibile, avanzamento degli hash.
 - **F11-AC2** La ricerca dei simili non confronta tutte le coppie: usa una struttura di indice
   adatta alla distanza di Hamming, per restare veloce su centinaia di migliaia di immagini.
 - **F11-AC3** I gruppi mostrano anteprime affiancate, risoluzione e dimensione.
-- **F11-AC4** Formati minimi: JPEG, PNG, GIF, WebP, BMP, TIFF; HEIC se il codec è disponibile
-  sul sistema **[DA CONFERMARE]**.
+- **F11-AC4** Formati: JPEG, PNG, GIF, WebP, BMP, TIFF e **RAW delle fotocamere** (CR2, CR3,
+  NEF, ARW, DNG, ORF, RW2...) tramite l'anteprima JPEG incorporata nel file. HEIC/HEIF e AVIF
+  non sono supportati nella 1.0.
 
 ### F12 — Video simili
 
@@ -311,8 +321,8 @@ Vale per ogni eliminazione avviata da Prism (duplicati, pulizia, simili).
 
 - **F21-AC1** Lingua, tema, scorciatoia di ricerca, avvio con Windows.
 - **F21-AC2** Esclusioni globali e per volume (F04-AC5).
-- **F21-AC3** Politica degli hash in background: attiva/disattiva, limiti di risorse, pausa a
-  batteria; per volume si può disattivare.
+- **F21-AC3** Politica degli hash in background: attiva/disattiva, sospensione a batteria
+  (default: disattivata), per volume si può disattivare.
 - **F21-AC4** Volumi ignorati (F02-AC4) e reset del catalogo, con conferma.
 
 ### F22 — Installazione e aggiornamento
@@ -356,12 +366,12 @@ Vale per ogni eliminazione avviata da Prism (duplicati, pulizia, simili).
 |---|---|---|
 | Q1 | ~~Versione minima di Windows~~ — **decisa** (2026-11-07): solo Windows 11 x64. | — |
 | Q2 | ~~Esclusioni di default~~ — **decisa** (2026-11-07): solo `$RECYCLE.BIN` e `System Volume Information`. | — |
-| Q3 | Soglie di inattività e risorse per gli hash in background. | T6 |
-| Q4 | Categorie della pulizia guidata. | T4 |
-| Q5 | Formati immagine aggiuntivi (HEIC/RAW). | T8 |
+| Q3 | ~~Quando calcolare gli hash~~ — **decisa** (2026-11-07): sempre, a priorità minima (F06-AC2). | — |
+| Q4 | ~~Categorie della pulizia~~ — **decisa** (2026-11-07): temporanei, cartelle vuote, grandi e vecchi, cache browser/app (F09). | — |
+| Q5 | ~~Formati immagine aggiuntivi~~ — **decisa** (2026-11-07): solo RAW delle fotocamere (F11-AC4). | — |
 | Q6 | Video simili: Media Foundation o ffmpeg (ADR-0013). | T8 |
-| Q7 | Firma del codice: tipo di certificato e costo. | T10 |
-| Q8 | Licenza del progetto (il repo oggi ha MIT) e repository pubblico o privato. | T10 |
+| Q7 | Firma del codice: certificato scelto e acquistato dall'utente prima della 1.0; il progetto è predisposto per aggiungerla con una configurazione. | T10 |
+| Q8 | ~~Licenza~~ — **decisa** (2026-11-07): MIT, open source, repository pubblico. | — |
 | Q9 | ~~Telemetria~~ — **decisa** (2026-11-07): nessuna nella 1.0 (NF6). | — |
 | Q10 | ~~Avvio con Windows di default~~ — **decisa** (2026-11-07): attivo (F19-AC3). | — |
 | Q11 | Ramo principale finale (oggi sul remoto c'è solo `develop`). | T10 |

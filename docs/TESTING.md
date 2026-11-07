@@ -53,16 +53,24 @@ popolano con file sintetici, lo modificano e possono anche riformattarlo: contie
 test. Anche le prove manuali distruttive dell'app (S5) si fanno qui.
 
 **Runner amministratore.** Uno script di configurazione, da eseguire **una sola volta**
-dall'utente in un PowerShell amministratore (`scripts/admin/install-admin-runner.ps1`, arriva in
-T2), che:
+dall'utente in un PowerShell amministratore (`scripts/admin/install-admin-runner.ps1`), che:
 
-1. crea e monta il disco virtuale di test;
+1. crea e monta il disco virtuale di test (`diskpart` agisce solo sul file VHDX indicato per
+   percorso, mai su un disco fisico);
 2. registra un'attività pianificata `PrismDevAdminTests`, solo su richiesta e con i privilegi
    più elevati, che esegue `scripts/admin/run-admin-tests.ps1`.
 
 Lo sviluppo può poi lanciare i test elevati con `schtasks /run /tn PrismDevAdminTests` e
-leggerne l'esito in `%LOCALAPPDATA%\PrismDev\admin-tests\last.log`, senza intervento
-dell'utente.
+leggerne l'esito senza intervento dell'utente:
+
+- `%LOCALAPPDATA%\PrismDev\admin-tests\last.status` — `running`, `passed`, `failed <codice>`
+  o `error`, con data e ora;
+- `%LOCALAPPDATA%\PrismDev\admin-tests\last.log` — output completo di `cargo test`.
+
+Il runner esegue `cargo test -p prism-win --features admin-tests`, passa ai test la radice del
+volume di test in `PRISM_TEST_VOLUME` e compila in `target\admin`, separato dalla build normale.
+I test di verifica del runner sono in `crates/prism-win/tests/admin_runner.rs`: da una shell non
+elevata falliscono con "Accesso negato" (verificato), dal runner devono passare.
 
 **Avvertenza di sicurezza (da accettare consapevolmente).** Finché l'attività esiste, qualunque
 programma in esecuzione con l'utente può avviarla, e lo script e il codice compilato stanno in
@@ -74,7 +82,18 @@ senza UAC. Per questo:
 - l'alternativa è che l'utente esegua a mano `run-admin-tests.ps1` da un terminale
   amministratore quando richiesto (meno autonomia, nessun rischio aggiunto).
 
-L'utente sceglie tra le due opzioni al momento della configurazione in T2.
+L'utente sceglie tra le due opzioni; la configurazione si può fare in qualsiasi momento prima
+di T2 (lettura MFT/USN).
+
+## 4bis. Verifica dell'interfaccia sull'app vera
+
+- Le build di **debug** usano il manifest `asInvoker`: partono dalla shell di sviluppo non
+  elevata (senza MFT/USN, si usa il walker). Solo le build di **release** richiedono
+  l'amministratore (ADR-0003).
+- I flussi end-to-end si eseguono anche sull'app vera, pilotando WebView2 via WebDriver
+  (`tauri-driver` + `msedgedriver`), oltre che nel browser con IPC simulato.
+- Per i controlli visivi lo sviluppo cattura screenshot della finestra e li esamina; il giudizio
+  estetico finale resta all'utente (sosta di revisione a fine T3).
 
 ## 5. Tracciabilità
 

@@ -16,9 +16,10 @@ Legenda: `[x]` fatto · `[ ]` da fare · `[~]` in corso
 - [x] Regole di lavoro per le sessioni di sviluppo (`CLAUDE.md`)
 - [x] Workspace Cargo (`prism-core`, `prism-win`, `prism-cli`), lint comuni, toolchain fissata
 - [x] Script dei controlli (`scripts/check.ps1`) e CI GitHub Actions (attiva al primo push)
+- [x] Decisioni anticipate per lavorare in autonomia fino alla 1.0 (SPEC §8)
 
-**Verifica utente**: leggere `docs/SPEC.md` (soprattutto i punti **[DA CONFERMARE]** e le
-domande aperte del capitolo 8) e segnalare correzioni.
+**Verifica utente**: facoltativa, leggere `docs/SPEC.md`; eseguire una volta
+`scripts/admin/install-admin-runner.ps1` da PowerShell amministratore (serve da T2).
 
 ## T1 — Catalogo di base (core, senza privilegi)
 
@@ -39,7 +40,8 @@ Criteri coperti: F04-AC2..AC7, F05-AC3, NF2 (prima misura), NF4 (parziale).
 ## T2 — Windows: volumi, MFT, USN
 
 - [ ] Rilevamento volumi e identità (ADR-0004); unità di rete e UNC
-- [ ] Runner amministratore e disco virtuale di test (TESTING §4) — **richiede l'utente una volta**
+- [~] Runner amministratore e disco virtuale di test (TESTING §4): script pronti e verificati
+      senza privilegi; **manca l'esecuzione una tantum da parte dell'utente**
 - [ ] Prototipo lettore MFT, misure su VHDX e su C:/D: (sola lettura); decisione go/no-go
 - [ ] `MftEnumerator` completo (frammentazione, `$ATTRIBUTE_LIST`, hard link)
 - [ ] Journal USN: lettura, applicazione tramite `Reconciler`, gestione journal non valido
@@ -58,13 +60,15 @@ Criteri coperti: F02-AC3, F04-AC1, F05-AC1/AC2/AC4.
 - [ ] Test e2e con IPC simulato
 
 Criteri coperti: F01, F02, F03, F19, F21 (parziale).
+**Sosta obbligatoria**: a fine T3 lo sviluppo si ferma per la revisione dell'interfaccia da parte
+dell'utente; è l'unica sosta prevista prima della 1.0.
 **Verifica utente**: aspetto e usabilità della schermata catalogo; avvio con Windows.
 
 ## T4 — Spazio
 
 - [ ] Treemap su canvas con navigazione, elenco dei più grandi (F08)
 - [ ] Statistiche per tipo, estensione e fascia di dimensione (F08-AC3)
-- [ ] Pulizia guidata (F09) — categorie da confermare (Q4)
+- [ ] Pulizia guidata (F09): temporanei, cartelle vuote, grandi e vecchi, cache browser/app
 
 ## T5 — Ricerca
 
@@ -75,7 +79,7 @@ Criteri coperti: F01, F02, F03, F19, F21 (parziale).
 
 ## T6 — Hash e duplicati
 
-- [ ] Job di hash in background con pausa per inattività e batteria (F06) — soglie Q3
+- [ ] Job di hash in background a priorità minima, sospensione a batteria opzionale (F06)
 - [ ] Gruppi di duplicati online e offline (F10)
 - [ ] Regole di selezione (F10-AC3)
 - [ ] Eliminazione sicura completa: Cestino, riverifica, ultima copia, registro azioni (F16)
@@ -88,7 +92,7 @@ Criteri coperti: F01, F02, F03, F19, F21 (parziale).
 
 ## T8 — Media
 
-- [ ] Immagini simili con indice per distanza di Hamming (F11) — formati Q5
+- [ ] Immagini simili con indice per distanza di Hamming, inclusi i RAW (F11)
 - [ ] Prototipi e decisione per i video (ADR-0013), poi video simili (F12)
 
 ## T9 — Integrazione con il sistema
@@ -101,6 +105,6 @@ Criteri coperti: F01, F02, F03, F19, F21 (parziale).
 
 - [ ] Installer: attività pianificata, menu contestuale, WebView2, disinstallazione (F22)
 - [ ] Aggiornamenti automatici firmati (F22-AC3)
-- [ ] Firma del codice (Q7), licenza (Q8), ramo principale (Q11)
+- [ ] Firma del codice con il certificato scelto dall'utente (Q7), ramo principale (Q11)
 - [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali
 - [ ] Merge di `rewrite` sul ramo principale e rilascio 1.0
