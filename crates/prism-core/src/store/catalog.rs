@@ -547,6 +547,31 @@ pub fn entry_count(conn: &Connection, volume: VolumeId) -> Result<u64, StoreErro
     Ok(from_db(n))
 }
 
+/// A user setting (F21), or `None` if never set.
+///
+/// # Errors
+/// SQLite errors.
+pub fn setting(conn: &Connection, key: &str) -> Result<Option<String>, StoreError> {
+    Ok(conn
+        .prepare_cached("SELECT value FROM settings WHERE key = ?1")?
+        .query_row([key], |r| r.get(0))
+        .optional()?)
+}
+
+/// Stores a user setting (F21).
+///
+/// # Errors
+/// SQLite errors.
+pub fn set_setting(wtx: &mut WriteTx<'_>, key: &str, value: &str) -> Result<(), StoreError> {
+    wtx.conn()
+        .prepare_cached(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) \
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        )?
+        .execute(params![key, value])?;
+    Ok(())
+}
+
 /// Size of the database (pages in use times page size), excluding the WAL.
 ///
 /// # Errors

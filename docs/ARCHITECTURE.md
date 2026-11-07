@@ -314,12 +314,36 @@ con i job di background (T6).
 ## 7. Interfaccia e IPC (ADR-0014)
 
 - Svelte 5 + Vite + TypeScript, senza SvelteKit (finestra principale e finestra di ricerca).
-- Tipi TypeScript generati dai tipi Rust (tauri-specta o ts-rs, da scegliere in T3): niente
-  interfacce duplicate a mano.
+- Tipi TypeScript generati dai tipi Rust con **ts-rs** (REVIEW D11): niente interfacce
+  duplicate a mano.
 - Lo stato vive nel backend; i componenti si iscrivono agli eventi e rileggono ciò che serve.
 - Gli errori del backend arrivano come **codice + parametri**; l'interfaccia li traduce (i18n).
   Anche le etichette del tray sono fornite dall'interfaccia nella lingua scelta.
 - Liste lunghe virtualizzate; treemap disegnata su canvas.
+
+Implementazione (T3):
+
+- `crates/prism-app` (binario `prism`): `main.rs` apre il catalogo (`catalog.db` nella cartella
+  dati: in debug `%LOCALAPPDATA%\PrismDev\app`, in release la cartella dati locale
+  dell'identificativo `com.prism.catalog`), avvia il motore dei job, il tray, il plugin di
+  istanza singola e i thread di sorveglianza; la chiusura della finestra la nasconde (F19-AC1).
+  `dto.rs` contiene i tipi esposti all'interfaccia (`VolumeView`, `JobView`, `Settings`,
+  `AppInfo`, `ApiError` con codice); `commands.rs` sono comandi Tauri sottili che delegano a
+  `state.rs` (stato condiviso, invio dei job di indicizzazione) e a `prism-core`/`prism-win`.
+- `monitor.rs`: ogni 2 s rileva i volumi e li confronta con il catalogo (nuovi inseriti con
+  stato `new`, riconosciuti aggiornati, ambigui solo registrati nel log, REVIEW D13); alla
+  riconnessione di un volume indicizzato accoda un aggiornamento (F05-AC2); ogni 15 s applica
+  il journal ai volumi NTFS indicizzati e collegati (F05-AC1); inoltra all'interfaccia gli
+  eventi `jobs-changed` (al massimo ~4 al secondo) e `volumes-changed`.
+- Le impostazioni (F21) sono un documento JSON nella tabella `settings` (chiave
+  `app.settings`).
+- `ui/`: Svelte 5 + Vite + TypeScript. `src/lib/api.ts` è l'unico punto di contatto con il
+  backend (`invoke`/`listen`); fuori da Tauri usa un backend simulato (`src/lib/mock.ts`) con
+  dati d'esempio, per lo sviluppo nel browser e i test. `i18n.svelte.ts` (EN/IT, lingua di
+  sistema), `theme.ts` (tema di Windows o scelto), `catalog.ts` e `format.ts` (logica di
+  presentazione testata con Vitest), componenti in `src/components/`. I tipi generati stanno in
+  `src/lib/bindings/` (rigenerati da `cargo test -p prism-app`, `TS_RS_EXPORT_DIR` in
+  `.cargo/config.toml`; la CI verifica che siano aggiornati).
 
 ## 8. Sicurezza (ADR-0003)
 
@@ -358,9 +382,9 @@ Prism-next/
 │  │                       store (SQLite), sandbox (guardia per i test), cancel
 │  ├─ prism-win/
 │  ├─ prism-cli/
-│  ├─ prism-app/           (T3)
+│  ├─ prism-app/           app Tauri 2: comandi, stato, sorveglianza volumi, tray
 │  └─ prism-shell/         (T9)
-├─ ui/                     (T3)
+├─ ui/                     interfaccia Svelte 5 (src/components, src/lib, bindings generati)
 ├─ scripts/                check.ps1, script dei test con amministratore
 ├─ docs/
 │  ├─ SPEC.md  ARCHITECTURE.md  TESTING.md  ROADMAP.md  PROGRESS.md

@@ -26,3 +26,38 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace --locked
+
+      # `cargo test -p prism-app` regenerates the TypeScript bindings (ts-rs); the committed
+      # copies must match the Rust types.
+      - name: Generated bindings are up to date
+        shell: bash
+        run: |
+          git status --porcelain -- ui/src/lib/bindings
+          test -z "$(git status --porcelain -- ui/src/lib/bindings)"
+
+  ui:
+    name: UI checks
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build

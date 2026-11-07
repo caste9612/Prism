@@ -114,6 +114,14 @@ test usano sempre `PRISM_TEST_VOLUME` e mai una lettera fissa.
   (`tauri-driver` + `msedgedriver`), oltre che nel browser con IPC simulato.
 - Per i controlli visivi lo sviluppo cattura screenshot della finestra e li esamina; il giudizio
   estetico finale resta all'utente (revisione finale, `docs/REVIEW.md`).
+- In T3 l'app vera è stata provata così (dalla shell elevata): screenshot della finestra
+  (`PrintWindow`), clic sui pulsanti tramite UI Automation (WebView2 espone l'albero di
+  accessibilità), indicizzazione di PRISMTEST con la MFT e aggiornamento automatico dal journal
+  dopo la creazione di file sul disco di test; istanza singola e chiusura nel tray verificate
+  con un secondo avvio e un `WM_CLOSE` (F19-AC1, F19-AC4).
+- Interfaccia senza app: `npm run dev` in `ui/` apre l'interfaccia nel browser con il backend
+  simulato; `npm test` esegue i test Vitest della logica di presentazione e del backend
+  simulato (criteri F01/F02 citati nei nomi dei test).
 
 ## 5. Tracciabilità
 

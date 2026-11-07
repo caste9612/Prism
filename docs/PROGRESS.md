@@ -5,10 +5,12 @@
 
 ## Stato attuale
 
-- **Tappa**: T2 completata (2026-11-07); due ottimizzazioni rimandate (REVIEW L1, L2).
-- **Prossimo passo**: T3 — motore dei job e app minima: `prism-app` Tauri 2, frontend Svelte 5
-  con i18n e tema, schermata catalogo (F01), disco nuovo (F02), etichette (F03), impostazioni di
-  base (F21). Nessuna sosta a fine T3 (CLAUDE.md).
+- **Tappa**: T3 in corso. Fatti: motore dei job, app Tauri con tray e istanza singola,
+  interfaccia Svelte con schermata catalogo, disco nuovo, etichette e impostazioni. L'app si
+  prova seguendo `docs/REVIEW.md` §4.
+- **Prossimo passo**: resto di T3 — test e2e dell'interfaccia con IPC simulato (Playwright con
+  Edge già installato), rifiniture del monitor (REVIEW L5, L6, L8), prototipi attività
+  pianificata e apertura non elevata (ADR-0003). Poi T4. Nessuna sosta (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -22,6 +24,32 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T3: app Tauri e interfaccia
+
+- `prism-core::jobs::JobEngine` (commit precedente): priorità, un job pesante per disco
+  fisico, annullamento, avanzamento con fase; in memoria (REVIEW D10).
+- `crates/prism-app`: Tauri 2.12, manifest `requireAdministrator` in release e `asInvoker` in
+  debug, istanza singola, tray (Apri/Esci, etichette tradotte dall'interfaccia), chiusura nel
+  tray, CSP restrittiva, solo i permessi `core:default`. Sorveglianza dei volumi ogni 2 s,
+  aggiornamento alla riconnessione, journal ogni 15 s, eventi verso l'interfaccia
+  (ARCHITECTURE §7). Tipi TypeScript generati con `ts-rs` (REVIEW D11).
+- `ui/`: Svelte 5 + Vite 8 + TypeScript; schermata catalogo con schede (spazio, file, stato,
+  avanzamento del job), riquadri dei dischi nuovi (pannello unico con *Indicizza tutti* quando
+  sono tanti, D14), etichette, rimozione con conferma, impostazioni (lingua, tema, avvio con
+  Windows, dischi ignorati, informazioni). i18n EN/IT con test di parità delle chiavi, tema di
+  Windows o scelto. Backend simulato per il browser e i test.
+- Test: 13 test Vitest (i18n, formattazione, logica del catalogo, backend simulato; F01-AC1,
+  F02-AC1, F02-AC4), tipi verificati con `svelte-check --fail-on-warnings`, tutti in
+  `scripts/check.ps1` e nella CI (nuovo job dell'interfaccia, con controllo che i tipi generati
+  siano aggiornati).
+- Prove sull'app vera dalla shell elevata (TESTING §4bis): indicizzazione di PRISMTEST con la
+  MFT cliccando *Indicizza* tramite UI Automation; file creati sul disco di test comparsi da
+  soli nella scheda in meno di 20 s (journal); istanza singola e chiusura nel tray verificate.
+  Dagli screenshot corretti: troppi riquadri al primo avvio (7 dischi nuovi → pannello unico),
+  nomi "C:\" per i dischi senza etichetta (D15), separatori mangiati dagli spazi di Svelte.
+- Registrate in REVIEW le decisioni D11–D17 e i limiti L5–L8; scritta la sezione §4 "Come
+  provare l'app" con la checklist di T3.
 
 ### 2026-11-07 — T2 completata: sorveglianza cartelle
 

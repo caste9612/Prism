@@ -1,0 +1,129 @@
+{
+  "app": {
+    "name": "Prism",
+    "tagline": "Il catalogo di tutti i tuoi dischi"
+  },
+  "nav": {
+    "catalog": "Dischi",
+    "settings": "Impostazioni"
+  },
+  "catalog": {
+    "title": "Dischi",
+    "subtitle": "{online} collegati · {total} nel catalogo",
+    "empty": "Ancora nessun disco. I dischi collegati compaiono qui automaticamente.",
+    "online": "Collegato",
+    "offline": "Non collegato",
+    "lastSeen": "Visto l'ultima volta {when}",
+    "neverIndexed": "Non ancora indicizzato",
+    "indexedOn": "Aggiornato {when}",
+    "files": "{count} file",
+    "folders": "{count} cartelle",
+    "used": "{used} usati su {total}",
+    "free": "{free} liberi",
+    "indexedSize": "{size} indicizzati",
+    "location": "Si trova: {location}",
+    "offlineSection": "Non collegati",
+    "onlineSection": "Collegati"
+  },
+  "kind": {
+    "internal": "Disco interno",
+    "external": "Disco esterno",
+    "stick": "Chiavetta USB",
+    "network": "Unità di rete",
+    "folder": "Cartella"
+  },
+  "status": {
+    "new": "Nuovo",
+    "indexing": "In indicizzazione",
+    "indexed": "Indicizzato",
+    "ignored": "Ignorato",
+    "reindex_needed": "Da reindicizzare"
+  },
+  "job": {
+    "queued": "In attesa…",
+    "index": "Indicizzazione",
+    "update": "Aggiornamento",
+    "scanning": "Lettura di {count} elementi",
+    "writing": "Salvataggio {done} di {total}",
+    "failed": "Non riuscito: {error}",
+    "cancel": "Annulla"
+  },
+  "actions": {
+    "index": "Indicizza",
+    "update": "Aggiorna",
+    "labels": "Nome e posizione",
+    "remove": "Rimuovi dal catalogo",
+    "cancel": "Annulla",
+    "save": "Salva",
+    "close": "Chiudi",
+    "confirm": "Conferma"
+  },
+  "newDisk": {
+    "title": "Nuovo disco: {name}",
+    "detail": "{kind} · {mount} · {capacity}",
+    "question": "Vuoi aggiungerlo al catalogo?",
+    "index": "Indicizza",
+    "notNow": "Non ora",
+    "ignore": "Ignora sempre",
+    "manyTitle": "{count} nuovi dischi trovati",
+    "manyQuestion": "Vuoi aggiungerli al catalogo? L'indicizzazione legge soltanto i dischi.",
+    "indexAll": "Indicizza tutti",
+    "notNowAll": "Non ora"
+  },
+  "labels": {
+    "title": "Nome e posizione",
+    "name": "Nome",
+    "namePlaceholder": "es. Backup foto",
+    "location": "Posizione fisica",
+    "locationPlaceholder": "es. cassetto 2",
+    "notes": "Note",
+    "color": "Colore",
+    "noColor": "Nessun colore"
+  },
+  "remove": {
+    "title": "Rimuovere «{name}» dal catalogo?",
+    "body": "Prism dimentica quello che sa di questo disco. I file sul disco non vengono toccati."
+  },
+  "settings": {
+    "title": "Impostazioni",
+    "general": "Generali",
+    "language": "Lingua",
+    "theme": "Tema",
+    "system": "Come Windows",
+    "light": "Chiaro",
+    "dark": "Scuro",
+    "autostart": "Avvia Prism con Windows",
+    "autostartHint": "Prism parte nell'area di notifica, senza chiedere autorizzazioni.",
+    "ignored": "Dischi ignorati",
+    "ignoredEmpty": "Nessun disco ignorato.",
+    "stopIgnoring": "Non ignorare più",
+    "about": "Informazioni",
+    "version": "Versione {version}",
+    "elevated": "In esecuzione come amministratore: indicizzazione veloce (MFT) e aggiornamenti in tempo reale disponibili.",
+    "notElevated": "Non in esecuzione come amministratore: l'indicizzazione legge le cartelle una per una.",
+    "dataDir": "Cartella del catalogo: {dir}",
+    "saved": "Impostazioni salvate"
+  },
+  "language": {
+    "en": "English",
+    "it": "Italiano"
+  },
+  "errors": {
+    "volume_offline": "Il disco non è collegato.",
+    "volume_not_found": "Il disco non è più nel catalogo.",
+    "volume_busy": "Il disco è occupato: attendi la fine dell'operazione in corso.",
+    "invalid_settings": "Queste impostazioni non sono valide.",
+    "store": "Non è stato possibile leggere o scrivere il catalogo.",
+    "unknown": "Qualcosa è andato storto."
+  },
+  "tray": {
+    "open": "Apri Prism",
+    "quit": "Esci"
+  },
+  "time": {
+    "justNow": "proprio ora",
+    "minutes": "{count} min fa",
+    "hours": "{count} ore fa",
+    "days": "{count} giorni fa"
+  }
+}

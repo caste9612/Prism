@@ -64,11 +64,15 @@ Criteri coperti: F02-AC3, F02-AC5, F04-AC1, F05-AC1/AC2/AC3/AC4.
 
 ## T3 — Motore dei job e app minima
 
-- [ ] Motore dei job (ADR-0009) con priorità, annullamento, ripresa
-- [ ] `prism-app` Tauri 2: manifest elevato, istanza singola, tray, chiusura nel tray
-- [ ] Prototipi: WebView2 elevata, attività pianificata, apertura non elevata (ADR-0003)
-- [ ] Frontend Svelte 5: struttura, i18n EN/IT, tema, tipi generati, IPC
-- [ ] Schermata catalogo (F01), disco nuovo (F02), etichette (F03), impostazioni di base (F21)
+- [x] Motore dei job (ADR-0009) con priorità e annullamento (la ripresa arriva con i job di
+      background in T6, REVIEW D10)
+- [x] `prism-app` Tauri 2: manifest elevato, istanza singola, tray, chiusura nel tray
+- [ ] Prototipi: WebView2 elevata (fatto: l'app gira elevata), attività pianificata, apertura
+      non elevata (ADR-0003)
+- [x] Frontend Svelte 5: struttura, i18n EN/IT, tema, tipi generati, IPC
+- [x] Schermata catalogo (F01), disco nuovo (F02), etichette (F03), impostazioni di base (F21)
+- [ ] Rifiniture del monitor: sonda delle unità di rete (REVIEW L5), sorveglianza cartelle per
+      i volumi non NTFS (L6), notifica di sistema per i dischi nuovi (L8)
 - [ ] Test e2e con IPC simulato
 
 Criteri coperti: F01, F02, F03, F19, F21 (parziale).

@@ -26,6 +26,13 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D8 | 2026-11-07 | T2 | Aggiornamento dai cambi di cartella: si rienumera il sottoalbero della cartella del catalogo più vicina a ogni percorso cambiato (solo le più in alto); un cambio nella radice rienumera tutto il volume | Elenchi superficiali come per il journal (più veloce, più complesso) | `prism-core::refresh` | ARCHITECTURE §4.2 |
 | D9 | 2026-11-07 | T2 | T2 chiusa rimandando due ottimizzazioni (istantanea compatta, `$MFT` molto grandi) per arrivare prima all'app provabile | Completarle prima di T3 | Voci L1 e L2 in §3 | ROADMAP T2 |
 | D10 | 2026-11-07 | T3 | Motore dei job in memoria (nessuna tabella `jobs` per ora): un'indicizzazione interrotta è già segnalata dallo stato del volume (`reindex_needed`) | Record persistente subito | Aggiungere la tabella quando arrivano i job di background riprendibili (T6) | ARCHITECTURE §6 |
+| D11 | 2026-11-07 | T3 | Tipi TypeScript generati con `ts-rs` (stabile) e comandi Tauri scritti a mano in `ui/src/lib/api.ts`; strumenti dell'interfaccia: Svelte 5, Vite 8, TypeScript 5.9 (non la 7 in anteprima), Vitest | `tauri-specta` (genera anche i comandi, ma per Tauri 2 è ancora in release candidate) | Sostituire la generazione in `prism-app/src/dto.rs` | ARCHITECTURE §7 |
+| D12 | 2026-11-07 | T3 | Identificativo dell'app `com.prism.catalog`: catalogo nuovo e separato dai dati del vecchio Prism (`com.prism.diskanalyzer`), che non vengono né letti né importati | Riprendere l'identificativo vecchio; importare il vecchio catalogo | `tauri.conf.json` (prima del rilascio) | ARCHITECTURE §7 |
+| D13 | 2026-11-07 | T3 | Volume con identità ambigua (F02-AC3): per ora resta fuori dal catalogo e viene solo registrato nel log; la finestra di scelta arriva più avanti (§3 L7) | Associarlo al candidato più recente | `prism-app/src/monitor.rs` | SPEC F02-AC3 |
+| D14 | 2026-11-07 | T3 | Dischi nuovi proposti con un riquadro nella schermata catalogo; da 3 dischi nuovi in su (tipico del primo avvio) un unico pannello compatto con *Indicizza tutti*; *Non ora* vale fino alla chiusura di Prism | Un riquadro per disco; *Non ora* permanente | `ui/src/lib/catalog.ts` (`GROUP_PROMPTS_FROM`) | SPEC F02-AC1 |
+| D15 | 2026-11-07 | T3 | Disco senza etichetta mostrato come Esplora risorse: "Disco interno (C:)", "Unità di rete (Z:)" | Mostrare la lettera nuda | `displayName` in `ui/src/lib/catalog.ts` | F01 |
+| D16 | 2026-11-07 | T3 | Rilevamento dei dischi per interrogazione ogni 2 s (rispetta F01-AC2, ≤ 5 s) invece delle notifiche di Windows sui dispositivi; journal applicato ogni 15 s ai volumi NTFS indicizzati | `RegisterDeviceNotification` / `WM_DEVICECHANGE` | `prism-app/src/monitor.rs` | ARCHITECTURE §7 |
+| D17 | 2026-11-07 | T3 | Impostazioni salvate come un documento JSON nella tabella `settings` del catalogo; l'opzione "Avvia con Windows" è memorizzata ma l'attività pianificata è ancora da collegare (prototipo T3, installer T10) | File di configurazione separato | `prism-app/src/commands.rs` | F21-AC1 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -46,9 +53,59 @@ Decisioni successive (da compilare durante lo sviluppo):
 | L2 | 2026-11-07 | Lettore MFT: una `$MFT` con `$ATTRIBUTE_LIST` nel record 0 (MFT enormi e frammentate) viene rifiutata; file compressi/sparsi non verificati su disco reale | Su quei volumi si usa il walker (più lento, stessi risultati logici) | Rimandato |
 | L3 | 2026-11-07 | NTFS scrive in ritardo nei record MFT le date delle cartelle: due letture vicine possono differire di pochi ms | Solo estetico; si corregge alla modifica successiva della cartella | Accettato (ADR-0018) |
 | L4 | 2026-11-07 | Aggiornamento dal journal: la mappa dei riferimenti (≈0,25 s per 1,3 milioni di voci) si ricarica a ogni aggiornamento | Aggiornamenti continui un po' più costosi del necessario | Da ottimizzare nel motore dei job (T3) |
+| L5 | 2026-11-07 | Unità di rete: capacità e spazio libero non letti, e "collegata" significa "mappata" (non si verifica che il server risponda) | Schede di rete senza barra dello spazio; un NAS spento appare collegato | Da fare: sonda in un thread separato con tempo massimo, per non bloccare il rilevamento |
+| L6 | 2026-11-07 | Nell'app, i volumi non NTFS (exFAT, FAT) e le unità di rete non si aggiornano da soli mentre sono collegati: solo alla riconnessione o con *Aggiorna* (la sorveglianza delle cartelle esiste in `prism-win::watch` ma non è ancora collegata all'app) | Catalogo di chiavette e NAS meno fresco | Da collegare nel monitor dell'app |
+| L7 | 2026-11-07 | Identità ambigua di un volume (F02-AC3): nessuna finestra di scelta ancora (D13) | Caso raro (due dischi clonati); il disco non compare finché non si risolve | Da fare |
+| L8 | 2026-11-07 | Disco nuovo collegato mentre la finestra è nascosta nel tray: nessuna notifica di Windows ancora, solo il riquadro alla riapertura | F02-AC1 parziale | Da fare (notifica di sistema) |
 
 ## 4. Come provare l'app
 
-Da compilare quando l'app è utilizzabile: come avviarla, quali schermate e flussi guardare, la
-checklist manuale di ogni tappa. Le prove che cancellano, spostano o puliscono file si fanno
-**solo** sul disco di test PRISMTEST o in cartelle di prova (TESTING S5).
+Le prove che cancellano, spostano o puliscono file si fanno **solo** sul disco di test
+PRISMTEST o in cartelle di prova (TESTING S5).
+
+### Avvio
+
+Da un terminale nella cartella `D:\Progetti\Github\Prism-next`:
+
+```powershell
+npm --prefix ui ci                  # una volta: dipendenze dell'interfaccia
+npm --prefix ui run build           # interfaccia → ui/dist
+cargo run -p prism-app --features custom-protocol
+```
+
+- La build di debug **non** chiede l'amministratore (manifest `asInvoker`): avviata da un
+  terminale normale indicizza leggendo le cartelle e non segue il journal; avviata da un
+  terminale **elevato** usa la MFT e si aggiorna da sola (come il prodotto finale). Catalogo di
+  prova in `%LOCALAPPDATA%\PrismDev\app\catalog.db`: si può cancellare per ripartire da zero.
+- Build come il prodotto finale (chiede l'amministratore con UAC, catalogo in
+  `%LOCALAPPDATA%\com.prism.catalog`):
+  `cargo build -p prism-app --release --features custom-protocol`, poi
+  `target\release\prism.exe`.
+- Solo l'interfaccia, con dati d'esempio, nel browser: `npm --prefix ui run dev` e aprire
+  `http://localhost:5173`.
+
+### Checklist T3 (catalogo, disco nuovo, etichette, impostazioni, tray)
+
+1. Primo avvio: pannello "N nuovi dischi trovati"; i dischi senza etichetta si chiamano
+   "Disco interno (C:)" ecc. (D14, D15).
+2. *Indicizza* su PRISMTEST o su una chiavetta: avanzamento sulla scheda, poi numero di file e
+   cartelle (F01-AC3). *Indicizza tutti* accoda tutto; i dischi fisici diversi lavorano in
+   parallelo.
+3. (App elevata) creare o cancellare file sul disco indicizzato: entro ~15 s la scheda si
+   aggiorna da sola (F05-AC1).
+4. *Nome e posizione*: nome, posizione fisica, note, colore; restano dopo il riavvio (F03).
+5. *Ignora sempre*: il disco sparisce; *Impostazioni → Dischi ignorati → Non ignorare più* lo
+   riporta (F02-AC4).
+6. *Rimuovi dal catalogo* (cestino sulla scheda): chiede conferma, i file non vengono toccati
+   (F01-AC5).
+7. Chiudere la finestra: Prism resta nell'area di notifica; clic sull'icona per riaprire, menu
+   *Esci* per uscire (F19-AC1). Avviarlo di nuovo porta la finestra in primo piano (F19-AC4).
+8. *Impostazioni*: lingua (Italiano/English/come Windows) e tema (chiaro/scuro/come Windows)
+   cambiano subito, anche le voci del tray.
+9. Scollegare un disco esterno: entro 5 s passa tra i "Non collegati" con i dati dell'ultima
+   indicizzazione; ricollegandolo torna "Collegato" e si aggiorna (F01-AC1/AC2, F05-AC2; U4).
+10. Giudizio su aspetto e usabilità (U5).
+
+Nota: durante le prove di T3 è rimasta sul disco di test la cartella `F:\prism-demo` (file di
+prova creati per verificare l'aggiornamento dal journal); la sua rimozione automatica è stata
+bloccata dal controllo di sicurezza della sessione. Si può cancellare a mano.
