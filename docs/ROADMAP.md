@@ -51,8 +51,8 @@ misura: 108–129 B per voce senza indice di ricerca), NF4 (parziale).
       (`$ATTRIBUTE_LIST`), hard link, ADS, confronto con il walker sul disco di test; restano
       `$MFT` con `$ATTRIBUTE_LIST` nel record 0, verifica di file compressi/sparsi
       (rimandato: REVIEW L2)
-- [ ] Istantanea `ScanTree` compatta (memoria massima oggi ~315 B per voce, NF3) — rimandata:
-      REVIEW L1
+- [x] Istantanea `ScanTree` compatta: fatta in T10 (REVIEW D49; picco 223 B per voce con la
+      MFT, 174 con il walker)
 - [x] Journal USN: lettura, posizione salvata, gestione journal non valido, recupero dei
       singoli file e applicazione tramite il `Reconciler` (più bersagli, cartelle non elencate),
       con test di equivalenza simulati e reali (ADR-0018)
@@ -166,7 +166,8 @@ F21-AC4.
         memoria dell'analisi del contenuto ridotta (D48)
   - [x] Memoria durante l'indicizzazione ridotta del 22–28% con un'istantanea compatta (D49);
         la scrittura senza istantanea resta per dopo la 1.0 (L1)
-- [ ] Documentazione per l'utente nel README: installazione, funzioni, privacy, disinstallazione
+- [x] Documentazione per l'utente nel README: funzioni, sicurezza dei file, installazione,
+      aggiornamenti, privacy, limiti noti, disinstallazione
 - [ ] Firma del codice con il certificato scelto dall'utente (Q7), ramo principale (Q11)
 - [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali
 - [ ] Merge di `rewrite` sul ramo principale e rilascio 1.0

@@ -25,6 +25,15 @@
 
 ## Diario
 
+### 2026-11-07 — T10: documentazione per l'utente
+
+- `README.md`: che cosa fa Prism (schermate e menu di Esplora risorse), sicurezza dei file,
+  installazione e privilegi, aggiornamenti, privacy (nessuna telemetria, dove stanno catalogo e
+  log, pacchetto diagnostico solo su richiesta), limiti noti (HEVC, unità di rete, salute dei
+  dischi USB), disinstallazione con il catalogo tenuto. Ogni affermazione controllata
+  sull'interfaccia: corrette due prime stesure (la pausa a batteria è un'opzione, la ricerca non
+  ha un filtro per cartella).
+
 ### 2026-11-07 — T10: memoria durante l'indicizzazione (L1)
 
 - `ScanTree` compatta (D49): nodi da 64 byte e nomi in un unico buffer; `ScanNode` è ora una
