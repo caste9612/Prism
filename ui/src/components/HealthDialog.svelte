@@ -62,7 +62,7 @@
           {#each health.history as p (p.at)}
             <tr>
               <td>{date(p.at)}</td>
-              <td class="status {p.status}">{t(`health.status.${p.status}`)}</td>
+              <td class="status {p.status}">{t(`health.short.${p.status}`)}</td>
               <td>{p.reallocated ?? '—'}</td>
               <td>{p.pending ?? '—'}</td>
               <td>{p.mediaErrors ?? '—'}</td>

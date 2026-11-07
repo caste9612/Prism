@@ -551,6 +551,11 @@
     "mediaErrors": "Errori sui dati",
     "history": "Storia",
     "when": "Quando",
-    "state": "Stato"
+    "state": "Stato",
+    "short": {
+      "good": "buona",
+      "warning": "da tenere d'occhio",
+      "critical": "critica"
+    }
   }
 }

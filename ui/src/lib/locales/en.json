@@ -551,6 +551,11 @@
     "mediaErrors": "Data errors",
     "history": "History",
     "when": "When",
-    "state": "Status"
+    "state": "Status",
+    "short": {
+      "good": "good",
+      "warning": "attention",
+      "critical": "critical"
+    }
   }
 }

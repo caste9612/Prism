@@ -40,6 +40,16 @@
   script di correzione, passato per heredoc, aveva perso le barre rovesciate e non trovava la
   riga). Nessun commit coinvolto.
 
+- Prova sull'app vera (sviluppo, elevata): sulle schede di C:, D: ed E: (partizioni dello
+  stesso Samsung SSD 990 PRO) "Salute: buona · 41 °C", con la finestra dei valori e una riga di
+  storia; PRISMTEST "Salute: non disponibile". Il file di log del giorno si scrive (Esplora
+  risorse ne mostra la dimensione aggiornata solo alla chiusura). Pacchetto diagnostico
+  esportato dalle impostazioni e aperto con `zipfile` di Python: CRC e date corretti,
+  `system.txt` leggibile. Menu di Esplora risorse: `prism-shell analyze D:\Progetti` avviato
+  con un token ristretto non amministratore (`runas /trustlevel:0x20000`) ha raggiunto l'app
+  elevata attraverso la pipe, che ha aperto la mappa di `Data › Progetti`. Ritocco: nella storia
+  della salute lo stato senza il prefisso "Salute:".
+
 **Report di fine tappa T9**
 
 - Fatto: diagnostica (log giornalieri tenuti 14 giorni, pacchetto con anteprima), reset del
