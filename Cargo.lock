@@ -3161,6 +3161,7 @@ dependencies = [
  "prism-core",
  "prism-win",
  "rusqlite",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

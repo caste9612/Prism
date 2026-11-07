@@ -119,6 +119,43 @@ fn f06_hashes_and_f10_ac1_duplicate_groups() {
     assert_eq!((total, hashed), (5, 5));
 }
 
+// F06-AC4: files that share their size come first, largest first (ties in id order); a file
+// alone in its size waits for the full pass. Only the ids are kept for the run (NF3).
+#[test]
+fn f06_ac4_files_that_may_be_duplicates_first() {
+    let sb = Sandbox::new();
+    for (rel, size) in [
+        ("one.bin", 10),
+        ("two.bin", 500),
+        ("three.bin", 10),
+        ("four.bin", 500),
+        ("five.bin", 7),
+    ] {
+        sb.file(rel, size, 10);
+    }
+    let cat = TestCatalog::new();
+    let volume = cat.add_volume(&sb.root().to_string_lossy());
+    cat.index(volume, sb.root());
+    let ids: Vec<EntryId> = ["one.bin", "two.bin", "three.bin", "four.bin"]
+        .iter()
+        .map(|rel| id(&cat, volume, rel))
+        .collect();
+    let (mut tens, mut fives) = ([ids[0], ids[2]], [ids[1], ids[3]]);
+    tens.sort();
+    fives.sort();
+    let work = cat.store.read(|c| store::quick_work(c, volume)).unwrap();
+    assert_eq!(work, [fives[0], fives[1], tens[0], tens[1]]);
+
+    // Once hashed, a file leaves the quick pass.
+    run(&sb, &cat, volume);
+    assert!(
+        cat.store
+            .read(|c| store::quick_work(c, volume))
+            .unwrap()
+            .is_empty()
+    );
+}
+
 // F06-AC3: a hash is valid only for the size and time it was computed for.
 #[test]
 fn f06_ac3_a_changed_file_loses_its_hash_until_hashed_again() {

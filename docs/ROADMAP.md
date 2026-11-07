@@ -162,6 +162,9 @@ F21-AC4.
       pubblicazione dall'utente (REVIEW U7)
 - [ ] Prestazioni finali: NF2 (byte per voce) e NF3 (memoria con 5 milioni di voci) misurati
       sull'app; memoria durante l'indicizzazione (REVIEW L1)
+  - [x] NF2 e NF3 misurati con 5,7 milioni di voci (`prism-cli replicate`, `mem-bench`);
+        memoria dell'analisi del contenuto ridotta (D48)
+  - [ ] Memoria durante l'indicizzazione (L1)
 - [ ] Documentazione per l'utente nel README: installazione, funzioni, privacy, disinstallazione
 - [ ] Firma del codice con il certificato scelto dall'utente (Q7), ramo principale (Q11)
 - [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali

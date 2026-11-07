@@ -6,6 +6,8 @@
 
 mod bench;
 mod format;
+mod mem_bench;
+mod replicate;
 mod search_bench;
 
 use std::path::{Path, PathBuf};
@@ -109,6 +111,17 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         after_seek: usize,
     },
+    /// Add offline copies of the volumes of a development catalog until it holds about this
+    /// many entries (size and memory measurements, NF2/NF3). Only catalogs in the development
+    /// data folder; nothing on the disks is touched.
+    Replicate {
+        /// Entries the catalog should hold at least.
+        #[arg(long)]
+        entries: u64,
+    },
+    /// Memory of Prism at rest (NF3): opens the catalog, builds every search index as the app
+    /// does at startup and reports the memory of the process.
+    MemBench,
     /// Catalog size and counters.
     Stats,
     /// Check the consistency of the catalog.
@@ -255,6 +268,8 @@ fn run(store: &Store, command: &Command) -> CliResult {
             search_bench::run(store, &dir, *copies, *fts)
         }
         Command::VideoFrames { paths, after_seek } => video_frames(paths, *after_seek),
+        Command::Replicate { entries } => replicate::run(store, &dev_data_dir()?, *entries),
+        Command::MemBench => mem_bench::run(store),
         Command::Stats => stats(store),
         Command::Check => check(store),
         Command::Bench { .. } => Ok(()),

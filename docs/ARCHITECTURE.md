@@ -283,6 +283,12 @@ offline (F06-AC6). La passata si ferma pulita tra un file e l'altro su richiesta
 batteria) o annullamento; il chiamante la esegue in modalità background di Windows (priorità
 minima di CPU e disco, F06-AC2).
 
+In memoria restano solo gli id dei file ancora da fare, già ordinati (`store::quick_work`
+ordina in SQL; la seconda passata tiene id, dimensione e "possibile duplicato"): ogni file si
+rilegge dal catalogo quando tocca a lui (`store::hash_state`), così un file cancellato o già
+analizzato nel frattempo si salta, e la cache dei percorsi delle cartelle si svuota oltre 4096
+voci. Su un volume di 629.000 file l'analisi occupa ~12 MiB invece di ~190 (REVIEW D48, NF3).
+
 Nell'app (`prism-app/src/hash_jobs.rs`) un thread, 20 s dopo l'avvio e poi ogni 30 s:
 
 - conta per ogni volume indicizzato file e file con hash valido (ogni 5 minuti, ogni minuto

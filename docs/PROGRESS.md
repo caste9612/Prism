@@ -25,6 +25,20 @@
 
 ## Diario
 
+### 2026-11-07 — T10: prestazioni finali, NF2 e NF3
+
+- `prism-cli replicate --entries N`: aggiunge copie non collegate dei volumi a un catalogo di
+  sviluppo (identità inventata, solo dentro `PrismDev`); `prism-cli mem-bench`: memoria del
+  nucleo a regime; `Store::release_memory`. Test sulla replica (coerenza, identità, totali).
+- Misure con 5.693.221 voci (`docs/benchmarks/2026-11-07-t10-memory.md`): 120 B per voce sul
+  disco, 173 con l'indice di ricerca in memoria (NF2); nucleo 311 MiB.
+- L'app con lo stesso catalogo occupava ~495 MiB: ~190 venivano dall'analisi del contenuto di
+  D:, che teneva lo stato di tutti i 629.000 file. Ora tiene solo gli id dei file da fare e
+  rilegge ogni file quando tocca a lui (D48): l'app resta a 322–326 MiB (NF3 rispettato);
+  l'analisi continua (11.776 hash rapidi in ~80 s). Tolto anche un costo quadratico a fine
+  prima passata (L17). Il test di ordine F06-AC4 ora prova la query sul catalogo.
+- Resta la memoria durante l'indicizzazione (L1).
+
 ### 2026-11-07 — T10: aggiornamenti automatici (F22-AC3)
 
 - `crates/prism-app/src/updates.rs` con `tauri-plugin-updater`: controllo un minuto dopo

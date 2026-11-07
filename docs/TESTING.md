@@ -42,7 +42,7 @@ Lo sviluppo avviene sul PC dell'utente, che contiene dati reali. Per questo:
 | Eliminazione sicura | `crates/prism-core/tests/fileops.rs` | Cartelle temporanee indicizzate, poi modificate: file cambiati o spariti saltati e segnalati, solo i percorsi verificati arrivano al `Remover` (che elimina tramite la guardia sandbox), catalogo e registro delle azioni aggiornati, guardia che rifiuta tutto prima di toccare qualcosa, voci di altri volumi rifiutate (F16-AC3/AC5/AC6). | `cargo test` |
 | Proprietà del journal | `crates/prism-core/tests/journal_apply.rs` | Modifiche casuali sul file system simulato registrate come un journal (il file cambiato, mai la cartella madre), compreso Cestino escluso e ripristino: catalogo aggiornato = reindicizzazione, id conservati. Più uno stress di 3.000 semi da lanciare a mano (`-- --ignored`, release, ~6 minuti). | `cargo test` |
 | Manuali | `docs/ROADMAP.md`, checklist di ogni tappa | Ciò che non si automatizza: aspetto grafico, UAC, collegamento fisico di dischi, installer su PC pulito. | Utente |
-| Benchmark | `prism-cli bench` | Tempi di indicizzazione, dimensione del catalogo, latenza di ricerca su dischi reali (sola lettura). Risultati in `docs/benchmarks/`. | Manuale/periodico |
+| Benchmark | `prism-cli bench`, `search-bench`, `mem-bench`, `replicate` | Tempi di indicizzazione, dimensione del catalogo, latenza di ricerca su dischi reali (sola lettura); memoria a regime con un catalogo grande (`replicate` aggiunge copie non collegate dei volumi, solo a cataloghi di sviluppo). Risultati in `docs/benchmarks/`. | Manuale/periodico |
 
 ## 3. Controlli a ogni commit
 

@@ -76,7 +76,8 @@ pub fn valid_hashes(conn: &Connection, entry: EntryId) -> Result<Option<HashReco
         .optional()?)
 }
 
-/// A file of a volume and the hashes it already has (valid ones only).
+/// A file to hash and the hashes it already has (valid ones only), read from the catalog when
+/// its turn comes: a run keeps only the ids of the files still to do (NF3).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HashState {
     pub entry: EntryId,
@@ -89,43 +90,78 @@ pub struct HashState {
     pub full: Option<Digest>,
 }
 
-/// Every non-empty file of a volume with its valid hashes, in id order.
+/// The quick hash of `e` stored in `h`, if still valid for its size and time.
+const VALID_QUICK: &str =
+    "CASE WHEN h.size = e.size AND h.modified_at IS e.modified_at THEN h.quick END";
+/// The full hash of `e` stored in `h`, if still valid for its size and time.
+const VALID_FULL: &str =
+    "CASE WHEN h.size = e.size AND h.modified_at IS e.modified_at THEN h.full END";
+
+/// The file `entry` with its valid hashes, or `None` if it is no longer a non-empty file of the
+/// catalog.
 ///
 /// # Errors
 /// SQLite errors.
-pub fn hash_states(conn: &Connection, volume: VolumeId) -> Result<Vec<HashState>, StoreError> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT e.id, e.size, e.modified_at, e.parent_id, e.name, \
-                CASE WHEN h.size = e.size AND h.modified_at IS e.modified_at THEN h.quick END, \
-                CASE WHEN h.size = e.size AND h.modified_at IS e.modified_at THEN h.full END \
+pub fn hash_state(conn: &Connection, entry: EntryId) -> Result<Option<HashState>, StoreError> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT e.id, e.size, e.modified_at, e.parent_id, e.name, {VALID_QUICK}, {VALID_FULL} \
          FROM entries e LEFT JOIN content_hashes h ON h.entry_id = e.id \
-         WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 ORDER BY e.id",
-    )?;
-    let rows = stmt.query_map([volume.0], |r| {
-        Ok(HashState {
-            entry: EntryId(r.get(0)?),
-            size: from_db(r.get(1)?),
-            modified: r.get::<_, Option<i64>>(2)?.map(FileTime),
-            parent: r.get::<_, Option<i64>>(3)?.map(EntryId),
-            name: r.get(4)?,
-            quick: digest(r.get(5)?),
-            full: digest(r.get(6)?),
+         WHERE e.id = ?1 AND e.is_dir = 0 AND e.size > 0"
+    ))?;
+    Ok(stmt
+        .query_row([entry.0], |r| {
+            Ok(HashState {
+                entry: EntryId(r.get(0)?),
+                size: from_db(r.get(1)?),
+                modified: r.get::<_, Option<i64>>(2)?.map(FileTime),
+                parent: r.get::<_, Option<i64>>(3)?.map(EntryId),
+                name: r.get(4)?,
+                quick: digest(r.get(5)?),
+                full: digest(r.get(6)?),
+            })
         })
-    })?;
+        .optional()?)
+}
+
+/// The files of a volume that need a quick hash, largest first (F06-AC4): no valid quick hash
+/// yet, and a size held by another non-empty file of the catalog (only those can have
+/// duplicates).
+///
+/// # Errors
+/// SQLite errors.
+pub fn quick_work(conn: &Connection, volume: VolumeId) -> Result<Vec<EntryId>, StoreError> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT e.id FROM entries e LEFT JOIN content_hashes h ON h.entry_id = e.id \
+         WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 AND ({VALID_QUICK}) IS NULL \
+           AND e.size IN (SELECT size FROM entries WHERE is_dir = 0 AND size > 0 \
+                          GROUP BY size HAVING count(*) > 1) \
+         ORDER BY e.size DESC, e.id"
+    ))?;
+    let rows = stmt.query_map([volume.0], |r| Ok(EntryId(r.get(0)?)))?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// Sizes held by more than one non-empty file in the whole catalog: only those files can have
-/// duplicates (F06-AC4).
+/// Calls `f` with every file of a volume that has no valid full hash yet: its id, size and
+/// valid quick hash, in id order.
 ///
 /// # Errors
 /// SQLite errors.
-pub fn shared_sizes(conn: &Connection) -> Result<std::collections::HashSet<u64>, StoreError> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT size FROM entries WHERE is_dir = 0 AND size > 0 GROUP BY size HAVING count(*) > 1",
-    )?;
-    let rows = stmt.query_map([], |r| Ok(from_db(r.get(0)?)))?;
-    Ok(rows.collect::<Result<_, _>>()?)
+pub fn full_work(
+    conn: &Connection,
+    volume: VolumeId,
+    mut f: impl FnMut(EntryId, u64, Option<Digest>),
+) -> Result<(), StoreError> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT e.id, e.size, {VALID_QUICK} \
+         FROM entries e LEFT JOIN content_hashes h ON h.entry_id = e.id \
+         WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 AND ({VALID_FULL}) IS NULL \
+         ORDER BY e.id"
+    ))?;
+    let mut rows = stmt.query([volume.0])?;
+    while let Some(r) = rows.next()? {
+        f(EntryId(r.get(0)?), from_db(r.get(1)?), digest(r.get(2)?));
+    }
+    Ok(())
 }
 
 /// (size, quick hash) pairs held by more than one file with a valid quick hash: only those

@@ -357,6 +357,25 @@ impl Store {
         rx
     }
 
+    /// Gives back the memory of the SQLite page caches of the idle readers and of the writer.
+    /// For moments of rest (NF3): the caches fill again as the catalog is used. The writer's
+    /// cache is released after the jobs already queued.
+    pub fn release_memory(&self) {
+        for conn in self
+            .inner
+            .readers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+        {
+            let _ = conn.release_memory();
+        }
+        let job: WriterJob = Box::new(|conn: &mut Connection| {
+            let _ = conn.release_memory();
+        });
+        let _ = self.send(false, job);
+    }
+
     /// Records a clean close and checkpoints the WAL, waiting at most `timeout` for the writer.
     /// For the application exit: the process ends without dropping the store, which would
     /// otherwise leave the session marked open and make the next start check the whole catalog

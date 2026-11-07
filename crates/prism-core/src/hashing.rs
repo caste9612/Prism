@@ -108,22 +108,25 @@ pub enum HashError {
     Store(#[from] StoreError),
 }
 
-/// The order of the work (F06-AC4): positions in `states` for each pass.
-fn plan(states: &[HashState], shared_sizes: &std::collections::HashSet<u64>) -> Vec<usize> {
-    let mut quick: Vec<usize> = (0..states.len())
-        .filter(|&i| states[i].quick.is_none() && shared_sizes.contains(&states[i].size))
-        .collect();
-    quick.sort_by_key(|&i| std::cmp::Reverse(states[i].size));
-    quick
-}
-
-/// Folder paths of a volume (relative, stored names), resolved once per folder.
+/// Folder paths of a volume (relative, stored names), resolved once per folder. The work is
+/// ordered by size, not by folder: the cache is emptied when it grows, so that a volume with
+/// many folders does not keep them all in memory (NF3).
 struct Folders<'a> {
     conn: &'a rusqlite::Connection,
     cache: HashMap<EntryId, PathBuf>,
 }
 
-impl Folders<'_> {
+/// Folders kept by [`Folders`] at most.
+const FOLDER_CACHE: usize = 4096;
+
+impl<'a> Folders<'a> {
+    fn new(conn: &'a rusqlite::Connection) -> Self {
+        Self {
+            conn,
+            cache: HashMap::new(),
+        }
+    }
+
     fn path(&mut self, root: &Path, folder: EntryId) -> Result<PathBuf, StoreError> {
         if let Some(p) = self.cache.get(&folder) {
             return Ok(p.clone());
@@ -135,13 +138,37 @@ impl Folders<'_> {
         {
             path.push(names::decode(part));
         }
+        if self.cache.len() >= FOLDER_CACHE {
+            self.cache.clear();
+        }
         self.cache.insert(folder, path.clone());
         Ok(path)
     }
+
+    /// Where the file is now, if the catalog still has it.
+    fn file(&mut self, root: &Path, s: &HashState) -> Result<Option<PathBuf>, StoreError> {
+        let Some(parent) = s.parent else {
+            return Ok(None);
+        };
+        Ok(Some(self.path(root, parent)?.join(names::decode(&s.name))))
+    }
+}
+
+/// The order of the full pass: candidate duplicates first (same size and quick hash as another
+/// file), largest first; then the other files, smallest first. Ties in id order.
+fn full_order(candidate: bool, size: u64, entry: EntryId) -> (bool, u64, EntryId) {
+    (
+        !candidate,
+        if candidate { u64::MAX - size } else { size },
+        entry,
+    )
 }
 
 /// Hashes the files of a volume reached at `root` (see the module documentation). `pause`
 /// is asked between files (on battery, user pause): when it says so the run stops cleanly.
+///
+/// Only the ids of the files still to do are kept in memory; each file is read from the
+/// catalog when its turn comes (NF3).
 ///
 /// # Errors
 /// [`HashError`] if the catalog cannot be read or written; problems with single files are
@@ -155,16 +182,6 @@ pub fn hash_volume(
     progress: &HashProgress,
 ) -> Result<HashReport, HashError> {
     let mut report = HashReport::default();
-    let (states, shared) =
-        store.read(|c| Ok((store::hash_states(c, volume)?, store::shared_sizes(c)?)))?;
-    let mut states = states;
-
-    // Pass 1: quick hashes of the files that share their size.
-    let work = plan(&states, &shared);
-    let quick_bytes: u64 = work.len() as u64 * (2 * QUICK_CHUNK as u64);
-    progress.set_phase("hashQuick");
-    progress.total.store(quick_bytes, Ordering::Relaxed);
-    let mut pending: Vec<HashRecord> = Vec::new();
     let stop = |report: &mut HashReport| {
         let s = cancel.is_cancelled() || pause();
         if s {
@@ -172,21 +189,35 @@ pub fn hash_volume(
         }
         s
     };
+    let flush = |pending: &mut Vec<HashRecord>| -> Result<(), StoreError> {
+        if pending.len() >= SAVE_EVERY {
+            save(store, pending).map_err(|e| match e {
+                HashError::Store(s) => s,
+            })?;
+        }
+        Ok(())
+    };
+    let mut pending: Vec<HashRecord> = Vec::new();
+
+    // Pass 1: quick hashes of the files that share their size (F06-AC4).
+    let work = store.read(|c| store::quick_work(c, volume))?;
+    progress.set_phase("hashQuick");
+    progress.total.store(
+        work.len() as u64 * (2 * QUICK_CHUNK as u64),
+        Ordering::Relaxed,
+    );
     store.read(|conn| {
-        let mut folders = Folders {
-            conn,
-            cache: HashMap::new(),
-        };
-        for i in &work {
+        let mut folders = Folders::new(conn);
+        for &entry in &work {
             if stop(&mut report) {
                 break;
             }
-            let s = &states[*i];
-            let Some(parent) = s.parent else { continue };
-            let path = folders.path(root, parent)?.join(names::decode(&s.name));
-            match quick_hash(&path, s.size) {
-                Ok(q) => {
-                    if unchanged(&path, s) {
+            if let Some(s) = store::hash_state(conn, entry)?
+                && s.quick.is_none()
+                && let Some(path) = folders.file(root, &s)?
+            {
+                match quick_hash(&path, s.size) {
+                    Ok(q) if unchanged(&path, &s) => {
                         report.quick += 1;
                         pending.push(HashRecord {
                             entry: s.entry,
@@ -195,62 +226,57 @@ pub fn hash_volume(
                             quick: Some(q),
                             full: s.full,
                         });
-                    } else {
-                        report.changed += 1;
                     }
+                    Ok(_) => report.changed += 1,
+                    Err(_) => report.unreadable += 1,
                 }
-                Err(_) => report.unreadable += 1,
             }
             progress
                 .done
                 .fetch_add(2 * QUICK_CHUNK as u64, Ordering::Relaxed);
+            flush(&mut pending)?;
         }
         Ok(())
     })?;
-    for r in &pending {
-        if let Some(s) = states.iter_mut().find(|s| s.entry == r.entry) {
-            s.quick = r.quick;
-        }
-    }
+    drop(work);
     save(store, &mut pending)?;
     if report.interrupted {
         return Ok(report);
     }
 
     // Passes 2 and 3: full hashes, candidate duplicates first, then the rest smallest first.
-    let shared_quick = store.read(store::shared_quick)?;
-    let mut full_work: Vec<usize> = (0..states.len())
-        .filter(|&i| states[i].full.is_none())
-        .collect();
-    full_work.sort_by_key(|&i| {
-        let s = &states[i];
-        let candidate = s.quick.is_some_and(|q| shared_quick.contains(&(s.size, q)));
-        (
-            !candidate,
-            if candidate { u64::MAX - s.size } else { s.size },
-        )
-    });
+    let mut full_work: Vec<(bool, u64, EntryId)> = Vec::new();
+    let mut total = 0u64;
+    store.read(|c| {
+        let shared_quick = store::shared_quick(c)?;
+        store::full_work(c, volume, |entry, size, quick| {
+            let candidate = quick.is_some_and(|q| shared_quick.contains(&(size, q)));
+            total = total.saturating_add(size);
+            full_work.push(full_order(candidate, size, entry));
+        })
+    })?;
+    full_work.sort_unstable();
     progress.set_phase("hashFull");
     progress.done.store(0, Ordering::Relaxed);
-    progress.total.store(
-        full_work.iter().map(|&i| states[i].size).sum(),
-        Ordering::Relaxed,
-    );
+    progress.total.store(total, Ordering::Relaxed);
     store.read(|conn| {
-        let mut folders = Folders {
-            conn,
-            cache: HashMap::new(),
-        };
-        for &i in &full_work {
+        let mut folders = Folders::new(conn);
+        for &(_, _, entry) in &full_work {
             if stop(&mut report) {
                 break;
             }
-            let s = &states[i];
-            let Some(parent) = s.parent else { continue };
-            let path = folders.path(root, parent)?.join(names::decode(&s.name));
+            let Some(s) = store::hash_state(conn, entry)? else {
+                continue;
+            };
+            if s.full.is_some() {
+                continue;
+            }
+            let Some(path) = folders.file(root, &s)? else {
+                continue;
+            };
             match full_hash(&path, cancel, &progress.done) {
                 Ok(f) => {
-                    if unchanged(&path, s) {
+                    if unchanged(&path, &s) {
                         report.full += 1;
                         pending.push(HashRecord {
                             entry: s.entry,
@@ -269,11 +295,7 @@ pub fn hash_volume(
                 }
                 Err(_) => report.unreadable += 1,
             }
-            if pending.len() >= SAVE_EVERY {
-                save(store, &mut pending).map_err(|e| match e {
-                    HashError::Store(s) => s,
-                })?;
-            }
+            flush(&mut pending)?;
         }
         Ok(())
     })?;
@@ -300,38 +322,6 @@ fn save(store: &Store, pending: &mut Vec<HashRecord>) -> Result<(), HashError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::FileTime;
-
-    fn state(id: i64, size: u64) -> HashState {
-        HashState {
-            entry: EntryId(id),
-            parent: Some(EntryId(0)),
-            name: format!("f{id}"),
-            size,
-            modified: Some(FileTime(1)),
-            quick: None,
-            full: None,
-        }
-    }
-
-    // F06-AC4: files that share their size come first, largest first; the others wait for the
-    // full pass.
-    #[test]
-    fn f06_ac4_files_that_may_be_duplicates_first() {
-        let states = [
-            state(1, 10),
-            state(2, 500),
-            state(3, 10),
-            state(4, 500),
-            state(5, 7),
-        ];
-        let shared = std::collections::HashSet::from([10, 500]);
-        let order: Vec<i64> = plan(&states, &shared)
-            .into_iter()
-            .map(|i| states[i].entry.0)
-            .collect();
-        assert_eq!(order, [2, 4, 1, 3]);
-    }
 
     #[test]
     fn quick_hash_reads_both_ends() {
