@@ -57,10 +57,10 @@ Archivio SQLite in modalità WAL, nella cartella dati dell'app. Lo schema è ver
 migrazioni SQL incorporate (`crates/prism-core/src/store/migrations/`) e `PRAGMA user_version`;
 una migrazione già pubblicata non si modifica, se ne aggiunge una nuova.
 
-**Schema in uso (versione 4)** — testo completo in `0001_initial.sql`,
+**Schema in uso (versione 5)** — testo completo in `0001_initial.sql`,
 `0002_volume_bus.sql` (aggiunge `bus_type`), `0003_entries_volume_index.sql` (indice sul solo
 volume al posto di `(volume_id, file_ref)`, ADR-0017) e `0004_actions_log.sql` (registro delle
-azioni, T4):
+azioni, T4) e `0005_content_hashes.sql` (hash del contenuto, T6):
 
 ```sql
 volumes (
@@ -100,6 +100,12 @@ actions_log (id, at, action,        -- v4: recycle | delete (F16-AC6, ADR-0012)
              path, size,            -- percorso completo al momento dell'azione
              outcome, detail) STRICT  -- done | skipped_changed | skipped_missing | failed
 INDEX actions_log_at (at)
+
+content_hashes (entry_id PRIMARY KEY REFERENCES entries ON DELETE CASCADE,
+                size, modified_at,    -- lo stato del file per cui l'hash vale (ADR-0011)
+                quick, full,          -- BLAKE3: dimensione + 64 KiB iniziali e finali; tutto
+                computed_at) STRICT   -- v5 (T6)
+INDEX content_hashes_full (size, full), content_hashes_quick (size, quick)
 ```
 
 Le chiavi esterne sono attive sulla connessione di scrittura; `entries` non usa cascate (una
@@ -108,8 +114,6 @@ sottostruttura si elimina con una CTE ricorsiva, senza limiti di profondità).
 **Tabelle previste nelle tappe successive** (bozza, arriveranno con nuove migrazioni):
 
 ```sql
-content_hashes (entry_id PRIMARY KEY, size, modified_at, quick BLOB, full BLOB, computed_at)
--- valido solo se size/modified_at coincidono con la voce (ADR-0011)          -- T6
 media_prints (entry_id, kind, size, modified_at, print BLOB)                   -- T8
 health_samples (volume_id, taken_at, status, temperature, power_on_hours, wear, realloc, pending, raw)  -- T9
 jobs (id, kind, volume_id, state, priority, created_at, started_at, finished_at, progress, error, params) -- T6 (REVIEW D10)
@@ -245,13 +249,22 @@ Sorveglianza cartelle (volumi senza journal, ADR-0007):
   antenato esistente). Verificato da un test di proprietà su disco e da un test end-to-end con
   il watcher.
 
-### 4.3 Hash (ADR-0011)
+### 4.3 Hash (ADR-0011, T6)
 
-Job di background a priorità bassa (`THREAD_MODE_BACKGROUND_BEGIN`, quindi I/O e CPU in
-background), attivo anche durante l'uso del PC; sospensione a batteria opzionale. Ordine: prima i file con
-dimensioni condivise da altri file (possibili duplicati), poi gli altri. Due livelli:
-`quick` (inizio e fine del file) e `full` (BLAKE3 completo). Un hash vale solo per la coppia
-(`size`, `modified_at`) con cui è stato calcolato.
+`prism-core::hashing::hash_volume` calcola gli hash di un volume in tre passate (F06-AC4):
+
+1. hash **rapido** (BLAKE3 di dimensione, primi e ultimi 64 KiB) dei file la cui dimensione è
+   condivisa con un altro file del catalogo, dal più grande;
+2. hash **completo** dei file con dimensione e hash rapido condivisi (i possibili duplicati);
+3. hash completo di tutti gli altri file (servirà alla verifica dei backup, T7), dal più piccolo.
+
+Subito dopo aver letto un file si confrontano dimensione e data sul disco con il catalogo: se
+il file è cambiato l'hash non si salva (lo si ricalcola dopo l'aggiornamento del catalogo). Gli
+hash si salvano a gruppi in `content_hashes` con lo stato del file; ogni lettura li considera
+validi solo se dimensione e data coincidono con la voce (F06-AC3), e restano quando il volume va
+offline (F06-AC6). La passata si ferma pulita tra un file e l'altro su richiesta (pausa,
+batteria) o annullamento; il chiamante la esegue in modalità background di Windows (priorità
+minima di CPU e disco, F06-AC2).
 
 ### 4.4 Ricerca (ADR-0010)
 
@@ -288,8 +301,14 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
 
 ### 4.5 Duplicati, simili, backup
 
-- **Duplicati**: raggruppamento per (`size`, `full`) sulla tabella degli hash validi; le regole
-  di selezione (F10-AC3) sono funzioni pure, testate in isolamento.
+- **Duplicati** (`prism-core::duplicates`): gruppi per (`size`, `full`) sugli hash validi, su
+  tutti i volumi anche offline, con copie collegate e non, e spazio recuperabile; filtri per
+  dimensione, tipo, volume e cartella (F10-AC5). Regole di selezione pure (F10-AC3): le regole
+  "tieni" (sul volume X, la più vecchia, la più recente, il percorso più corto) scelgono in
+  ordine la copia che resta, "mai in" protegge una cartella; le copie su dischi scollegati non
+  si selezionano mai e una copia resta sempre (F10-AC4). All'eliminazione `check_last_copies`
+  rifiuta di togliere l'ultima copia e chiede conferma se resterebbero solo copie offline
+  (F16-AC4); `fileops` ricalcola l'hash completo sul file e salta quelli cambiati (F16-AC3).
 - **Simili**: hash percettivi a 64 bit indicizzati con un BK-tree (o *multi-index hashing*) per
   le ricerche di distanza di Hamming, senza confronto di tutte le coppie.
 - **Verifica, confronto, copia**: lavorano sul catalogo (funzionano anche offline); solo la

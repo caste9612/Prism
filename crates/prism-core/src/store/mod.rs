@@ -12,6 +12,7 @@
 
 mod catalog;
 mod check;
+mod hashes;
 mod ops;
 pub mod schema;
 
@@ -27,6 +28,7 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use catalog::*;
 pub use check::{SnapshotEntry, check_consistency, snapshot};
+pub use hashes::*;
 pub use ops::WriteOp;
 
 use crate::model::{EntryId, VolumeId};

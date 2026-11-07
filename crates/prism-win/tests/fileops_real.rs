@@ -94,6 +94,7 @@ fn f16_safe_deletion_end_to_end_on_the_test_volume() {
             entries: &ids,
             disposal: Disposal::RecycleBin,
             folders: FolderCheck::NoFiles,
+            verify_hash: false,
         },
         &ShellRemover,
         Some(&SandboxGuard::new([&dir]).unwrap()),

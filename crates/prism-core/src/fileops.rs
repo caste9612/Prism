@@ -67,6 +67,9 @@ pub struct DeleteRequest<'a> {
     pub entries: &'a [EntryId],
     pub disposal: Disposal,
     pub folders: FolderCheck,
+    /// Deleting duplicates: the full hash is computed again on the file and must match the one
+    /// in the catalog (F16-AC3); a file without a valid hash is skipped.
+    pub verify_hash: bool,
 }
 
 /// What happened to one item.
@@ -176,7 +179,10 @@ pub fn delete_entries(
                 let same = if t.is_dir {
                     is_dir && (req.folders == FolderCheck::Exists || has_no_files(&t.path))
                 } else {
-                    !is_dir && meta.size == t.size && meta.modified == t.modified
+                    !is_dir
+                        && meta.size == t.size
+                        && meta.modified == t.modified
+                        && (!req.verify_hash || same_content(store, t)?)
                 };
                 (!same).then_some(Outcome::SkippedChanged)
             }
@@ -251,6 +257,22 @@ pub fn delete_entries(
         .collect();
     store.write(move |w| store::log_actions(w, &records))?;
     Ok(DeleteReport { items })
+}
+
+/// Whether the file still has the content of its catalog hash (F16-AC3).
+fn same_content(store: &Store, t: &Target) -> Result<bool, FileOpsError> {
+    let id = t.entry;
+    let Some(expected) = store
+        .read(move |c| store::valid_hashes(c, id))?
+        .and_then(|h| h.full)
+    else {
+        return Ok(false);
+    };
+    let read = std::sync::atomic::AtomicU64::new(0);
+    Ok(
+        crate::hashing::full_hash(&t.path, &crate::cancel::CancelToken::new(), &read)
+            .is_ok_and(|actual| actual == expected),
+    )
 }
 
 /// Whether a folder holds no file at any depth. Anything unreadable, any link or junction

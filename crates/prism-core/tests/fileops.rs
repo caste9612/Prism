@@ -92,6 +92,7 @@ fn request<'a>(
         entries,
         disposal: Disposal::RecycleBin,
         folders,
+        verify_hash: false,
     }
 }
 

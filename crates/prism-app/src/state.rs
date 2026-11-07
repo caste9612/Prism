@@ -397,6 +397,7 @@ impl AppState {
                 } else {
                     FolderCheck::Exists
                 },
+                verify_hash: false,
             },
             &ShellRemover,
             self.deletion_guard()?.as_ref(),

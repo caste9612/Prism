@@ -17,6 +17,7 @@ prism-win = { path = "crates/prism-win" }
 # Third-party (keep the list short; every addition is justified in the PR/commit)
 clap = { version = "4.6", features = ["derive"] }
 crossbeam-channel = "0.5"
+blake3 = "1.8"
 memchr = "2.7"
 notify = { version = "8.2", default-features = false }
 regex = "1.13"

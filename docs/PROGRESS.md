@@ -24,6 +24,26 @@
 
 ## Diario
 
+### 2026-11-07 — T6: hash del contenuto e duplicati (nucleo)
+
+- Schema v5: `content_hashes` (hash rapido e completo con lo stato del file per cui valgono).
+- `prism-core::hashing`: tre passate (F06-AC4), controllo che il file non sia cambiato durante
+  la lettura, salvataggio a gruppi, pausa e annullamento tra un file e l'altro. 2 unitari e 4
+  d'integrazione su file veri (stessa dimensione e stesso hash rapido ma contenuto diverso,
+  invalidazione dopo una modifica, file cambiati o spariti, pausa).
+- `prism-core::duplicates`: gruppi su tutti i volumi anche offline con spazio recuperabile,
+  filtri, regole di selezione, regola dell'ultima copia; `fileops` ricalcola l'hash prima di
+  eliminare un duplicato. 3 unitari e 3 d'integrazione (un file con stessa dimensione e data
+  ma contenuto diverso non viene eliminato). Un'aspettativa sbagliata corretta: con "percorso
+  più corto" resta la copia offline, se è la più corta (D29).
+- Supervisione: nuova regola in CLAUDE.md (`Cargo.lock` nello stesso commit del codice, CI
+  rossa su `736db7c`); rispettata da qui in poi.
+- Test instabile trovato e spiegato: `process::tests::memory_usage_is_reported` verificava che
+  il picco del working set fosse ≥ del valore corrente, ma Windows non aggiorna i due contatori
+  insieme e sotto carico il picco può restare indietro (fallito una volta in `check.ps1`, mai da
+  solo in 5 ripetizioni). Il test ora verifica ciò che l'API garantisce (contatori riportati);
+  il motivo è scritto nel test.
+
 ### 2026-11-07 — T5 completata: ricerca nell'app
 
 - App: comando `search` (200 risultati migliori con disco, stato e posizione fisica, oppure
