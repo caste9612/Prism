@@ -215,3 +215,45 @@ pub fn duplicate_files(conn: &Connection, min_size: u64) -> Result<Vec<Duplicate
     }
     Ok(out)
 }
+
+/// A file below a folder, for the backup checks (F13, F14).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubtreeFile {
+    pub entry: EntryId,
+    /// Path relative to the folder, stored names separated by `\`.
+    pub rel: String,
+    pub size: u64,
+    pub modified: Option<FileTime>,
+    /// The full hash, when valid for the current size and date (ADR-0011).
+    pub full: Option<Digest>,
+}
+
+/// Every file below `root` (at any depth), ordered by relative path.
+///
+/// # Errors
+/// SQLite errors.
+pub fn subtree_files(conn: &Connection, root: EntryId) -> Result<Vec<SubtreeFile>, StoreError> {
+    let mut stmt = conn.prepare_cached(
+        "WITH RECURSIVE sub(id, rel) AS ( \
+             SELECT ?1, '' \
+             UNION ALL \
+             SELECT e.id, CASE WHEN sub.rel = '' THEN e.name ELSE sub.rel || '\\' || e.name END \
+             FROM entries e JOIN sub ON e.parent_id = sub.id WHERE e.is_dir = 1) \
+         SELECT f.id, CASE WHEN sub.rel = '' THEN f.name ELSE sub.rel || '\\' || f.name END, \
+                f.size, f.modified_at, h.full \
+         FROM sub JOIN entries f ON f.parent_id = sub.id AND f.is_dir = 0 \
+         LEFT JOIN content_hashes h ON h.entry_id = f.id AND h.size = f.size \
+                                    AND h.modified_at IS f.modified_at \
+         ORDER BY 2",
+    )?;
+    let rows = stmt.query_map([root.0], |r| {
+        Ok(SubtreeFile {
+            entry: EntryId(r.get(0)?),
+            rel: r.get(1)?,
+            size: from_db(r.get(2)?),
+            modified: r.get::<_, Option<i64>>(3)?.map(FileTime),
+            full: digest(r.get(4)?),
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}

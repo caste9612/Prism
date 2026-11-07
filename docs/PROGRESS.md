@@ -23,6 +23,18 @@
 
 ## Diario
 
+### 2026-11-07 — T7: verifica, confronto e copia (nucleo)
+
+- `store::subtree_files`: i file sotto una cartella con percorso relativo e hash valido.
+- `prism-core::backup`: `verify` (F13), `compare` per percorso o per contenuto (F14),
+  `folder_view` per l'albero dei risultati con i totali; `backup::copy` con file temporaneo,
+  rilettura, data mantenuta, conflitti, annullamento e ripresa (F15). 3 unitari e 6
+  d'integrazione su file veri, tutti nella sandbox del test.
+- Trovato dai test: la copia provava a creare la cartella di destinazione anche quando esiste
+  già; se la destinazione è la radice della sandbox la guardia (giustamente) rifiuta, e un
+  test d'annullamento restava ad aspettare per sempre il primo byte. Ora le cartelle si creano
+  solo se mancano, e il test non aspetta più di 20 s.
+
 ### 2026-11-07 — T6 completata: analisi del contenuto e duplicati nell'app
 
 - `prism-win::process`: modalità background del thread (`BackgroundMode`, CPU e disco a

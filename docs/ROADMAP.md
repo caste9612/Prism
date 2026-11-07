@@ -122,9 +122,11 @@ Criteri coperti: F06-AC1…AC6, F10-AC1…AC5, F16-AC3/AC4, F19-AC2, F21-AC3.
 
 ## T7 — Backup
 
-- [ ] Verifica backup anche con destinazioni offline (F13)
-- [ ] Confronto tra dischi o cartelle (F14)
-- [ ] Copia dei file mancanti verificata, annullabile, riprendibile (F15)
+- [~] Verifica backup anche con destinazioni offline (F13): nucleo fatto (`prism-core::backup`);
+      schermata da fare
+- [~] Confronto tra dischi o cartelle (F14): nucleo fatto; schermata da fare
+- [~] Copia dei file mancanti verificata, annullabile, riprendibile (F15): nucleo fatto; job e
+      schermata da fare
 
 ## T8 — Media
 

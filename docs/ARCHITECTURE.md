@@ -332,8 +332,26 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   (F16-AC4); `fileops` ricalcola l'hash completo sul file e salta quelli cambiati (F16-AC3).
 - **Simili**: hash percettivi a 64 bit indicizzati con un BK-tree (o *multi-index hashing*) per
   le ricerche di distanza di Hamming, senza confronto di tutte le coppie.
-- **Verifica, confronto, copia**: lavorano sul catalogo (funzionano anche offline); solo la
-  copia richiede i volumi online e passa da `fileops`.
+- **Verifica, confronto, copia** (`prism-core::backup`, T7): lavorano sul catalogo, quindi
+  anche con i dischi scollegati. `store::subtree_files` legge i file sotto una cartella con il
+  percorso relativo e l'hash completo se valido (una CTE ricorsiva sulle cartelle).
+  `verify` (F13) indicizza le destinazioni per (dimensione, hash) e per (nome senza maiuscole,
+  dimensione) e per ogni file della sorgente cerca una copia: per contenuto se ha un hash e una
+  destinazione ha lo stesso; altrimenti per nome, dimensione e data (±2 s, risoluzione FAT) se
+  almeno uno dei due lati non ha hash; con hash su entrambi i lati e contenuti diversi non è
+  una copia. Il report conta i file verificati per contenuto e per metadati (F13-AC3).
+  `compare` (F14) abbina per percorso relativo oppure per contenuto: prima i percorsi uguali
+  con lo stesso contenuto, poi lo stesso hash altrove (file spostati o rinominati), poi nome,
+  dimensione e data senza hash, poi i percorsi uguali rimasti come "diversi". `folder_view`
+  restituisce un livello dell'albero dei risultati con i totali per stato di ogni sottocartella
+  (F13-AC4, F14-AC3). Sorgente e destinazione che si contengono sono rifiutate.
+- **Copia verificata** (`backup::copy`, F15): ricrea la struttura sotto la cartella scelta,
+  scrive in `<nome>.prism-part` calcolando l'hash di ciò che legge, rilegge la copia e la
+  rinomina solo se coincide; mantiene la data di modifica (così il controllo per metadati
+  riconosce la copia). Un file esistente non si sovrascrive mai: se ha lo stesso contenuto conta
+  come già copiato (ripresa dopo un annullamento), altrimenti si salta o si copia come
+  `nome (2).ext`. L'annullamento ferma tra due blocchi e toglie il file parziale; ogni scrittura
+  passa dalla guardia sandbox quando c'è (debug e test).
 
 ### 4.6 Analisi dello spazio (F08, T4)
 

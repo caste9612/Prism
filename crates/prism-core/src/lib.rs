@@ -12,6 +12,7 @@
 //! - [`indexer`]: enumeration + reconciliation with a truthful volume status (F04-AC6);
 //! - [`sandbox`]: the guard for destructive file operations in tests (TESTING S2).
 
+pub mod backup;
 pub mod cancel;
 pub mod changes;
 pub mod cleanup;
