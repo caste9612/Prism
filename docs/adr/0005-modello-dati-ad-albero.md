@@ -1,6 +1,7 @@
 # ADR-0005 — Modello dati ad albero
 
-- **Stato**: Accettata (hard link, nomi Unicode e flussi alternativi da definire in T1/T2)
+- **Stato**: Accettata. La regola di unicità dei nomi è sostituita da ADR-0015 (unicità per
+  nome esatto); hard link e flussi alternativi restano da definire in T2.
 - **Data**: 2026-11-07
 
 ## Contesto

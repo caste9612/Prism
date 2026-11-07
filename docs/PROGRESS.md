@@ -5,8 +5,10 @@
 
 ## Stato attuale
 
-- **Tappa**: T0 completata.
-- **Prossimo passo**: T1 — schema SQLite, archivio con scrittore unico, walker, riconciliazione.
+- **Tappa**: T1 in corso — core del catalogo fatto (archivio, walker, esclusioni,
+  reconciler, sandbox), con test.
+- **Prossimo passo**: T1 — comandi della CLI (`scan`, `ls`, `du`, `stats`, `bench`) e
+  benchmark in sola lettura su C: e D: con confronto con il vecchio Prism.
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -17,6 +19,29 @@
   consentito solo del branch `rewrite` (vedi CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T1: core del catalogo
+
+- `prism-core`: modello (`model`), nomi con escape reversibile (`names`), politica di
+  esclusione unica (`exclusion`), archivio SQLite con scrittore unico, corsia prioritaria,
+  sessioni di lotti asincroni, pool di lettori ed eventi (`store`), `ScanTree` e
+  `WalkEnumerator` parallelo (`scan`), reconciler unico con spostamenti per riferimento
+  (`reconcile`), indicizzazione con stato del volume sempre veritiero (`indexer`), guardia
+  sandbox (`sandbox`), annullamento (`cancel`).
+- Schema v1 (`0001_initial.sql`) e decisioni di dettaglio in **ADR-0015** (sostituisce la
+  regola di unicità case-insensitive dell'ADR-0005: NTFS ammette cartelle sensibili alle
+  maiuscole).
+- Problemi trovati dai test e corretti: (1) deadlock del walker annullato (i thread saltavano i
+  lavori senza rispondere); (2) NTFS aggiorna in ritardo le date delle cartelle nell'indice
+  della cartella madre, quindi due scansioni dello stesso albero differivano → le date delle
+  cartelle si leggono dalla cartella stessa; (3) cartelle con punto o spazio finale illeggibili
+  con i percorsi Win32 → percorsi verbatim (il test fallisce senza la correzione, verificato).
+- Test: 36 unitari, 10 sul walker reale, 10 sul reconciler con file system in memoria con
+  riferimenti (192 + 192 casi casuali: aggiornamento completo e parziale = reindicizzazione,
+  id conservati negli spostamenti), 1 di proprietà su disco reale (32 casi). `check.ps1` verde.
+- Scoperta d'ambiente: in questa sessione la shell è **elevata** (in T0 non lo era). Le ACL non
+  bastano quindi a simulare cartelle illeggibili (vedi TESTING); CLAUDE.md aggiornato: non dare
+  per scontato lo stato di elevazione, i test admin passano sempre dal runner.
 
 ### 2026-11-07 — Runner amministratore configurato
 

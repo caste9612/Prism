@@ -53,8 +53,11 @@ cargo test --workspace              # solo test
 cargo run -p prism-cli -- --help    # strumento di sviluppo
 ```
 
-La shell di sviluppo **non** è amministratore. I test che lo richiedono si eseguono con il
-runner descritto in `docs/TESTING.md` §4 (configurato in T2).
+Non dare per scontato che la shell di sviluppo sia o non sia amministratore (dipende da come è
+stata aperta la sessione; verificalo se conta). I test che richiedono l'amministratore si
+eseguono sempre con il runner descritto in `docs/TESTING.md` §4 (`schtasks /run /tn
+PrismDevAdminTests`). Con una shell elevata la `SandboxGuard` è ancora più importante: nessuna
+operazione distruttiva fuori dalle cartelle di test.
 
 ## Convenzioni
 

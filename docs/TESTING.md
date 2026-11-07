@@ -27,6 +27,7 @@ Lo sviluppo avviene sul PC dell'utente, che contiene dati reali. Per questo:
 | Windows senza admin | `crates/prism-win` | Rilevamento volumi (lettura), identità dei volumi, avvio non elevato, Cestino su file temporanei. | `cargo test` |
 | Windows con admin | `crates/prism-win` (`#[ignore]` + feature `admin-tests`) | Lettura MFT e journal USN sul disco virtuale di test; SMART in sola lettura sui dischi fisici. | Runner amministratore (sezione 4) |
 | Interfaccia | `ui/` | Componenti e store (Vitest); flussi end-to-end in browser con IPC simulato (Playwright). | `npm test`, `npm run e2e` |
+| Proprietà con riferimenti | `crates/prism-core/tests/reconcile_refs.rs` | File system in memoria con riferimenti stabili ai file (`tests/common/fakefs.rs`, come NTFS letto dalla MFT): rinomine, spostamenti, scambi di nomi, sostituzioni, aggiornamenti parziali; verifica F05-AC3 e che ogni file conservi il proprio id (F05-AC4). | `cargo test` |
 | Manuali | `docs/ROADMAP.md`, checklist di ogni tappa | Ciò che non si automatizza: aspetto grafico, UAC, collegamento fisico di dischi, installer su PC pulito. | Utente |
 | Benchmark | `prism-cli bench` | Tempi di indicizzazione, dimensione del catalogo, latenza di ricerca su dischi reali (sola lettura). Risultati in `docs/benchmarks/`. | Manuale/periodico |
 
@@ -42,10 +43,26 @@ Lo sviluppo avviene sul PC dell'utente, che contiene dati reali. Per questo:
 La CI su GitHub Actions (`.github/workflows/ci.yml`, Windows) esegue gli stessi controlli. Si
 attiva solo quando il branch viene pubblicato su GitHub.
 
+### Note sui test d'integrazione (T1)
+
+- Ogni modifica su disco degli helper (`tests/common/mod.rs`) passa da `GuardedFs`, con radice
+  la cartella temporanea del test (regola S2); un test verifica che una giunzione verso
+  l'esterno non permetta di uscire dalla sandbox.
+- Negli helper dei test d'integrazione `unwrap`/`expect` sono consentiti con un `allow` a
+  livello di crate di test (le regole li vietano solo nel codice di prodotto).
+- **Cartelle illeggibili**: non si possono simulare con le ACL se il processo di test è
+  elevato (qui un amministratore legge anche una cartella con DACL vuota: verificato il
+  2026-11-07), né sulla CI. Il comportamento è coperto dal file system in memoria
+  (`unreadable_folder_keeps_its_catalog_children`) e da un test unitario del walker sull'errore
+  di lettura.
+
 ## 4. Test che richiedono l'amministratore
 
-La shell di sviluppo **non** è elevata. Per i test di MFT, USN e SMART si usa questo schema,
-scelto per dare la massima autonomia allo sviluppo:
+Non dare per scontato che la shell di sviluppo sia (o non sia) elevata: in T0 non lo era, nella
+sessione T1 del 2026-11-07 sì (verificato aprendo `\\.\C:` con `runner_is_elevated`). I test che
+richiedono l'amministratore si eseguono comunque sempre con il runner qui sotto, così il
+risultato non dipende da come è stata aperta la shell. Per i test di MFT, USN e SMART si usa
+questo schema, scelto per dare la massima autonomia allo sviluppo:
 
 **Disco virtuale di test.** Un file VHDX dedicato (proposta: 4 GB, espansione dinamica) in
 `%LOCALAPPDATA%\PrismDev\prism-test.vhdx`, formattato NTFS con etichetta `PRISMTEST`. I test lo

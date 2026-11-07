@@ -54,66 +54,63 @@
 ## 3. Modello dati (ADR-0005)
 
 Archivio SQLite in modalità WAL, nella cartella dati dell'app. Lo schema è versionato con
-migrazioni SQL incorporate e `PRAGMA user_version`. Schema iniziale (bozza, si consolida in T1):
+migrazioni SQL incorporate (`crates/prism-core/src/store/migrations/`) e `PRAGMA user_version`;
+una migrazione già pubblicata non si modifica, se ne aggiunge una nuova.
+
+**Schema versione 1 (T1, in uso)** — testo completo in `0001_initial.sql`:
 
 ```sql
 volumes (
-  id            INTEGER PRIMARY KEY,
-  kind          TEXT NOT NULL,          -- fixed | removable | network
-  fs_type       TEXT,                   -- NTFS, exFAT, FAT32, ReFS, ...
-  fs_serial     INTEGER,                -- seriale del file system (64 bit su NTFS)
-  volume_guid   TEXT,                   -- \\?\Volume{...}\ (per macchina)
-  unc_path      TEXT,                   -- \\server\share per le unità di rete
-  os_label      TEXT,                   -- etichetta di Windows
-  capacity      INTEGER, free_space INTEGER,
-  -- etichette utente (F03)
-  user_name TEXT, location TEXT, notes TEXT, color TEXT,
-  -- stato
-  status        TEXT NOT NULL,          -- new | indexed | ignored | reindex_needed
-  last_mount    TEXT,                   -- ultima lettera o percorso visto
-  first_seen_at INTEGER, last_seen_at INTEGER, last_indexed_at INTEGER,
-  -- journal USN (solo NTFS)
-  usn_journal_id INTEGER, usn_next INTEGER,
-  settings      TEXT                    -- JSON: esclusioni, politica hash
-)
+  id, kind,                         -- fixed | removable | network
+  fs_type, fs_serial, volume_guid, unc_path, os_label, capacity, free_space,   -- ADR-0004
+  user_name, location, notes, color,                                           -- F03
+  status,                           -- new | indexing | indexed | ignored | reindex_needed
+  last_mount,                       -- ultima lettera o percorso visto (mai una chiave)
+  first_seen_at, last_seen_at, last_indexed_at,   -- millisecondi Unix
+  usn_journal_id, usn_next,         -- journal USN (solo NTFS, T2)
+  settings                          -- JSON: esclusioni per volume, politica hash
+) STRICT
 
 entries (
-  id         INTEGER PRIMARY KEY,
-  volume_id  INTEGER NOT NULL REFERENCES volumes(id),
-  parent_id  INTEGER REFERENCES entries(id),  -- NULL solo per la radice del volume
-  name       TEXT NOT NULL,
-  is_dir     INTEGER NOT NULL,
-  size       INTEGER NOT NULL,                -- dimensione logica
-  alloc_size INTEGER,                         -- spazio occupato su disco
-  created_at INTEGER, modified_at INTEGER,
-  attrs      INTEGER,
-  file_ref   INTEGER                          -- riferimento MFT (NTFS), NULL altrove
-)
--- unicità: (volume_id, parent_id, name) case-insensitive; indice su (volume_id, file_ref)
+  id,                               -- assegnato dall'archivio, mai riusato
+  volume_id  REFERENCES volumes,
+  parent_id  REFERENCES entries,    -- NULL solo per la radice del volume (nome "")
+  name,                             -- nome memorizzato (escape reversibile, ADR-0015)
+  is_dir, size, alloc_size,         -- alloc_size NULL se non noto (walker)
+  created_at, modified_at,          -- FILETIME (100 ns dal 1601), piena precisione
+  attrs,                            -- FILE_ATTRIBUTE_*
+  file_ref                          -- riferimento MFT, NULL per il walker
+) STRICT
+UNIQUE INDEX entries_parent_name (parent_id, name)    -- nome esatto (ADR-0015)
+INDEX        entries_volume_ref  (volume_id, file_ref)
 
-dir_stats (entry_id PRIMARY KEY, total_size, total_alloc, file_count, dir_count)
+dir_stats (entry_id PRIMARY KEY REFERENCES entries ON DELETE CASCADE,
+           total_size, total_alloc, file_count, dir_count) STRICT   -- solo file contati
 
+settings (key PRIMARY KEY, value) STRICT
+```
+
+Le chiavi esterne sono attive sulla connessione di scrittura; `entries` non usa cascate (una
+sottostruttura si elimina con una CTE ricorsiva, senza limiti di profondità).
+
+**Tabelle previste nelle tappe successive** (bozza, arriveranno con nuove migrazioni):
+
+```sql
 content_hashes (entry_id PRIMARY KEY, size, modified_at, quick BLOB, full BLOB, computed_at)
--- valido solo se size/modified_at coincidono con la voce (ADR-0011)
-
-media_prints (entry_id, kind, size, modified_at, print BLOB)   -- immagini e video simili
-
-health_samples (volume_id, taken_at, status, temperature, power_on_hours, wear, realloc, pending, raw)
-
-jobs (id, kind, volume_id, state, priority, created_at, started_at, finished_at, progress, error, params)
-
-actions_log (id, at, action, entry_path, volume_id, size, outcome, detail)   -- F16-AC6
-
-settings (key PRIMARY KEY, value)
+-- valido solo se size/modified_at coincidono con la voce (ADR-0011)          -- T6
+media_prints (entry_id, kind, size, modified_at, print BLOB)                   -- T8
+health_samples (volume_id, taken_at, status, temperature, power_on_hours, wear, realloc, pending, raw)  -- T9
+jobs (id, kind, volume_id, state, priority, created_at, started_at, finished_at, progress, error, params) -- T3
+actions_log (id, at, action, entry_path, volume_id, size, outcome, detail)    -- F16-AC6, T6
 ```
 
 Il percorso completo di una voce **non è memorizzato**: si ricostruisce risalendo i
 `parent_id` (o dall'indice in memoria). Questo elimina la ripetizione del percorso in colonne e
 indici, che nel vecchio Prism portava il database a circa 1 KB per file.
 
-Punti ancora da definire in T1/T2: rappresentazione degli hard link NTFS (più nomi per lo
-stesso `file_ref`; lo spazio va contato una sola volta), confronto case-insensitive dei nomi
-oltre l'ASCII, gestione dei flussi alternativi (ADS).
+Decisioni di dettaglio (unicità per nome esatto, escape dei nomi, date `FILETIME`, metadati
+delle cartelle, aggregati) in ADR-0015. Restano da definire in T2: hard link NTFS (più nomi per
+lo stesso `file_ref`; lo spazio va contato una sola volta) e flussi alternativi (ADS).
 
 ## 4. Pipeline
 
@@ -136,9 +133,32 @@ una riconciliazione su un insieme di voci più piccolo. Così sono garantiti gli
 
 - **MFT** (NTFS locale, richiede amministratore): lettura diretta della `$MFT` tramite handle
   al volume; elenco completo in un'unica passata sequenziale.
-- **Walker classico** (FAT/exFAT/ReFS, unità di rete, fallback): enumerazione parallela delle
-  cartelle usando i metadati restituiti dall'enumerazione stessa, **senza** una chiamata
-  `metadata()` per file (su SMB ogni chiamata in più è un viaggio di rete).
+- **Walker classico** (`scan::WalkEnumerator`; FAT/exFAT/ReFS, unità di rete, fallback):
+  enumerazione parallela delle cartelle usando i metadati restituiti dall'enumerazione stessa,
+  **senza** una chiamata `metadata()` per file (su SMB ogni chiamata in più è un viaggio di
+  rete). Dettagli (ADR-0015): una sola chiamata per **cartella** per leggerne le date reali;
+  percorsi verbatim `\\?\`; giunzioni e link simbolici registrati ma non seguiti; i thread
+  elencano soltanto, un unico collettore costruisce l'albero.
+
+Ogni enumeratore produce uno `ScanTree`: istantanea completa di una cartella e del suo
+contenuto, con le esclusioni già applicate. Le cartelle non leggibili (accesso negato, errore a
+metà, scomparse) sono marcate `Unreadable`: la riconciliazione **non** elimina dal catalogo i
+figli che non ha visto.
+
+**Reconciler** (`reconcile::reconcile`), visita in ampiezza; per ogni cartella abbina i figli
+scansionati a quelli del catalogo: (1) per riferimento al file nella stessa cartella,
+(2) per nome esatto se i riferimenti non si contraddicono, (3) per riferimento altrove nel
+volume (spostamento: la voce mantiene id e dati collegati, F05-AC4). I figli rinominati o
+il cui nome è preso da un'altra voce passano prima per un nome temporaneo (i nomi sono unici
+per cartella); le eliminazioni avvengono alla fine, salvo voci rivendicate da uno spostamento.
+L'ordine in ampiezza garantisce che uno spostamento non crei mai cicli. Al termine si
+ricalcolano gli aggregati delle cartelle toccate e dei loro antenati. Il bersaglio è la radice
+del volume (indicizzazione completa) o una cartella esistente (aggiornamento parziale).
+
+**Stato del volume** (`indexer::index`): l'enumerazione non scrive nulla (se fallisce o viene
+annullata il catalogo resta com'era); durante la scrittura il volume è `indexing`; se la
+riconciliazione non termina diventa `reindex_needed`, e così anche dopo un crash, alla
+riapertura dell'archivio (F04-AC6).
 
 ### 4.2 Aggiornamento (ADR-0007)
 
@@ -181,6 +201,25 @@ FTS5 con tokenizer `trigram`. Il parser dei filtri (F07-AC5) è indipendente dal
 - **Un pool di connessioni in sola lettura** serve i comandi dell'interfaccia: con WAL le
   letture non aspettano mai lo scrittore (NF1).
 - Nessun lock globale sul database: è l'errore architetturale principale del vecchio Prism.
+
+Implementazione (`store::Store`, T1):
+
+- `Store::write(closure)`: transazione sincrona sullo scrittore, risultato dopo il commit; usa
+  una **corsia prioritaria**, così le scritture interattive non restano in coda dietro i lotti.
+- `WriteSession::submit(lotto)`: lotti di `WriteOp` asincroni, ognuno nella propria
+  transazione, su una coda limitata (un produttore veloce viene rallentato invece di riempire
+  la memoria). Dopo il primo lotto fallito i successivi della stessa sessione vengono saltati;
+  `flush()` attende e restituisce l'errore.
+- `Store::read(closure)`: connessione in sola lettura dal pool, sul thread chiamante.
+- `Store::subscribe()`: eventi `CatalogChanged`, `VolumeChanged`, `VolumeRemoved` pubblicati
+  solo dopo il commit.
+- Un job dello scrittore che va in panico annulla la propria transazione senza fermare lo
+  scrittore.
+- All'apertura: migrazioni, volumi `indexing` → `reindex_needed`, e `PRAGMA quick_check` se la
+  sessione precedente non si è chiusa in modo pulito (indicatore in `settings`). Alla chiusura:
+  checkpoint del WAL.
+- `check_consistency` verifica gli invarianti (genitori, radici, aggregati ricalcolati da zero,
+  raggiungibilità, nomi temporanei): usata dai test e dalla diagnostica.
 
 ## 6. Motore dei job (ADR-0009)
 
@@ -238,7 +277,8 @@ dell'interfaccia con backend simulato; benchmark registrati in `docs/benchmarks/
 Prism-next/
 ├─ Cargo.toml              workspace, lint comuni
 ├─ crates/
-│  ├─ prism-core/
+│  ├─ prism-core/          model, names, exclusion, scan (walker), reconcile, indexer,
+│  │                       store (SQLite), sandbox (guardia per i test), cancel
 │  ├─ prism-win/
 │  ├─ prism-cli/
 │  ├─ prism-app/           (T3)

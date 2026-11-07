@@ -21,15 +21,15 @@ Legenda: `[x]` fatto · `[ ]` da fare · `[~]` in corso
 **Verifica utente**: facoltativa, leggere `docs/SPEC.md`. Fatto: esecuzione una tantum di
 `scripts/admin/install-admin-runner.ps1` (2026-11-07).
 
-## T1 — Catalogo di base (core, senza privilegi)
+## T1 — Catalogo di base (core, senza privilegi)  `[~]`
 
-- [ ] Schema SQLite e migrazioni; test di migrazione
-- [ ] Archivio: thread scrittore + pool di lettori (ADR-0008)
-- [ ] Modello volumi/voci, ricostruzione percorsi, `dir_stats` incrementali
-- [ ] `ExclusionPolicy` unica (F04-AC5) con le esclusioni di default decise (Q2)
-- [ ] `WalkEnumerator` parallelo senza `metadata()` per file
-- [ ] `Reconciler` unico; test di proprietà "aggiornamento = reindicizzazione" (F05-AC3)
-- [ ] `SandboxGuard` per le operazioni distruttive (TESTING S2)
+- [x] Schema SQLite e migrazioni; test di migrazione
+- [x] Archivio: thread scrittore + pool di lettori (ADR-0008)
+- [x] Modello volumi/voci, ricostruzione percorsi, `dir_stats` incrementali
+- [x] `ExclusionPolicy` unica (F04-AC5) con le esclusioni di default decise (Q2)
+- [x] `WalkEnumerator` parallelo senza `metadata()` per file
+- [x] `Reconciler` unico; test di proprietà "aggiornamento = reindicizzazione" (F05-AC3)
+- [x] `SandboxGuard` per le operazioni distruttive (TESTING S2)
 - [ ] CLI: `scan`, `ls`, `du`, `stats` su un catalogo di sviluppo
 - [ ] Benchmark in sola lettura su C: e D: e confronto con il vecchio Prism (tempo, dimensione
       del catalogo per voce)

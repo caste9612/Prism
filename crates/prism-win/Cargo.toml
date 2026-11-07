@@ -11,6 +11,9 @@ publish.workspace = true
 [dependencies]
 prism-core.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
 [features]
 # Tests that need administrator rights; run through the admin runner (docs/TESTING.md §4).
 admin-tests = []

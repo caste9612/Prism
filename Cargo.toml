@@ -14,6 +14,17 @@ publish = false
 prism-core = { path = "crates/prism-core" }
 prism-win = { path = "crates/prism-win" }
 
+# Third-party (keep the list short; every addition is justified in the PR/commit)
+clap = { version = "4.6", features = ["derive"] }
+crossbeam-channel = "0.5"
+proptest = "1.12"
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache"] }
+tempfile = "3"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+windows-sys = "0.61"
+
 # Shared lints (ADR-0002). Crates opt in with `[lints] workspace = true`.
 [workspace.lints.rust]
 unsafe_code = "deny" # allowed only in prism-win, where every block needs a SAFETY comment

@@ -10,7 +10,7 @@ e si aggiorna lo stato di quella vecchia ("Sostituita da ADR-NNNN").
 | [0002](0002-workspace-e-crate.md) | Workspace Cargo e separazione dei crate | Accettata |
 | [0003](0003-privilegi-e-sicurezza.md) | Esecuzione elevata, avvio senza UAC, superficie d'attacco ridotta | Accettata |
 | [0004](0004-identita-dei-volumi.md) | Identità stabile dei volumi | Accettata |
-| [0005](0005-modello-dati-ad-albero.md) | Modello dati ad albero | Accettata |
+| [0005](0005-modello-dati-ad-albero.md) | Modello dati ad albero | Accettata (unicità dei nomi sostituita da ADR-0015) |
 | [0006](0006-enumerazione-e-riconciliazione.md) | Enumerazione (MFT o walker) e riconciliazione unica | Accettata |
 | [0007](0007-aggiornamenti-usn-e-sorveglianza.md) | Aggiornamenti: journal USN, sorveglianza, riconciliazione | Accettata |
 | [0008](0008-accesso-al-database.md) | Accesso al database: uno scrittore, molti lettori | Accettata |
@@ -20,3 +20,4 @@ e si aggiorna lo stato di quella vecchia ("Sostituita da ADR-NNNN").
 | [0012](0012-eliminazione-sicura.md) | Eliminazione sicura | Accettata |
 | [0013](0013-video-simili.md) | Decodifica video per i video simili | **Proposta** |
 | [0014](0014-frontend.md) | Frontend: Svelte 5, IPC tipizzato, i18n, tema | Accettata |
+| [0015](0015-dettagli-modello-dati-t1.md) | Dettagli del modello dati decisi in T1 | Accettata |
