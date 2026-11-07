@@ -8,6 +8,10 @@ use prism_core::model::{EntryId, VolumeId, VolumeLabels, VolumeStatus};
 use prism_core::store;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::backup_views::{
+    CompareSummaryView, CopyPreviewView, CopyResultView, ReportFilterInput, ReportFolderView,
+    SideInput, VerifySummaryView,
+};
 use crate::cleanup_views::{CleanupResultView, CleanupView};
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings, VolumeView};
 use crate::duplicates_views::{DupFilterInput, DuplicatesView, RuleInput};
@@ -254,6 +258,69 @@ pub async fn delete_duplicates(
         blocking(move || s.delete_duplicates(&entries, allow_offline_only, permanent)).await;
     emit_volumes(&app);
     result
+}
+
+/// Which files of a folder have no copy in the destinations (F13), also with disks offline.
+#[tauri::command]
+pub async fn backup_verify(
+    state: State<'_, Arc<AppState>>,
+    source: SideInput,
+    destinations: Vec<SideInput>,
+) -> R<VerifySummaryView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.backup_verify(&source, &destinations)).await
+}
+
+/// Two folders side by side, by path or by content (F14).
+#[tauri::command]
+pub async fn backup_compare(
+    state: State<'_, Arc<AppState>>,
+    a: SideInput,
+    b: SideInput,
+    by_content: bool,
+) -> R<CompareSummaryView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.backup_compare(&a, &b, by_content)).await
+}
+
+/// One level of the result tree of a check or a comparison (F13-AC4, F14-AC3).
+#[tauri::command]
+pub async fn backup_folder(
+    state: State<'_, Arc<AppState>>,
+    report_id: u64,
+    folder: String,
+    filter: ReportFilterInput,
+) -> R<ReportFolderView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.backup_folder(report_id, &folder, &filter)).await
+}
+
+/// Files, size and free space before copying the missing files (F15-AC1/AC2).
+#[tauri::command]
+pub async fn copy_preview(
+    state: State<'_, Arc<AppState>>,
+    report_id: u64,
+    dest: SideInput,
+) -> R<CopyPreviewView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.copy_preview(report_id, &dest)).await
+}
+
+/// Starts copying the missing files of a check (F15); returns the job.
+#[tauri::command]
+pub fn copy_start(
+    state: State<'_, Arc<AppState>>,
+    report_id: u64,
+    dest: SideInput,
+    rename_on_conflict: bool,
+) -> R<u64> {
+    Ok(state.copy_start(report_id, &dest, rename_on_conflict)?.0)
+}
+
+/// The outcome of a finished copy job (F15-AC5).
+#[tauri::command]
+pub fn copy_result(state: State<'_, Arc<AppState>>, job_id: u64) -> Option<CopyResultView> {
+    state.copy_result(job_id)
 }
 
 /// F01-AC5: removes the catalog data of a volume; files on the disk are never touched.

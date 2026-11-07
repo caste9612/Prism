@@ -10,6 +10,8 @@ import type { Backend, Unlisten } from './api';
 import { cardJob } from './catalog';
 import { mockCleanupScan, mockDeleteEntries } from './mock-cleanup';
 import { mockDeleteDuplicates, mockDuplicates } from './mock-duplicates';
+import { mockBackup } from './mock-backup';
+import type { CopyResultView } from './bindings/CopyResultView';
 import { mockSearch } from './mock-search';
 import { mockHasEntry, mockLargestFiles, mockSpaceFolder, mockTypeStats } from './mock-space';
 
@@ -62,6 +64,8 @@ export function mockBackend(): Backend {
     hashingExcluded: [],
   };
   const deletedCopies = new Set<number>();
+  const backup = mockBackup(() => volumes);
+  const copyResults = new Map<number, CopyResultView>();
   const settingsListeners = new Set<() => void>();
   const jobs: JobView[] = [];
   let nextJob = 1;
@@ -122,7 +126,7 @@ export function mockBackend(): Backend {
       if (!job || job.state !== 'running') return false;
       job.state = 'cancelled';
       const v = volumes.find((x) => x.id === job.volumeId);
-      if (v) v.status = 'reindex_needed';
+      if (v && (job.kind === 'index' || job.kind === 'update')) v.status = 'reindex_needed';
       emitJobs();
       emitVolumes();
       return true;
@@ -168,6 +172,34 @@ export function mockBackend(): Backend {
       emitVolumes();
       return result;
     },
+    backupVerify: async (source, destinations) => backup.verify(source, destinations),
+    backupCompare: async (a, b, byContent) => backup.compare(a, b, byContent),
+    backupFolder: async (reportId, folder, filter) => backup.folder(reportId, folder, filter),
+    copyPreview: async (reportId, dest) => backup.preview(reportId, dest),
+    copyStart: async (reportId, dest) => {
+      const preview = backup.preview(reportId, dest);
+      const job: JobView = { id: nextJob++, kind: 'copy', volumeId: dest.volumeId, state: 'running', done: 0, total: preview.bytes, phase: 'copying', error: null };
+      jobs.push(job);
+      emitJobs();
+      const step = preview.bytes / 4;
+      const timer = setInterval(() => {
+        if (job.state === 'cancelled') {
+          clearInterval(timer);
+          copyResults.set(job.id, { copied: Math.floor((job.done / preview.bytes) * preview.files), renamed: 0, alreadyThere: 0, skipped: 0, failed: [], bytes: job.done, interrupted: true });
+          emitJobs();
+          return;
+        }
+        job.done = Math.min(preview.bytes, job.done + step);
+        if (job.done >= preview.bytes) {
+          clearInterval(timer);
+          copyResults.set(job.id, { copied: preview.files - 1, renamed: 0, alreadyThere: 0, skipped: 0, failed: [{ path: 'Foto\\2023\\scan.pdf', error: 'Access denied (os error 5)' }], bytes: preview.bytes, interrupted: false });
+          job.state = 'done';
+        }
+        emitJobs();
+      }, 400);
+      return job.id;
+    },
+    copyResult: async (jobId) => copyResults.get(jobId) ?? null,
     revealEntry: async (volumeId, entryId) => {
       if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
       if (!mockHasEntry(volumeId, entryId)) throw { code: 'not_found', message: String(entryId) };

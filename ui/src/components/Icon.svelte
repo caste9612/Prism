@@ -20,6 +20,7 @@
     back: 'M15 18l-6-6 6-6',
     search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z M20 20l-4-4',
     copy: 'M9 9h11v11H9z M5 15H4V4h11v1',
+    backup: 'M3 4h18v4H3z M5 8v12h14V8 M10 12h4',
     check: 'M5 12l5 5 9-10',
     broom: 'M15 3l6 6 M13 5l6 6-6 6-6-6z M7 11l-4 9 9-4',
     up: 'M12 19V5 M5 12l7-7 7 7',

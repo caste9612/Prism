@@ -38,6 +38,7 @@ fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
         search: Arc::new(prism_core::search::live::LiveIndexes::default()),
         shortcut_error: Mutex::new(None),
         hashing: crate::hash_jobs::HashingState::default(),
+        backup: crate::backup_state::BackupState::default(),
     }
 }
 
@@ -350,4 +351,219 @@ fn journal_updates_do_not_reserve_the_disk() {
     assert!(IndexKind::Journal.disks(&detected).is_empty());
     assert_eq!(IndexKind::Update.disks(&detected), ["disk3"]);
     assert_eq!(IndexKind::Index.disks(&detected), ["disk3"]);
+}
+
+/// Indexes a folder as a development volume of the catalog and returns it with its detection.
+fn add_folder_volume(store: &Store, path: &Path) -> (VolumeId, DetectedVolume) {
+    let info = VolumeInfo::dev_folder(&path.to_string_lossy());
+    let detected = DetectedVolume {
+        info: info.clone(),
+        mounts: vec![path.to_string_lossy().into_owned()],
+        disks: Vec::new(),
+    };
+    let volume: VolumeId = store
+        .write(move |w| store::insert_volume(w, &info, VolumeStatus::New))
+        .unwrap();
+    indexer::index(
+        store,
+        &WalkEnumerator::default(),
+        &IndexRequest {
+            volume,
+            path,
+            relative: &[],
+            target: ReconcileTarget::VolumeRoot,
+            policy: &ExclusionPolicy::with_defaults(),
+        },
+        &CancelToken::new(),
+        &IndexProgress::default(),
+    )
+    .unwrap();
+    (volume, detected)
+}
+
+fn wait_all(app: &AppState) {
+    while let Some(job) = app
+        .engine
+        .jobs()
+        .into_iter()
+        .find(|j| !j.state.is_finished())
+    {
+        let _ = app.engine.wait(job.id);
+    }
+}
+
+// F13/F15 in the app: a check finds the missing files, the tree groups them, the preview
+// counts them, the copy job copies them into the sandbox (temporary folder) and refreshes the
+// destination, and the same check then finds nothing missing.
+#[test]
+fn backup_check_then_copy_of_the_missing_files() {
+    use crate::backup_views::{ReportFilterInput, SideInput};
+    use prism_core::jobs::JobState;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    let dst = tmp.path().join("dst");
+    std::fs::create_dir_all(src.join("Foto").join("2019")).unwrap();
+    std::fs::create_dir_all(dst.join("Vecchio")).unwrap();
+    std::fs::write(
+        src.join("Foto").join("2019").join("mare.jpg"),
+        vec![1u8; 40_000],
+    )
+    .unwrap();
+    std::fs::write(src.join("Foto").join("monti.jpg"), vec![2u8; 30_000]).unwrap();
+    std::fs::write(src.join("nota.txt"), b"hello").unwrap();
+    // Already backed up elsewhere on the destination (same name, size and date).
+    std::fs::copy(src.join("nota.txt"), dst.join("Vecchio").join("nota.txt")).unwrap();
+    let modified = std::fs::metadata(src.join("nota.txt"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(dst.join("Vecchio").join("nota.txt"))
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let (a, da) = add_folder_volume(&store, &src);
+    let (b, db) = add_folder_volume(&store, &dst);
+    let app = Arc::new(state(store, true, tmp.path()));
+    app.online().insert(a, da);
+    app.online().insert(b, db);
+    let source = SideInput {
+        volume_id: a.0,
+        folder: String::new(),
+    };
+    let dest = SideInput {
+        volume_id: b.0,
+        folder: String::new(),
+    };
+
+    let check = app
+        .backup_verify(&source, std::slice::from_ref(&dest))
+        .unwrap();
+    assert_eq!(check.total.files, 3);
+    assert_eq!(check.by_metadata.files, 1);
+    assert_eq!((check.missing.files, check.missing.bytes), (2, 70_000));
+    // F13-AC4: by folder, with search.
+    let top = app
+        .backup_folder(check.report_id, "", &ReportFilterInput::default())
+        .unwrap();
+    assert_eq!(top.folders.len(), 1);
+    assert_eq!(top.folders[0].name, "Foto");
+    assert_eq!(top.folders[0].tallies[0].files, 2);
+    let foto = app
+        .backup_folder(check.report_id, "Foto", &ReportFilterInput::default())
+        .unwrap();
+    assert_eq!(foto.files[0].name, "monti.jpg");
+    assert_eq!(foto.folders[0].key, "2019");
+    let searched = app
+        .backup_folder(
+            check.report_id,
+            "",
+            &ReportFilterInput {
+                text: Some("MARE".into()),
+                ..ReportFilterInput::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(searched.tallies[0].files, 1);
+
+    // F15-AC1/AC2: preview, then the copy below a chosen folder (F15-AC3).
+    let target = SideInput {
+        volume_id: b.0,
+        folder: r"Copia\Prism".into(),
+    };
+    let preview = app.copy_preview(check.report_id, &target).unwrap();
+    assert_eq!((preview.files, preview.bytes), (2, 70_000));
+    assert!(preview.dest_path.ends_with(r"dst\Copia\Prism"));
+    let job = app.copy_start(check.report_id, &target, false).unwrap();
+    assert_eq!(app.engine.wait(job).unwrap().state, JobState::Done);
+    wait_all(&app);
+    let result = app.copy_result(job.0).unwrap();
+    assert_eq!((result.copied, result.bytes), (2, 70_000));
+    assert!(result.failed.is_empty() && !result.interrupted);
+    assert!(
+        dst.join("Copia")
+            .join("Prism")
+            .join("Foto")
+            .join("2019")
+            .join("mare.jpg")
+            .is_file()
+    );
+    let log = app.store.read(|c| store::actions_log(c, 10)).unwrap();
+    assert_eq!(log.iter().filter(|r| r.action == "copy").count(), 2);
+
+    // The destination catalog was refreshed: nothing is missing any more.
+    let again = app
+        .backup_verify(&source, std::slice::from_ref(&dest))
+        .unwrap();
+    assert_eq!(again.missing.files, 0);
+
+    // A copy into the source itself is refused.
+    let inside = SideInput {
+        volume_id: a.0,
+        folder: "Foto".into(),
+    };
+    assert_eq!(
+        app.copy_preview(check.report_id, &inside).unwrap_err().code,
+        "copy_overlap"
+    );
+}
+
+// CLAUDE.md: a development build copies only into its sandbox.
+#[test]
+fn debug_build_refuses_copies_outside_the_sandbox() {
+    use crate::backup_views::SideInput;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("a.txt"), b"abc").unwrap();
+    let target = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("target")
+        .join(format!("copy-guard-test-{}", std::process::id()));
+    std::fs::create_dir_all(&target).unwrap();
+    let target = target.canonicalize().unwrap();
+
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let (a, da) = add_folder_volume(&store, &src);
+    let (b, db) = add_folder_volume(&store, &target);
+    let app = Arc::new(state(store, true, tmp.path()));
+    app.online().insert(a, da);
+    app.online().insert(b, db);
+    let check = app
+        .backup_verify(
+            &SideInput {
+                volume_id: a.0,
+                folder: String::new(),
+            },
+            &[SideInput {
+                volume_id: b.0,
+                folder: String::new(),
+            }],
+        )
+        .unwrap();
+    let dest = SideInput {
+        volume_id: b.0,
+        folder: "Copia".into(),
+    };
+    assert_eq!(
+        app.copy_preview(check.report_id, &dest).unwrap_err().code,
+        "outside_sandbox"
+    );
+    assert_eq!(
+        app.copy_start(check.report_id, &dest, false)
+            .unwrap_err()
+            .code,
+        "outside_sandbox"
+    );
+    assert!(!target.join("Copia").exists());
+    let parent = target.parent().unwrap().to_path_buf();
+    GuardedFs::new(SandboxGuard::new([&parent]).unwrap())
+        .remove_dir_all(&target)
+        .unwrap();
 }

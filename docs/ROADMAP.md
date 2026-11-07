@@ -120,13 +120,14 @@ Criteri coperti: F07-AC1/AC2/AC3/AC4/AC5/AC6/AC7, F19-AC2 (parte *Cerca*).
 Criteri coperti: F06-AC1…AC6, F10-AC1…AC5, F16-AC3/AC4, F19-AC2, F21-AC3.
 **Verifica utente**: checklist T6 in `docs/REVIEW.md` §4 (eliminazione solo sul disco di test).
 
-## T7 — Backup
+## T7 — Backup  `[x]`
 
-- [~] Verifica backup anche con destinazioni offline (F13): nucleo fatto (`prism-core::backup`);
-      schermata da fare
-- [~] Confronto tra dischi o cartelle (F14): nucleo fatto; schermata da fare
-- [~] Copia dei file mancanti verificata, annullabile, riprendibile (F15): nucleo fatto; job e
-      schermata da fare
+- [x] Verifica backup anche con destinazioni offline (F13)
+- [x] Confronto tra dischi o cartelle (F14)
+- [x] Copia dei file mancanti verificata, annullabile, riprendibile (F15)
+
+Criteri coperti: F13-AC1…AC5, F14-AC1…AC3, F15-AC1…AC5.
+**Verifica utente**: checklist T7 in `docs/REVIEW.md` §4 (copie solo verso il disco di test).
 
 ## T8 — Media
 

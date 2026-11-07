@@ -51,6 +51,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D33 | 2026-11-07 | T6 | Avanzamento dell'analisi sulle schede come percentuale arrotondata per difetto (100% solo a lavoro finito), contato ogni 5 minuti (ogni minuto mentre gira); nel tray una riga con il numero di job in corso e la voce Sospendi/Riprendi, che salva l'impostazione; in *Impostazioni* pausa, batteria e dischi da analizzare (le unità di rete non compaiono) | Elenco dei job nel menu del tray; conteggio continuo | `hash_jobs.rs`, `tray.rs`, `SettingsView.svelte` | F06-AC5, F19-AC2, F21-AC3 |
 | D34 | 2026-11-07 | T7 | Verifica dei backup: una copia vale per contenuto (stessa dimensione e hash) ovunque si trovi nelle destinazioni, anche rinominata; senza hash su uno dei due lati vale per nome, dimensione e data con 2 s di tolleranza (FAT), anche in un'altra cartella; con hash su entrambi i lati e contenuti diversi il file risulta mancante. Il confronto per contenuto abbina prima i percorsi uguali identici, poi lo stesso hash altrove, poi nome/dimensione/data | Abbinare solo per percorso relativo (un backup riorganizzato risulterebbe tutto mancante); fidarsi dei metadati anche quando gli hash dicono il contrario | `prism-core::backup` | F13-AC3, F14-AC2 |
 | D35 | 2026-11-07 | T7 | Copia: file temporaneo `<nome>.prism-part`, riletto e confrontato con l'hash della sorgente prima di prendere il nome vero; data di modifica mantenuta; la ripresa riconosce i file già copiati dal contenuto; in conflitto *salta* o *rinomina* come `nome (2).ext`; un `.prism-part` rimasto da un'interruzione si sostituisce (è di Prism) | Scrivere direttamente con il nome finale; riprendere da un registro su disco | `prism-core::backup::copy` | F15-AC4/AC5 |
+| D36 | 2026-11-07 | T7 | Schermata *Backup* con due schede (verifica, confronto); sorgente e destinazioni scelte come disco + percorso scritto (vuoto = disco intero), anche dischi scollegati; verifica e confronto girano subito nel catalogo (secondi anche su dischi grandi) e non come job annullabili; gli ultimi 4 risultati restano in memoria e si sfogliano a livelli; la copia propone come destinazione un disco di backup collegato o un altro disco collegato, sotto una cartella scritta dall'utente (niente selettore di cartelle di Windows); nel confronto gli identici sono nascosti all'inizio | Selettore di cartelle nativo (plugin in più); job annullabili anche per verifica e confronto; risultati salvati su disco | `BackupView.svelte`, `backup_state.rs` | F13, F14, F15-AC3 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -81,6 +82,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | L11 | 2026-11-07 | L'indice di ricerca di un volume si ricostruisce per intero quando il suo catalogo cambia, al massimo ogni 30 s | Risultati in ritardo fino a ~30 s dopo un cambio; ~0,6 s di CPU per ricostruzione su un volume da 1,4 milioni di voci | Accettato per la 1.0; miglioramento: aggiornamento incrementale dalle operazioni di scrittura |
 | L12 | 2026-11-07 | `Ctrl+Space` è usato da alcuni metodi di input (cinese, giapponese) per cambiare lingua | Con quei metodi la scorciatoia può non registrarsi o rubare il tasto | Prism lo segnala e la scorciatoia si cambia nelle impostazioni (F07-AC1); valutare un default diverso prima della 1.0 |
 | L13 | 2026-11-07 | Le unità di rete non vengono analizzate in background (D30) | Un file presente sul NAS e su un disco locale non risulta duplicato; la verifica dei backup su NAS (T7) dovrà leggere i file al momento | Accettato; valutare in T7 un'analisi su richiesta per singola unità di rete |
+| L14 | 2026-11-07 | Verifica e confronto tengono in memoria tutti i file dei due lati (~100 B per file) e non si annullano; i risultati si perdono alla chiusura di Prism; lasciando la schermata durante una copia il job continua ma l'esito non viene più mostrato | Su due dischi da un milione di file ~200 MB per qualche secondo; l'esito di una copia lasciata si vede solo nel registro delle azioni | Accettato per la 1.0; miglioramenti: risultati su disco, job annullabili, esito delle copie nella schermata dei job |
 
 ## 4. Come provare l'app
 
@@ -228,3 +230,24 @@ del contenuto arrivi al 100%.
 7. Con il disco PRISMTEST scollegato e una copia ancora su un disco collegato, eliminare quella
    copia porta a una seconda conferma ("resterebbero solo copie su dischi non collegati")
    (F16-AC4).
+
+### Checklist T7 (backup)
+
+Le copie si provano **solo verso** il disco PRISMTEST, partendo da file di PRISMTEST: per
+esempio `F:\prism-t6\Documenti` come sorgente e `F:\prism-t7` come destinazione.
+
+1. *Backup* → *Verifica un backup*: scegliere la cartella da proteggere e uno o più dischi di
+   backup, anche scollegati; il risultato dice quanti file hanno una copia verificata dal
+   contenuto, quanti per nome/dimensione/data e quanti no (F13-AC1/AC2/AC3).
+2. I file senza copia sono raggruppati per cartella con numero e dimensione; si entra nelle
+   cartelle, si cerca nei percorsi e si filtra per dimensione (F13-AC4).
+3. *Copia i file mancanti* (solo con sorgente e destinazione collegate): anteprima con numero
+   di file, dimensione, cartella di destinazione e spazio libero; scelta tra *salta* e *altro
+   nome* in caso di conflitto (F13-AC5, F15-AC1/AC2/AC4).
+4. Durante la copia la barra avanza e *Annulla* la ferma senza lasciare file a metà; *Riprendi
+   la copia* riconosce i file già copiati; alla fine l'esito elenca gli errori (F15-AC5). Sulla
+   destinazione le cartelle della sorgente sono ricreate sotto la cartella scelta (F15-AC3), e
+   una nuova verifica non trova più mancanti.
+5. *Confronta*: due cartelle, per percorso o per contenuto; i totali per stato si usano come
+   filtri, l'albero mostra i totali per cartella, un file spostato o rinominato compare come
+   identico con il percorso in B (F14-AC1/AC2/AC3).

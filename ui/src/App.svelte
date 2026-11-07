@@ -10,6 +10,7 @@
   import { cardJob } from './lib/catalog';
   import { setTheme, type ThemePreference } from './lib/theme';
   import CatalogView from './components/CatalogView.svelte';
+  import BackupView from './components/BackupView.svelte';
   import CleanupView from './components/CleanupView.svelte';
   import DuplicatesView from './components/DuplicatesView.svelte';
   import SearchView from './components/SearchView.svelte';
@@ -17,7 +18,7 @@
   import SettingsView from './components/SettingsView.svelte';
   import SpaceView from './components/SpaceView.svelte';
 
-  type Page = 'catalog' | 'search' | 'duplicates' | 'cleanup' | 'settings' | 'space';
+  type Page = 'catalog' | 'search' | 'duplicates' | 'backup' | 'cleanup' | 'settings' | 'space';
 
   let page = $state<Page>('catalog');
   let spaceVolume = $state<number | null>(null);
@@ -120,6 +121,7 @@
     { page: 'catalog', icon: 'disks' },
     { page: 'search', icon: 'search' },
     { page: 'duplicates', icon: 'copy' },
+    { page: 'backup', icon: 'backup' },
     { page: 'cleanup', icon: 'broom' },
     { page: 'settings', icon: 'settings' },
   ];
@@ -168,6 +170,8 @@
       <SearchView {volumes} onerror={showToast} />
     {:else if page === 'duplicates'}
       <DuplicatesView {volumes} {settings} onchange={changeSettings} onerror={showToast} />
+    {:else if page === 'backup'}
+      <BackupView {volumes} onerror={showToast} />
     {:else if page === 'cleanup'}
       <CleanupView {volumes} onerror={showToast} />
     {:else}

@@ -60,6 +60,8 @@ pub struct AppState {
     pub shortcut_error: Mutex<Option<String>>,
     /// Background hashing: pause flags and progress per volume (F06).
     pub hashing: HashingState,
+    /// Backup checks, comparisons and copies (F13–F15).
+    pub backup: crate::backup_state::BackupState,
 }
 
 pub fn job_view(j: &JobInfo) -> JobView {
@@ -174,7 +176,7 @@ impl AppState {
             .collect())
     }
 
-    fn detected(&self, volume: VolumeId) -> Result<DetectedVolume, ApiError> {
+    pub(crate) fn detected(&self, volume: VolumeId) -> Result<DetectedVolume, ApiError> {
         self.online()
             .get(&volume)
             .cloned()

@@ -345,6 +345,15 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   dimensione e data senza hash, poi i percorsi uguali rimasti come "diversi". `folder_view`
   restituisce un livello dell'albero dei risultati con i totali per stato di ogni sottocartella
   (F13-AC4, F14-AC3). Sorgente e destinazione che si contengono sono rifiutate.
+- **Backup nell'app** (`prism-app/src/backup_state.rs`, T7): `backup_verify` e
+  `backup_compare` leggono il catalogo in un thread bloccante e tengono in memoria gli ultimi 4
+  risultati; l'interfaccia li sfoglia un livello alla volta con `backup_folder` (cartelle con i
+  totali, al massimo 500 file per livello, ricerca nel percorso, dimensione minima, stati del
+  confronto). `copy_preview` controlla che sorgente e destinazione siano collegate, che la
+  destinazione non stia dentro la sorgente, la guardia di debug e lo spazio libero;
+  `copy_start` accoda un job `copy` (priorità di indicizzazione, dischi di sorgente e
+  destinazione) che scrive nel registro delle azioni e poi aggiorna il catalogo della cartella
+  di destinazione; `copy_result` restituisce l'esito, con gli errori file per file.
 - **Copia verificata** (`backup::copy`, F15): ricrea la struttura sotto la cartella scelta,
   scrive in `<nome>.prism-part` calcolando l'hash di ciò che legge, rilegge la copia e la
   rinomina solo se coincide; mantiene la data di modifica (così il controllo per metadati

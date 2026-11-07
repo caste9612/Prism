@@ -2,6 +2,8 @@
 //! domain logic lives in `prism-core` and `prism-win` (ARCHITECTURE §2, ADR-0014).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backup_state;
+mod backup_views;
 mod cleanup_views;
 mod commands;
 mod dto;
@@ -99,6 +101,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         search: Arc::new(prism_core::search::live::LiveIndexes::default()),
         shortcut_error: Mutex::new(None),
         hashing: hash_jobs::HashingState::default(),
+        backup: backup_state::BackupState::default(),
         app_id,
         store,
         engine: JobEngine::start(4),
@@ -185,6 +188,12 @@ fn main() {
             commands::delete_entries,
             commands::duplicate_groups,
             commands::delete_duplicates,
+            commands::backup_verify,
+            commands::backup_compare,
+            commands::backup_folder,
+            commands::copy_preview,
+            commands::copy_start,
+            commands::copy_result,
             commands::reveal_entry,
             commands::remove_volume,
             commands::get_settings,

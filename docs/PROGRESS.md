@@ -5,10 +5,10 @@
 
 ## Stato attuale
 
-- **Tappa**: T6 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: T7 — backup: verifica dei backup anche con destinazioni offline (F13),
-  confronto tra dischi o cartelle (F14), copia dei file mancanti verificata, annullabile e
-  riprendibile (F15), con la guardia sandbox per ogni scrittura (CLAUDE.md). Nessuna sosta.
+- **Tappa**: T7 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
+- **Prossimo passo**: T8 — media: immagini simili con indice per distanza di Hamming, RAW
+  compresi (F11); prototipi e decisione per i video (ADR-0013), poi video simili (F12).
+  Nessuna sosta.
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -22,6 +22,33 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T7 completata: backup nell'app
+
+- App (`backup_state.rs`, `backup_views.rs`): comandi `backup_verify`, `backup_compare`,
+  `backup_folder` (un livello dell'albero con i totali, ricerca, filtri), `copy_preview` (dischi
+  collegati, destinazione fuori dalla sorgente, guardia di debug, spazio libero),
+  `copy_start` (job `copy` con registro delle azioni e aggiornamento del catalogo della
+  destinazione), `copy_result`. 2 test dell'app su cartelle temporanee: verifica → albero →
+  anteprima → copia → nuova verifica senza mancanti; copia fuori sandbox rifiutata in debug.
+- Interfaccia: schermata *Backup* con *Verifica un backup* (sorgente, più destinazioni anche
+  scollegate, riepilogo per contenuto/metadati/mancanti, albero, copia con anteprima,
+  avanzamento, annullamento, esito con errori e ripresa) e *Confronta* (per percorso o per
+  contenuto, totali per stato usati come filtri, albero). 4 Vitest, 5 Playwright.
+- Dai test e2e: il percorso della destinazione si aggiornava solo uscendo dal campo, e
+  l'anteprima restava quella vecchia; ora segue la digitazione.
+
+**Report di fine tappa T7**
+
+- Fatto: verifica dei backup sul catalogo (anche con destinazioni scollegate) per contenuto o
+  per metadati con la quota di ciascuno, confronto per percorso o per contenuto con i file
+  spostati, albero dei risultati con i totali, copia verificata dei mancanti (mai
+  sovrascrivere, salta o rinomina, annullabile, riprendibile, errori elencati).
+- Criteri coperti da test automatici: F13-AC1…AC5, F14-AC1…AC3, F15-AC1…AC5 (core, app, e2e).
+- Controlli: `scripts/check.ps1` verde.
+- Rimandati: risultati su disco e verifiche annullabili (L14); analisi delle unità di rete
+  (L13), che lascia i backup su NAS al confronto per metadati.
+- Verifica manuale per l'utente: checklist T7 in `docs/REVIEW.md` §4.
 
 ### 2026-11-07 — T7: verifica, confronto e copia (nucleo)
 

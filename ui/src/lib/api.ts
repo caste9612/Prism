@@ -5,6 +5,9 @@ import { listen } from '@tauri-apps/api/event';
 import type { ApiError } from './bindings/ApiError';
 import type { AppInfo } from './bindings/AppInfo';
 import type { CleanupResultView } from './bindings/CleanupResultView';
+import type { CompareSummaryView } from './bindings/CompareSummaryView';
+import type { CopyPreviewView } from './bindings/CopyPreviewView';
+import type { CopyResultView } from './bindings/CopyResultView';
 import type { CleanupView } from './bindings/CleanupView';
 import type { DupFilterInput } from './bindings/DupFilterInput';
 import type { DuplicatesView } from './bindings/DuplicatesView';
@@ -12,11 +15,15 @@ import type { JobView } from './bindings/JobView';
 import type { LabelsInput } from './bindings/LabelsInput';
 import type { LargeFileView } from './bindings/LargeFileView';
 import type { NativeTexts } from './bindings/NativeTexts';
+import type { ReportFilterInput } from './bindings/ReportFilterInput';
+import type { ReportFolderView } from './bindings/ReportFolderView';
 import type { RuleInput } from './bindings/RuleInput';
 import type { SearchResultView } from './bindings/SearchResultView';
+import type { SideInput } from './bindings/SideInput';
 import type { Settings } from './bindings/Settings';
 import type { SpaceFolderView } from './bindings/SpaceFolderView';
 import type { TypeStatsView } from './bindings/TypeStatsView';
+import type { VerifySummaryView } from './bindings/VerifySummaryView';
 import type { VolumeView } from './bindings/VolumeView';
 import { t } from './i18n.svelte';
 import { mockBackend } from './mock';
@@ -44,6 +51,12 @@ export interface Backend {
   revealEntry(volumeId: number, entryId: number): Promise<void>;
   duplicateGroups(filter: DupFilterInput, rules: RuleInput[]): Promise<DuplicatesView>;
   deleteDuplicates(entryIds: number[], allowOfflineOnly: boolean, permanent: boolean): Promise<CleanupResultView>;
+  backupVerify(source: SideInput, destinations: SideInput[]): Promise<VerifySummaryView>;
+  backupCompare(a: SideInput, b: SideInput, byContent: boolean): Promise<CompareSummaryView>;
+  backupFolder(reportId: number, folder: string, filter: ReportFilterInput): Promise<ReportFolderView>;
+  copyPreview(reportId: number, dest: SideInput): Promise<CopyPreviewView>;
+  copyStart(reportId: number, dest: SideInput, renameOnConflict: boolean): Promise<number>;
+  copyResult(jobId: number): Promise<CopyResultView | null>;
   removeVolume(id: number): Promise<void>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
@@ -76,6 +89,12 @@ const tauriBackend: Backend = {
   duplicateGroups: (filter, rules) => invoke('duplicate_groups', { filter, rules }),
   deleteDuplicates: (entryIds, allowOfflineOnly, permanent) =>
     invoke('delete_duplicates', { entryIds, allowOfflineOnly, permanent }),
+  backupVerify: (source, destinations) => invoke('backup_verify', { source, destinations }),
+  backupCompare: (a, b, byContent) => invoke('backup_compare', { a, b, byContent }),
+  backupFolder: (reportId, folder, filter) => invoke('backup_folder', { reportId, folder, filter }),
+  copyPreview: (reportId, dest) => invoke('copy_preview', { reportId, dest }),
+  copyStart: (reportId, dest, renameOnConflict) => invoke('copy_start', { reportId, dest, renameOnConflict }),
+  copyResult: (jobId) => invoke('copy_result', { jobId }),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),
   setSettings: (settings) => invoke('set_settings', { settings }),
