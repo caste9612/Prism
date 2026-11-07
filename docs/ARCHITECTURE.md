@@ -477,7 +477,7 @@ Il motore è in memoria (REVIEW D10). `should_yield(id)` dice a un job se un job
 aspetta uno dei suoi dischi: i job di background (hash) lo chiedono ogni mezzo secondo e
 cedono il disco invece di far aspettare un'indicizzazione per ore (T6, REVIEW D31). I job di
 background non contano come "disco occupato" per l'app: aggiornamenti dal journal, dalla
-sorveglianza e richieste dell'utente partono comunque (`AppState::foreground_jobs`). Gli hash
+sorveglianza e richieste dell'utente partono comunque (`AppState::foreground_jobs`); il job `journal` non riserva il disco (legge pochi record ogni 15 s), altrimenti l'analisi gli cederebbe il passo a ogni giro. Gli hash
 non hanno bisogno di un record persistente per riprendere (§4.3).
 
 ## 7. Interfaccia e IPC (ADR-0014)

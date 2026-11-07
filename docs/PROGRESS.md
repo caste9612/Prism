@@ -45,6 +45,17 @@
   disco rimovibile, registro delle azioni.
 - Trovato da un test e2e: l'avviso "analisi in pausa" sulla schermata dei duplicati leggeva lo
   stato caricato con l'elenco e restava vecchio dopo *Riprendi*; ora segue l'impostazione.
+- Prova sull'app vera (debug, elevata): su D: (576.077 file) l'analisi si fermava dopo 293 file
+  perché l'aggiornamento dal journal, accodato ogni 15 s, riservava lo stesso disco e l'hash gli
+  cedeva il passo. Ora il job `journal` non riserva il disco (test
+  `journal_updates_do_not_reserve_the_disk`); dopo la correzione l'analisi di D: è andata avanti
+  ininterrotta per 4 minuti, a priorità background, con "Analisi del contenuto: 0% · in corso"
+  sulla scheda. Su PRISMTEST (unico disco dove si prova a eliminare) sei file di prova in
+  `F:\prism-t6`: indicizzati, analizzati, due gruppi nella schermata *Duplicati* con la regola
+  "tieni la più vecchia"; le tre copie proposte (controllate via UI Automation: tutte su
+  PRISMTEST) sono finite nel Cestino di F: con la conferma, e le copie tenute sono rimaste.
+  Il menu del tray non è raggiungibile con UI Automation da questa sessione: resta nella
+  checklist T6 (punto 2).
 
 **Report di fine tappa T6**
 

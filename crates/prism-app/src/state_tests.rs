@@ -336,3 +336,18 @@ fn duplicates_are_grouped_selected_and_deleted_safely() {
     let log = app.store.read(|c| store::actions_log(c, 10)).unwrap();
     assert_eq!(log.len(), 1);
 }
+
+// D31: the periodic journal update does not reserve the disk, so the content analysis does
+// not stop for it every 15 s; indexing and updates do.
+#[test]
+fn journal_updates_do_not_reserve_the_disk() {
+    use crate::state::IndexKind;
+    let detected = DetectedVolume {
+        info: VolumeInfo::dev_folder(r"Q:\"),
+        mounts: vec![r"Q:\".to_owned()],
+        disks: vec![3],
+    };
+    assert!(IndexKind::Journal.disks(&detected).is_empty());
+    assert_eq!(IndexKind::Update.disks(&detected), ["disk3"]);
+    assert_eq!(IndexKind::Index.disks(&detected), ["disk3"]);
+}

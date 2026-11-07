@@ -205,7 +205,7 @@ impl AppState {
             kind: kind.as_str().to_owned(),
             volume: Some(volume),
             priority: Priority::Indexing,
-            disks: job_disks(&detected),
+            disks: kind.disks(&detected),
             run: Box::new(move |ctx| run_index(&store, volume, &detected, elevated, update, ctx)),
         }))
     }
@@ -718,6 +718,16 @@ impl IndexKind {
             Self::Index => "index",
             Self::Update => "update",
             Self::Journal => "journal",
+        }
+    }
+
+    /// The disks the job keeps busy. A journal update reads a few records every 15 s: it does
+    /// not reserve the disk, otherwise the content analysis would give way to it every time and
+    /// never progress (REVIEW D31, seen on the real app).
+    pub fn disks(self, detected: &DetectedVolume) -> Vec<String> {
+        match self {
+            Self::Journal => Vec::new(),
+            Self::Index | Self::Update => job_disks(detected),
         }
     }
 }
