@@ -45,8 +45,10 @@ impl Disposal {
 pub enum FolderCheck {
     /// The folder exists (removing it removes its content: browser caches).
     Exists,
-    /// The folder exists and is empty (empty-folder cleanup).
-    Empty,
+    /// The folder exists and has no file anywhere below it, only empty folders (empty-folder
+    /// cleanup). Links and junctions below it count as content: they are never removed this
+    /// way.
+    NoFiles,
 }
 
 /// Removes verified paths from the disk.
@@ -172,7 +174,7 @@ pub fn delete_entries(
             Err(e) => Some(Outcome::Failed(e.to_string())),
             Ok((is_dir, meta)) => {
                 let same = if t.is_dir {
-                    is_dir && (req.folders == FolderCheck::Exists || folder_is_empty(&t.path))
+                    is_dir && (req.folders == FolderCheck::Exists || has_no_files(&t.path))
                 } else {
                     !is_dir && meta.size == t.size && meta.modified == t.modified
                 };
@@ -251,8 +253,25 @@ pub fn delete_entries(
     Ok(DeleteReport { items })
 }
 
-fn folder_is_empty(path: &Path) -> bool {
-    std::fs::read_dir(path).is_ok_and(|mut d| d.next().is_none())
+/// Whether a folder holds no file at any depth. Anything unreadable, any link or junction
+/// counts as content (the folder is then not removed).
+fn has_no_files(path: &Path) -> bool {
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return false;
+        };
+        for entry in entries {
+            let Ok(entry) = entry else {
+                return false;
+            };
+            match entry.file_type() {
+                Ok(t) if t.is_dir() && !t.is_symlink() => stack.push(entry.path()),
+                _ => return false,
+            }
+        }
+    }
+    true
 }
 
 /// Resolves the ids to paths and catalog data; drops entries inside another selected folder.

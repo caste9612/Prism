@@ -111,7 +111,7 @@ fn f16_ac3_items_are_checked_against_the_catalog() {
     let guard = SandboxGuard::new([sb.root()]).unwrap();
     let report = delete_entries(
         &cat.store,
-        &request(&sb, volume, &ids, FolderCheck::Empty),
+        &request(&sb, volume, &ids, FolderCheck::NoFiles),
         &remover,
         Some(&guard),
     )
@@ -173,7 +173,7 @@ fn empty_folder_check_and_whole_folders() {
     // Not empty any more: skipped.
     let report = delete_entries(
         &cat.store,
-        &request(&sb, volume, &[inner], FolderCheck::Empty),
+        &request(&sb, volume, &[inner], FolderCheck::NoFiles),
         &remover,
         None,
     )
@@ -205,7 +205,7 @@ fn failures_leave_disk_and_catalog_unchanged() {
     remover.refuse.push(sb.path(r"a\x.txt"));
     let report = delete_entries(
         &cat.store,
-        &request(&sb, volume, &[x], FolderCheck::Empty),
+        &request(&sb, volume, &[x], FolderCheck::NoFiles),
         &remover,
         None,
     )
@@ -228,7 +228,7 @@ fn sandbox_guard_refuses_before_touching_anything() {
     let guard = SandboxGuard::new([other.root()]).unwrap();
     let err = delete_entries(
         &cat.store,
-        &request(&sb, volume, &[x], FolderCheck::Empty),
+        &request(&sb, volume, &[x], FolderCheck::NoFiles),
         &remover,
         Some(&guard),
     )
@@ -257,7 +257,7 @@ fn foreign_entries_and_roots_are_refused() {
         };
         let err = delete_entries(
             &cat.store,
-            &request(&sb, wrong_volume, &entries, FolderCheck::Empty),
+            &request(&sb, wrong_volume, &entries, FolderCheck::NoFiles),
             &remover,
             None,
         )
@@ -265,4 +265,32 @@ fn foreign_entries_and_roots_are_refused() {
         assert!(matches!(err, FileOpsError::WrongEntry(..)), "{err}");
     }
     assert!(remover.calls.lock().unwrap().is_empty());
+}
+
+// Empty-folder cleanup: a folder whose subtree holds only empty folders is empty; a file deep
+// below makes it skipped.
+#[test]
+fn nested_empty_folders_count_as_empty() {
+    let sb = Sandbox::new();
+    sb.mkdir(r"e\f\g");
+    sb.mkdir(r"h\i");
+    sb.file(r"keep.txt", 1, 1);
+    let cat = TestCatalog::new();
+    let volume = cat.add_volume(&sb.root().to_string_lossy());
+    cat.index(volume, sb.root());
+    let (e, h) = (id(&cat, volume, "e"), id(&cat, volume, "h"));
+    sb.file(r"h\i\late.txt", 3, 2); // appeared after indexing
+    let remover = GuardedRemover::new(&sb);
+    let report = delete_entries(
+        &cat.store,
+        &request(&sb, volume, &[e, h], FolderCheck::NoFiles),
+        &remover,
+        None,
+    )
+    .unwrap();
+    let outcomes: Vec<&Outcome> = report.items.iter().map(|i| &i.outcome).collect();
+    assert_eq!(outcomes, [&Outcome::Done, &Outcome::SkippedChanged]);
+    assert!(!sb.path("e").exists());
+    assert!(sb.path(r"h\i\late.txt").exists());
+    cat.assert_consistent();
 }

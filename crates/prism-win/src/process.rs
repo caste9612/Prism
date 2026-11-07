@@ -79,3 +79,53 @@ mod tests {
         let _ = is_elevated();
     }
 }
+
+/// Executable names of the running processes, lowercase (`chrome.exe`): whether a browser is
+/// open before proposing its caches (F09-AC4). Empty if the list cannot be read.
+#[must_use]
+pub fn running_process_names() -> std::collections::HashSet<String> {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    let mut names = std::collections::HashSet::new();
+    // SAFETY: no pointer arguments; returns a snapshot handle or INVALID_HANDLE_VALUE.
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE || snapshot.is_null() {
+        return names;
+    }
+    let mut entry = PROCESSENTRY32W {
+        dwSize: u32::try_from(size_of::<PROCESSENTRY32W>()).unwrap_or(0),
+        ..Default::default()
+    };
+    // SAFETY: `snapshot` is a valid process snapshot; `entry` is writable with dwSize set.
+    let mut ok = unsafe { Process32FirstW(snapshot, &raw mut entry) } != 0;
+    while ok {
+        let len = entry
+            .szExeFile
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(entry.szExeFile.len());
+        names.insert(String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase());
+        // SAFETY: as above.
+        ok = unsafe { Process32NextW(snapshot, &raw mut entry) } != 0;
+    }
+    // SAFETY: `snapshot` is owned here and closed once.
+    unsafe { CloseHandle(snapshot) };
+    names
+}
+
+#[cfg(test)]
+mod process_list_tests {
+    #[test]
+    fn the_current_process_is_listed() {
+        let names = super::running_process_names();
+        let me = std::env::current_exe()
+            .unwrap_or_default()
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        assert!(names.contains(&me), "{me} not in {} processes", names.len());
+    }
+}

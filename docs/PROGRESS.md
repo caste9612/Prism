@@ -24,6 +24,22 @@
 
 ## Diario
 
+### 2026-11-07 — T4: regole della pulizia guidata
+
+- `prism-core::cleanup`: temporanei, cartelle vuote (le più in alto), file grandi e vecchi,
+  cache dei browser; aree mai proposte (F09-AC2). 5 test su un catalogo costruito apposta
+  (aree protette, nascosti, giunzioni, cartelle con il punto, soglie).
+- `fileops`: la verifica delle cartelle vuote guarda tutto il sottoalbero
+  (`FolderCheck::NoFiles`); nuovo test con cartelle vuote annidate.
+- `prism-win::process::running_process_names` per non toccare le cache di un browser aperto
+  (F09-AC4).
+- CLI `prism-cli cleanup <volume>`: proposta senza eliminare nulla. Su C: reale: 21.237 file
+  temporanei (8,0 GB) in 0,75 s, 102 cartelle vuote, nessun file grande e vecchio fuori dalle
+  aree protette, cache di Chrome 843 MB, Edge 25 MB, Firefox 401 MB.
+- Trovati sui dati reali e corretti: `C:\inetpub` (creata vuota da Windows come mitigazione
+  di sicurezza, da non cancellare), le cartelle che iniziano con `$` e le cartelle dei
+  profili utente in sé (`C:\Users\TEMP`) venivano proposte come cartelle vuote (D24).
+
 ### 2026-11-07 — T4: eliminazione sicura di base
 
 - `prism-core::fileops::delete_entries` (ADR-0012): identificativi del catalogo → percorsi,

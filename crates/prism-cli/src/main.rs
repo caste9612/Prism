@@ -87,6 +87,9 @@ enum Command {
         #[arg(long)]
         max_nodes: Option<usize>,
     },
+    /// What the guided cleanup would propose on a volume, from the catalog, with timings (F09).
+    /// Read-only: nothing is deleted.
+    Cleanup { path: PathBuf },
     /// Catalog size and counters.
     Stats,
     /// Check the consistency of the catalog.
@@ -226,6 +229,7 @@ fn run(store: &Store, command: &Command) -> CliResult {
             };
             space(store, path, opts)
         }
+        Command::Cleanup { path } => cleanup(store, path),
         Command::Stats => stats(store),
         Command::Check => check(store),
         Command::Bench { .. } => Ok(()),
@@ -615,6 +619,88 @@ fn space(store: &Store, path: &Path, opts: prism_core::space::TreemapOptions) ->
             human_size(t.bytes),
             t.files
         );
+    }
+    Ok(())
+}
+
+fn cleanup(store: &Store, path: &Path) -> CliResult {
+    use prism_core::cleanup::{self, BrowserCaches, CacheLayout, CleanupRules, DEFAULT_PROTECTED};
+    use prism_core::model::{FileTime, unix_millis_now};
+    let (volume, _) = resolve(store, path)?;
+    let mount = volume.info.last_mount.clone().unwrap_or_default();
+    let rel = |var: &str, tail: &str| {
+        std::env::var(var)
+            .ok()
+            .and_then(|v| cleanup::relative_under(&mount, &format!("{v}{tail}")))
+    };
+    let day = 86_400_000;
+    let now = unix_millis_now();
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let browser = |name: &str, process: &str, folder: &str, layout| BrowserCaches {
+        browser: name.to_owned(),
+        process: process.to_owned(),
+        folder: cleanup::relative_under(&mount, &format!("{local}\\{folder}")).unwrap_or_default(),
+        layout,
+    };
+    let rules = CleanupRules {
+        temp_dirs: [rel("TEMP", ""), rel("SystemRoot", r"\Temp")]
+            .into_iter()
+            .flatten()
+            .collect(),
+        temp_before: FileTime::from_unix_millis(now - day),
+        large_min_size: 500_000_000,
+        large_before: FileTime::from_unix_millis(now - 365 * day),
+        browsers: vec![
+            browser(
+                "Chrome",
+                "chrome.exe",
+                r"Google\Chrome\User Data",
+                CacheLayout::Chromium,
+            ),
+            browser(
+                "Edge",
+                "msedge.exe",
+                r"Microsoft\Edge\User Data",
+                CacheLayout::Chromium,
+            ),
+            browser(
+                "Firefox",
+                "firefox.exe",
+                r"Mozilla\Firefox\Profiles",
+                CacheLayout::Firefox,
+            ),
+        ],
+        protected: DEFAULT_PROTECTED.iter().map(|s| (*s).to_owned()).collect(),
+    };
+    let vid = volume.id;
+    let report = |name: &str, items: &[cleanup::CleanupItem], ms: f64| {
+        println!(
+            "{name:<14} {:>5} items {:>10} in {ms:.0} ms",
+            items.len(),
+            human_size(cleanup::total(items))
+        );
+        for i in items.iter().take(3) {
+            println!("    {:>10}  {}", human_size(i.size), i.path);
+        }
+    };
+    macro_rules! timed {
+        ($name:expr, $f:expr) => {{
+            let started = Instant::now();
+            let r = rules.clone();
+            let items = store.read(move |c| $f(c, vid, &r)).map_err(err)?;
+            report($name, &items, started.elapsed().as_secs_f64() * 1000.0);
+        }};
+    }
+    timed!("temp", cleanup::temp_files);
+    timed!("empty folders", cleanup::empty_folders);
+    timed!("large & old", cleanup::large_old_files);
+    for b in &rules.browsers {
+        let started = Instant::now();
+        let b2 = b.clone();
+        let items = store
+            .read(move |c| cleanup::browser_caches(c, vid, &b2))
+            .map_err(err)?;
+        report(&b.browser, &items, started.elapsed().as_secs_f64() * 1000.0);
     }
     Ok(())
 }

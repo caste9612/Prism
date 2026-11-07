@@ -14,6 +14,7 @@
 
 pub mod cancel;
 pub mod changes;
+pub mod cleanup;
 pub mod exclusion;
 pub mod fileops;
 pub mod indexer;

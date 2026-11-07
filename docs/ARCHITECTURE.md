@@ -323,6 +323,30 @@ Misure su C: (1,37 milioni di voci): treemap 0,48 s (11.592 nodi), file più gra
 
 La regola dell'ultima copia dei duplicati (F16-AC4) e il controllo dell'hash arrivano con T6.
 
+### 4.8 Pulizia guidata (F09, T4)
+
+`prism-core::cleanup` calcola le categorie sul catalogo (tenuto aggiornato da journal e
+sorveglianza cartelle); l'eliminazione passa da `fileops`, che ricontrolla ogni elemento sul
+disco.
+
+- **Temporanei**: file sotto `%TEMP%` e `%SystemRoot%\Temp` modificati da più di un giorno (i
+  più recenti possono essere in uso; quelli in uso li rifiuta comunque la shell).
+- **Cartelle vuote**: le più in alto senza alcun file nel sottoalbero (rimuoverle toglie anche
+  le sottocartelle vuote); al momento di eliminare si verifica che sul disco non ci siano file
+  né collegamenti (`FolderCheck::NoFiles`).
+- **Grandi e vecchi**: file di almeno 500 MB non modificati da un anno (valori di default).
+- **Cache dei browser**: solo cartelle di cache note (Chromium: `Cache`, `Code Cache`,
+  `GPUCache` dei profili e le cache degli shader; Firefox: `cache2` dei profili), mai profili,
+  cookie, password o cronologia; proposte solo se il browser non è in esecuzione
+  (`prism-win::process::running_process_names`, F09-AC4).
+- **Mai proposti** (F09-AC2): `DEFAULT_PROTECTED` (Windows, programmi, `ProgramData`,
+  ripristino, `Users\*\AppData` tranne temporanei e cache, `inetpub` creato da Windows come
+  mitigazione di sicurezza…), le cartelle dei profili utente in sé, elementi nascosti o di
+  sistema e tutto ciò che contengono, collegamenti e giunzioni, nomi che iniziano con `.` o `$`.
+
+Su C: (1,37 milioni di voci) la scansione completa richiede circa 2 s (cartelle vuote 1,1 s,
+temporanei 0,75 s); `prism-cli cleanup <volume>` mostra la proposta senza eliminare nulla.
+
 ## 5. Accesso ai dati (ADR-0008)
 
 - **Un solo thread scrittore** possiede la connessione in scrittura: riceve operazioni da un
