@@ -8,6 +8,7 @@
 //!   about 4 per second (ADR-0009), and refreshes the volume list when a job ends;
 //! - the **network probe** checks that mapped shares answer and reads their free space
 //!   (`netprobe`, REVIEW L5): a share counts as connected only once its server has answered;
+//! - **new-disk notifications** while the window is hidden (`notices`, REVIEW L8);
 //! - **folder watchers** keep the volumes without a usable journal up to date (`watchers`,
 //!   REVIEW L6), started and stopped by the volume monitor.
 
@@ -19,9 +20,10 @@ use prism_core::model::{VolumeId, VolumeKind, VolumeStatus};
 use prism_core::store;
 use prism_core::volumes::{self, DetectedVolume, VolumeMatch, VolumeSource, match_volumes};
 use prism_win::volumes::WinVolumeSource;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::netprobe::{NetProbe, NetStatus};
+use crate::notices::notice_name;
 use crate::state::{AppState, IndexKind, auto_update, job_view};
 use crate::watchers::Watchers;
 
@@ -124,6 +126,7 @@ fn detect_once(app: &AppHandle, state: &AppState) -> Result<(), String> {
                     volumes::record_detected(&state.store, &d, &m).map_err(|e| e.to_string())?
                 {
                     tracing::info!(volume = id.0, mount = ?d.info.last_mount, "new volume");
+                    state.notices().push(notice_name(&d.info), Instant::now());
                     now.insert(id, d);
                     changed = true;
                 }
@@ -147,7 +150,30 @@ fn detect_once(app: &AppHandle, state: &AppState) -> Result<(), String> {
     if changed {
         let _ = app.emit("volumes-changed", ());
     }
+    announce_new_volumes(app, state);
     Ok(())
+}
+
+/// F02-AC1: while the window is hidden, new disks are announced with a Windows notification;
+/// when it is visible, its own panel shows them.
+fn announce_new_volumes(app: &AppHandle, state: &AppState) {
+    let visible = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    let notice = {
+        let mut notices = state.notices();
+        if visible {
+            notices.clear();
+            return;
+        }
+        notices.take_due(Instant::now())
+    };
+    if let Some(n) = notice
+        && let Err(e) = prism_win::notify::show_toast(&state.app_id, &n.title, &n.body)
+    {
+        tracing::warn!(error = %e, "cannot show the new-disk notification");
+    }
 }
 
 /// F05-AC1: while Prism runs, indexed NTFS volumes are updated from their change journal.

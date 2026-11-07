@@ -123,6 +123,11 @@
     "open": "Apri Prism",
     "quit": "Esci"
   },
+  "notify": {
+    "newDiskTitle": "Nuovo disco: {name}",
+    "newDisksTitle": "{count} nuovi dischi trovati",
+    "newDiskBody": "Apri Prism per indicizzarlo o ignorarlo."
+  },
   "time": {
     "justNow": "proprio ora",
     "minutes": "{count} min fa",

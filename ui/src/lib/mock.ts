@@ -137,7 +137,7 @@ export function mockBackend(): Backend {
     setSettings: async (s) => {
       settings = { ...s };
     },
-    setTrayLabels: async () => {},
+    setNativeTexts: async () => {},
     onVolumesChanged: (h) => on(volumeListeners, h),
     onJobsChanged: (h) => on(jobListeners, h),
   };

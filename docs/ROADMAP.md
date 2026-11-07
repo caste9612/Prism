@@ -62,7 +62,7 @@ misura: 108–129 B per voce senza indice di ricerca), NF4 (parziale).
 Criteri coperti: F02-AC3, F02-AC5, F04-AC1, F05-AC1/AC2/AC3/AC4.
 **Verifica utente**: collegare/scollegare un disco esterno.
 
-## T3 — Motore dei job e app minima
+## T3 — Motore dei job e app minima  `[x]`
 
 - [x] Motore dei job (ADR-0009) con priorità e annullamento (la ripresa arriva con i job di
       background in T6, REVIEW D10)
@@ -73,10 +73,12 @@ Criteri coperti: F02-AC3, F02-AC5, F04-AC1, F05-AC1/AC2/AC3/AC4.
 - [x] Schermata catalogo (F01), disco nuovo (F02), etichette (F03), impostazioni di base (F21)
 - [x] Rifiniture del monitor: sonda delle unità di rete (REVIEW L5), sorveglianza cartelle per
       i volumi non NTFS (L6), job automatici nascosti dalle schede
-- [ ] Notifica di sistema per i dischi nuovi a finestra nascosta (REVIEW L8)
+- [x] Notifica di sistema per i dischi nuovi a finestra nascosta (REVIEW L8, D19)
 - [x] Test e2e con IPC simulato (Playwright, `ui/e2e/`)
 
-Criteri coperti: F01, F02, F03, F19, F21 (parziale).
+Criteri coperti: F01 (AC4 per le parti che arrivano con T4/T5/T9), F02 (AC3 senza la finestra
+di scelta per le identità ambigue, REVIEW L7), F03-AC1/AC3, F19-AC1/AC3/AC4, F21-AC1/AC4
+(parziale: manca il reset del catalogo).
 **Sosta di revisione annullata** (decisione dell'utente, 2026-11-07): lo sviluppo prosegue fino
 alla 1.0 e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
 **Verifica utente**: aspetto e usabilità della schermata catalogo; avvio con Windows.
@@ -93,6 +95,7 @@ alla 1.0 e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
 - [ ] Parser dei filtri avanzati con errori espliciti (F07-AC5/AC6)
 - [ ] Finestra di ricerca globale con scorciatoia configurabile (F07-AC1)
 - [ ] Risultati offline con nome e posizione del disco (F07-AC4)
+- [ ] Voce *Cerca* nel menu del tray (F19-AC2, rimandata da T3)
 
 ## T6 — Hash e duplicati
 
@@ -100,6 +103,7 @@ alla 1.0 e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
 - [ ] Gruppi di duplicati online e offline (F10)
 - [ ] Regole di selezione (F10-AC3)
 - [ ] Eliminazione sicura completa: Cestino, riverifica, ultima copia, registro azioni (F16)
+- [ ] Stato dei job e Pausa/Riprendi hash nel menu del tray (F19-AC2, rimandata da T3)
 
 ## T7 — Backup
 
@@ -117,10 +121,13 @@ alla 1.0 e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
 - [ ] SMART con storia e notifiche (F17)
 - [ ] `prism-shell` e menu contestuale di Esplora risorse (F18)
 - [ ] Diagnostica: log a rotazione, pacchetto diagnostico (F20)
+- [ ] Finestra di scelta per le identità ambigue dei volumi (F02-AC3, REVIEW L7) e reset del
+      catalogo con conferma (F21-AC4), rimandati da T3
 
 ## T10 — Distribuzione e 1.0
 
-- [ ] Installer: attività pianificata, menu contestuale, WebView2, disinstallazione (F22)
+- [ ] Installer: attività pianificata, menu contestuale, WebView2, disinstallazione (F22),
+      identificativo e attivatore delle notifiche (REVIEW L9)
 - [ ] Aggiornamenti automatici firmati (F22-AC3)
 - [ ] Firma del codice con il certificato scelto dall'utente (Q7), ramo principale (Q11)
 - [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali

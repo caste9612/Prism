@@ -342,6 +342,9 @@ Implementazione (T3):
   di rete) un `FolderWatcher` raccoglie i percorsi cambiati e un job `refresh` rilegge le
   cartelle interessate (`prism-core::refresh`); i cambi nella cartella dati di Prism sono
   ignorati. I job automatici `journal` e `refresh` non compaiono sulle schede.
+- `notices.rs`: i dischi nuovi trovati mentre la finestra è nascosta diventano una notifica di
+  Windows (`prism-win::notify`), una sola per più dischi, con i testi inviati dall'interfaccia
+  (`set_native_texts`, insieme alle voci del tray); a finestra visibile basta il riquadro.
 - Le impostazioni (F21) sono un documento JSON nella tabella `settings` (chiave
   `app.settings`). L'opzione di avvio con Windows registra o rimuove l'attività pianificata
   `Prism` (`prism-win::autostart`, ADR-0003); con `--autostart` la finestra parte nascosta.

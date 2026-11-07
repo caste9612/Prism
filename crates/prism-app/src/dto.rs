@@ -68,6 +68,20 @@ pub struct JobView {
     pub error: Option<String>,
 }
 
+/// Texts shown by Windows outside the window (tray menu, notifications), in the language of
+/// the interface, which sends them (ARCHITECTURE §7). `{name}` and `{count}` are filled in by
+/// the backend.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct NativeTexts {
+    pub open: String,
+    pub quit: String,
+    pub new_disk_title: String,
+    pub new_disks_title: String,
+    pub new_disk_body: String,
+}
+
 /// User labels of a volume (F03).
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]

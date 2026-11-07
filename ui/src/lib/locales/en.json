@@ -123,6 +123,11 @@
     "open": "Open Prism",
     "quit": "Quit"
   },
+  "notify": {
+    "newDiskTitle": "New disk: {name}",
+    "newDisksTitle": "{count} new disks found",
+    "newDiskBody": "Open Prism to index it or to ignore it."
+  },
   "time": {
     "justNow": "just now",
     "minutes": "{count} min ago",

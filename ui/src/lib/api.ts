@@ -6,6 +6,7 @@ import type { ApiError } from './bindings/ApiError';
 import type { AppInfo } from './bindings/AppInfo';
 import type { JobView } from './bindings/JobView';
 import type { LabelsInput } from './bindings/LabelsInput';
+import type { NativeTexts } from './bindings/NativeTexts';
 import type { Settings } from './bindings/Settings';
 import type { VolumeView } from './bindings/VolumeView';
 import { t } from './i18n.svelte';
@@ -25,7 +26,7 @@ export interface Backend {
   removeVolume(id: number): Promise<void>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
-  setTrayLabels(open: string, quit: string): Promise<void>;
+  setNativeTexts(texts: NativeTexts): Promise<void>;
   onVolumesChanged(handler: () => void): Promise<Unlisten>;
   onJobsChanged(handler: (jobs: JobView[]) => void): Promise<Unlisten>;
 }
@@ -42,7 +43,7 @@ const tauriBackend: Backend = {
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),
   setSettings: (settings) => invoke('set_settings', { settings }),
-  setTrayLabels: (open, quit) => invoke('set_tray_labels', { open, quit }),
+  setNativeTexts: (texts) => invoke('set_native_texts', { texts }),
   onVolumesChanged: (handler) => listen('volumes-changed', () => handler()),
   onJobsChanged: (handler) => listen<JobView[]>('jobs-changed', (e) => handler(e.payload)),
 };

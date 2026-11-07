@@ -10,6 +10,7 @@
 pub mod autostart;
 pub(crate) mod ioctl;
 pub mod mft;
+pub mod notify;
 pub mod ntfs;
 pub mod process;
 pub mod shell;

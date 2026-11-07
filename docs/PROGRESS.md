@@ -5,11 +5,10 @@
 
 ## Stato attuale
 
-- **Tappa**: T3 in corso. Fatti: motore dei job, app Tauri con tray e istanza singola,
-  interfaccia Svelte con schermata catalogo, disco nuovo, etichette e impostazioni. L'app si
-  prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: ultima voce di T3 — notifica di sistema per i dischi nuovi (REVIEW L8) —
-  e report di fine tappa; poi T4. Nessuna sosta (CLAUDE.md).
+- **Tappa**: T3 completata (2026-11-07). L'app si prova seguendo `docs/REVIEW.md` §4.
+- **Prossimo passo**: T4 — spazio: treemap su canvas con navigazione ed elenco dei più grandi
+  (F08), statistiche per tipo/estensione/dimensione (F08-AC3), pulizia guidata (F09). Nessuna
+  sosta (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -23,6 +22,36 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T3 completata: notifiche dei dischi nuovi
+
+- `prism-win::notify`: notifiche di Windows (toast WinRT con il crate `windows`) e
+  registrazione dell'identificativo dell'app per l'utente (solo build di release; in sviluppo
+  l'identificativo di Windows PowerShell, per non scrivere nel registro).
+- `prism-app::notices`: i dischi mai visti trovati con la finestra nascosta diventano una sola
+  notifica, nei testi inviati dall'interfaccia (`set_native_texts`, che sostituisce
+  `set_tray_labels`); all'avvio aspetta i testi fino a 20 s, poi usa l'inglese. Test unitari.
+- Prova reale: catalogo di sviluppo azzerato e avvio nascosto con `--autostart` → una sola
+  notifica "7 nuovi dischi trovati" con l'elenco, letta dalla cronologia del Centro notifiche.
+
+**Report di fine tappa T3**
+
+- Fatto: motore dei job; app Tauri 2 (manifest elevato in release, istanza singola, tray,
+  chiusura nel tray, avvio con Windows con attività pianificata, avvio nascosto); interfaccia
+  Svelte 5 (catalogo con schede e avanzamento, dischi nuovi, etichette, rimozione, impostazioni,
+  EN/IT, tema); aggiornamento continuo (journal ogni 15 s, sorveglianza cartelle per i volumi
+  senza journal, sonda delle unità di rete); apertura senza privilegi; notifiche dei dischi
+  nuovi. Prototipi di ADR-0003 completati.
+- Criteri coperti da test automatici: F01-AC1/AC3/AC5, F02-AC1/AC4, F03-AC1, F21-AC1 (e2e e
+  Vitest), F19-AC3 (test elevato), più quelli di T2 riusati dall'app. Verificati sull'app vera
+  con script: F19-AC1, F19-AC4, aggiornamento automatico dal journal, apertura non elevata,
+  notifica.
+- Controlli: `scripts/check.ps1` verde (Rust, Vitest, Playwright), test elevati verdi, CI verde.
+- Rimandati: finestra di scelta per le identità ambigue (REVIEW L7), apertura di Prism dal clic
+  sulla notifica (L9, installer), collegamenti della scheda a treemap/ricerca/salute (con T4,
+  T5, T9), voci "Cerca" e stato dei job nel menu del tray (F19-AC2, con T5/T6), reset del
+  catalogo (F21-AC4).
+- Verifica manuale per l'utente: checklist T3 in `docs/REVIEW.md` §4.
 
 ### 2026-11-07 — T3: apertura senza privilegi
 

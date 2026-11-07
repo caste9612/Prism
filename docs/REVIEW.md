@@ -34,6 +34,7 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D16 | 2026-11-07 | T3 | Rilevamento dei dischi per interrogazione ogni 2 s (rispetta F01-AC2, ≤ 5 s) invece delle notifiche di Windows sui dispositivi; journal applicato ogni 15 s ai volumi NTFS indicizzati | `RegisterDeviceNotification` / `WM_DEVICECHANGE` | `prism-app/src/monitor.rs` | ARCHITECTURE §7 |
 | D17 | 2026-11-07 | T3 | Impostazioni salvate come un documento JSON nella tabella `settings` del catalogo; l'opzione "Avvia con Windows" registra o rimuove l'attività pianificata (D18) | File di configurazione separato | `prism-app/src/commands.rs` | F21-AC1 |
 | D18 | 2026-11-07 | T3 | Avvio con Windows: attività pianificata `Prism` all'accesso dell'utente, con i privilegi più elevati, 10 s dopo l'accesso, finestra nascosta nel tray (`--autostart`); Prism la riallinea a ogni avvio (percorso del programma) e quando cambia l'impostazione. Le build di **sviluppo** non la creano mai (solo l'impostazione viene salvata) | Chiave `Run` del registro (non può partire elevato senza UAC); attività creata solo dall'installer | `prism-win::autostart`, `AppState::apply_autostart` | ADR-0003 |
+| D19 | 2026-11-07 | T3 | Dischi nuovi a finestra nascosta: notifica di Windows (toast) nella lingua dell'interfaccia, una sola per i dischi trovati insieme; a finestra visibile basta il riquadro. Le build di release registrano l'identificativo `com.prism.catalog` (nome e icona) in `HKCU\Software\Classes\AppUserModelId`; quelle di sviluppo usano l'identificativo di Windows PowerShell per non scrivere nel registro | Plugin di notifica di Tauri; icona del tray con fumetto | `prism-win::notify`, `prism-app/src/notices.rs` | SPEC F02-AC1 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -53,11 +54,12 @@ Decisioni successive (da compilare durante lo sviluppo):
 | L1 | 2026-11-07 | Memoria massima durante l'indicizzazione ~315 B per voce (istantanea `ScanTree` completa in memoria) | Un volume da 5 milioni di voci richiederebbe ~1,5 GB durante l'indicizzazione (NF3 chiede ≤ 500 MB a regime) | Rimandato (dopo le funzioni della 1.0) |
 | L2 | 2026-11-07 | Lettore MFT: una `$MFT` con `$ATTRIBUTE_LIST` nel record 0 (MFT enormi e frammentate) viene rifiutata; file compressi/sparsi non verificati su disco reale | Su quei volumi si usa il walker (più lento, stessi risultati logici) | Rimandato |
 | L3 | 2026-11-07 | NTFS scrive in ritardo nei record MFT le date delle cartelle: due letture vicine possono differire di pochi ms | Solo estetico; si corregge alla modifica successiva della cartella | Accettato (ADR-0018) |
-| L4 | 2026-11-07 | Aggiornamento dal journal: la mappa dei riferimenti (≈0,25 s per 1,3 milioni di voci) si ricarica a ogni aggiornamento | Aggiornamenti continui un po' più costosi del necessario | Da ottimizzare nel motore dei job (T3) |
+| L4 | 2026-11-07 | Aggiornamento dal journal: la mappa dei riferimenti (≈0,25 s per 1,3 milioni di voci) si ricarica a ogni aggiornamento | Con il journal applicato ogni 15 s (D16), un volume grande con cambi continui (C:) costa ~0,25 s di CPU per giro | Aperto, da misurare nell'app e ottimizzare (indice parziale sulle cartelle o mappa mantenuta in memoria tra un giro e l'altro) |
 | L5 | 2026-11-07 | Unità di rete: capacità e spazio libero non letti, e "collegata" significa "mappata" (non si verifica che il server risponda) | Schede di rete senza barra dello spazio; un NAS spento appare collegato | **Risolto** (2026-11-07): sonda in thread separati con tempo massimo di 5 s; una condivisione conta come collegata solo quando il server risponde (ARCHITECTURE §7) |
 | L6 | 2026-11-07 | Nell'app, i volumi non NTFS (exFAT, FAT) e le unità di rete non si aggiornano da soli mentre sono collegati: solo alla riconnessione o con *Aggiorna* (la sorveglianza delle cartelle esiste in `prism-win::watch` ma non è ancora collegata all'app) | Catalogo di chiavette e NAS meno fresco | **Risolto** (2026-11-07): sorveglianza cartelle collegata nell'app per FAT/exFAT/ReFS e unità di rete; da provare con una chiavetta (checklist T3, punto 10) |
 | L7 | 2026-11-07 | Identità ambigua di un volume (F02-AC3): nessuna finestra di scelta ancora (D13) | Caso raro (due dischi clonati); il disco non compare finché non si risolve | Da fare |
-| L8 | 2026-11-07 | Disco nuovo collegato mentre la finestra è nascosta nel tray: nessuna notifica di Windows ancora, solo il riquadro alla riapertura | F02-AC1 parziale | Da fare (notifica di sistema) |
+| L8 | 2026-11-07 | Disco nuovo collegato mentre la finestra è nascosta nel tray: nessuna notifica di Windows ancora, solo il riquadro alla riapertura | F02-AC1 parziale | **Risolto** (2026-11-07): notifica di Windows, una sola per più dischi trovati insieme (D19); il clic sulla notifica non apre ancora Prism (L9) |
+| L9 | 2026-11-07 | Il clic su una notifica di Prism la chiude soltanto: aprire Prism dalla notifica richiede un attivatore COM registrato dall'installer | Si riapre Prism dall'icona nel tray | Da fare in T10 (installer) |
 
 ## 4. Come provare l'app
 
@@ -113,8 +115,17 @@ cargo run -p prism-app --features custom-protocol
     l'attività `Prism` nell'Utilità di pianificazione; al successivo accesso a Windows Prism
     parte da solo nell'area di notifica, senza richiesta UAC (F19-AC3; prova completa sul PC
     pulito, U3). Disattivandola l'attività sparisce.
-13. Giudizio su aspetto e usabilità (U5).
+13. Con Prism nascosto nel tray, collegare una chiavetta mai vista: compare una notifica di
+    Windows "Nuovo disco: …" (F02-AC1, D19). In sviluppo la notifica appare a nome di Windows
+    PowerShell; nella build di release a nome di Prism.
+14. *Apri in Esplora risorse* (icona sulla scheda di un disco collegato): si apre la finestra di
+    Esplora risorse sul disco, senza privilegi di amministratore (ADR-0003).
+15. Giudizio su aspetto e usabilità (U5).
 
-Nota: durante le prove di T3 è rimasta sul disco di test la cartella `F:\prism-demo` (file di
-prova creati per verificare l'aggiornamento dal journal); la sua rimozione automatica è stata
-bloccata dal controllo di sicurezza della sessione. Si può cancellare a mano.
+Note sulle prove di T3:
+
+- è rimasta sul disco di test la cartella `F:\prism-demo` (file di prova creati per verificare
+  l'aggiornamento dal journal); la sua rimozione automatica è stata bloccata dal controllo di
+  sicurezza della sessione. Si può cancellare a mano;
+- nel Centro notifiche possono esserci due notifiche di prova a nome di Windows PowerShell
+  ("Prism (test)" e "7 nuovi dischi trovati"), generate verificando le notifiche.

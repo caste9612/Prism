@@ -8,7 +8,7 @@ use prism_core::model::{VolumeId, VolumeLabels, VolumeStatus};
 use prism_core::store;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, Settings, VolumeView};
+use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings, VolumeView};
 use crate::state::{AppState, IndexKind, SETTINGS_KEY, access_path, job_view};
 use crate::tray;
 
@@ -161,8 +161,10 @@ pub fn set_settings(state: State<'_, Arc<AppState>>, settings: Settings) -> R<()
     Ok(())
 }
 
-/// The tray menu is labelled by the interface, in the language it shows (ARCHITECTURE §7).
+/// The tray menu and the notifications use texts sent by the interface, in the language it
+/// shows (ARCHITECTURE §7).
 #[tauri::command]
-pub fn set_tray_labels(app: AppHandle, open: String, quit: String) {
-    tray::set_labels(&app, &open, &quit);
+pub fn set_native_texts(app: AppHandle, state: State<'_, Arc<AppState>>, texts: NativeTexts) {
+    tray::set_labels(&app, &texts.open, &texts.quit);
+    state.notices().set_texts(texts);
 }

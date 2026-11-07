@@ -22,6 +22,7 @@ use prism_win::{autostart, ntfs};
 
 use crate::dto::{ApiError, JobView, Settings, VolumeView};
 use crate::netprobe::NetProbe;
+use crate::notices::Notices;
 
 pub struct AppState {
     pub store: Store,
@@ -33,6 +34,10 @@ pub struct AppState {
     pub dev: bool,
     /// Reachability and free space of network shares (REVIEW L5).
     pub net: Arc<NetProbe>,
+    /// New disks waiting to be announced while the window is hidden (REVIEW L8).
+    pub notices: Mutex<Notices>,
+    /// Identifier under which notifications are shown (`prism_win::notify`).
+    pub app_id: String,
 }
 
 pub fn job_view(j: &JobInfo) -> JobView {
@@ -62,6 +67,10 @@ fn kind_name(v: &Volume) -> String {
 }
 
 impl AppState {
+    pub fn notices(&self) -> std::sync::MutexGuard<'_, Notices> {
+        self.notices.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     pub fn online(&self) -> std::sync::MutexGuard<'_, HashMap<VolumeId, DetectedVolume>> {
         self.online.lock().unwrap_or_else(PoisonError::into_inner)
     }

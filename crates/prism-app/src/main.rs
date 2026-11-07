@@ -6,6 +6,7 @@ mod commands;
 mod dto;
 mod monitor;
 mod netprobe;
+mod notices;
 mod state;
 mod tray;
 mod watchers;
@@ -19,6 +20,7 @@ use prism_core::store::Store;
 use tauri::{Manager, WebviewWindowBuilder, WindowEvent};
 
 use crate::netprobe::{NetProbe, ProbeTiming};
+use crate::notices::Notices;
 use crate::state::AppState;
 
 /// Catalog folder: development builds use `%LOCALAPPDATA%\PrismDev\app` (TESTING S4), release
@@ -60,10 +62,33 @@ fn create_main_window(app: &tauri::App, data_dir: &Path) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Identifier under which Prism's notifications appear. Development builds borrow the one of
+/// Windows PowerShell, so nothing is written to the registry; release builds register their
+/// own, with the Prism icon saved in the data folder (`prism_win::notify`).
+fn notification_app_id(app: &tauri::App, data_dir: &Path) -> String {
+    if cfg!(debug_assertions) {
+        return prism_win::notify::DEV_APP_ID.to_owned();
+    }
+    let id = app.config().identifier.clone();
+    let icon = data_dir.join("prism.png");
+    if !icon.exists()
+        && let Err(e) = std::fs::write(&icon, include_bytes!("../icons/128x128.png"))
+    {
+        tracing::warn!(error = %e, "cannot save the notification icon");
+    }
+    if let Err(e) = prism_win::notify::register_app_id(&id, "Prism", Some(&icon)) {
+        tracing::warn!(error = %e, "notifications may not appear");
+    }
+    id
+}
+
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir(app);
     let store = Store::open(&dir.join("catalog.db"))?;
+    let app_id = notification_app_id(app, &dir);
     let state = Arc::new(AppState {
+        notices: Mutex::new(Notices::default()),
+        app_id,
         store,
         engine: JobEngine::start(4),
         online: Mutex::new(HashMap::new()),
@@ -125,7 +150,7 @@ fn main() {
             commands::remove_volume,
             commands::get_settings,
             commands::set_settings,
-            commands::set_tray_labels,
+            commands::set_native_texts,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

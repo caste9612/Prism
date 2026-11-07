@@ -39,7 +39,15 @@
   function applySettings(s: Settings) {
     setLanguage(s.language as LangPreference);
     setTheme(s.theme as ThemePreference);
-    void backend.setTrayLabels(t('tray.open'), t('tray.quit'));
+    // Texts Windows shows outside the window: tray menu and notifications ({name}, {count} are
+    // filled in by the backend).
+    void backend.setNativeTexts({
+      open: t('tray.open'),
+      quit: t('tray.quit'),
+      newDiskTitle: t('notify.newDiskTitle'),
+      newDisksTitle: t('notify.newDisksTitle'),
+      newDiskBody: t('notify.newDiskBody'),
+    });
   }
 
   async function changeSettings(s: Settings) {
