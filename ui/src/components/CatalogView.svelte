@@ -1,10 +1,12 @@
 <script lang="ts">
-  // Home screen = disk catalog (F01), with the prompts for new disks (F02).
+  // Home screen = disk catalog (F01), with the prompts for new disks (F02) and for the disks
+  // Prism cannot tell apart (F02-AC3).
+  import type { AmbiguousView } from '../lib/bindings/AmbiguousView';
   import type { LabelsInput } from '../lib/bindings/LabelsInput';
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { backend, errorMessage } from '../lib/api';
   import { groupPrompts, newVolumePrompts, visibleVolumes, volumeName } from '../lib/catalog';
-  import { formatBytes } from '../lib/format';
+  import { ago, formatBytes } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
   import Dialog from './Dialog.svelte';
   import Icon from './Icon.svelte';
@@ -25,6 +27,25 @@
   const prompts = $derived(newVolumePrompts(volumes, dismissed));
   const grouped = $derived(groupPrompts(prompts));
   const lang = $derived(language());
+
+  // Disks to identify: asked again whenever the list of volumes changes.
+  let ambiguous = $state<AmbiguousView[]>([]);
+  $effect(() => {
+    void volumes;
+    void backend.ambiguousVolumes().then(
+      (list) => (ambiguous = list),
+      () => (ambiguous = []),
+    );
+  });
+  async function identify(a: AmbiguousView, volumeId: number | null) {
+    await run(() => backend.resolveAmbiguous(a.key, volumeId));
+    ambiguous = ambiguous.filter((x) => x.key !== a.key);
+  }
+  const seen = (ms: number | null) => {
+    if (ms === null) return '';
+    const a = ago(ms);
+    return a.key === 'time.justNow' ? t(a.key) : t(a.key, { count: a.count });
+  };
 
   async function run(action: () => Promise<unknown>) {
     try {
@@ -64,6 +85,32 @@
       </p>
     </div>
   </header>
+
+  {#each ambiguous as a (a.key)}
+    <div class="prompt identify" role="region" aria-label={t('identify.title', { name: a.label ?? a.mount ?? '' })}>
+      <span class="prompt-icon"><Icon name="disks" size={22} /></span>
+      <div class="prompt-text">
+        <strong>{t('identify.title', { name: a.label ?? a.mount ?? '' })}</strong>
+        <span class="muted">{[a.mount, a.fsType, a.capacity !== null ? formatBytes(a.capacity, lang) : null].filter(Boolean).join(' · ')}</span>
+        <span>{t('identify.question')}</span>
+        <ul class="candidates">
+          {#each a.candidates as c (c.volumeId)}
+            <li>
+              <button onclick={() => identify(a, c.volumeId)}>{t('identify.isThis', { name: c.name })}</button>
+              <span class="muted">
+                {[c.location ? t('catalog.location', { location: c.location }) : null, c.capacity !== null ? formatBytes(c.capacity, lang) : null, c.lastSeenAt !== null ? t('catalog.lastSeen', { when: seen(c.lastSeenAt) }) : null]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      </div>
+      <div class="prompt-actions">
+        <button class="ghost" onclick={() => identify(a, null)}>{t('identify.another')}</button>
+      </div>
+    </div>
+  {/each}
 
   {#if grouped}
     <div class="prompt grouped" role="region" aria-label={t('newDisk.manyTitle', { count: prompts.length })}>
@@ -151,6 +198,22 @@
 </Dialog>
 
 <style>
+  .candidates {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .candidates li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+  .identify {
+    align-items: flex-start;
+  }
   .catalog {
     display: flex;
     flex-direction: column;

@@ -64,6 +64,8 @@ pub struct AppState {
     pub backup: crate::backup_state::BackupState,
     /// Thumbnails of similar images (F11-AC3).
     pub thumbnails: crate::similar_views::Thumbnails,
+    /// Connected volumes whose identity the user must choose (F02-AC3).
+    pub identities: crate::identity::Identities,
 }
 
 pub fn job_view(j: &JobInfo) -> JobView {

@@ -99,3 +99,18 @@ test('F21-AC1: language and theme apply immediately', async ({ page }) => {
   await page.getByRole('button', { name: 'Dischi' }).click();
   await expect(page.getByText('4 collegati · 5 nel catalogo')).toBeVisible();
 });
+
+test('F02-AC3: a disk that looks like two catalog disks waits for the user to say which', async ({ page }) => {
+  const panel = page.getByRole('region', { name: 'Which disk is Backup Foto?' });
+  await expect(panel).toContainText('for example a cloned disk');
+  await expect(panel).toContainText('K:\\ · NTFS · 2.0 TB');
+  await expect(panel.getByRole('button', { name: 'It is Backup Foto', exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'It is Backup Foto (copia)' })).toBeVisible();
+  await expect(panel).toContainText('Location: cassetto 2');
+  await panel.getByRole('button', { name: 'It is Backup Foto', exact: true }).click();
+  await expect(panel).toHaveCount(0);
+  // The chosen disk is now connected, on its new letter.
+  const backup = page.getByRole('article', { name: 'Backup Foto' });
+  await expect(backup).toContainText('Connected');
+  await expect(backup).toContainText('K:\\');
+});

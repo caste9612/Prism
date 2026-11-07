@@ -506,5 +506,11 @@
     "pendingVideos": "L'analisi del contenuto deve ancora leggere {count} video: potrebbero comparire altri gruppi.",
     "summaryVideos": "{count} gruppi di video simili",
     "videos": "{count} video"
+  },
+  "identify": {
+    "title": "Quale disco è {name}?",
+    "question": "Somiglia a più dischi del catalogo (per esempio un disco clonato). Quale è?",
+    "isThis": "È {name}",
+    "another": "È un altro disco"
   }
 }

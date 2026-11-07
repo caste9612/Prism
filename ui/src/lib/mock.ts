@@ -1,6 +1,7 @@
 // A simulated backend with sample disks, used when the interface runs outside Tauri (browser
 // development, tests, screenshots). It behaves like the real one: indexing jobs progress and
 // emit events, labels and settings are kept in memory.
+import type { AmbiguousView } from './bindings/AmbiguousView';
 import type { AppInfo } from './bindings/AppInfo';
 import type { JobView } from './bindings/JobView';
 import type { LabelsInput } from './bindings/LabelsInput';
@@ -65,6 +66,20 @@ export function mockBackend(): Backend {
     hashingExcluded: [],
   };
   const deletedCopies = new Set<number>();
+  // A clone of "Backup Foto" (same serial number, another capacity): Prism asks which disk it is.
+  let ambiguous: AmbiguousView[] = [
+    {
+      key: '\\\\?\\Volume{c10e}',
+      label: 'Backup Foto',
+      mount: 'K:\\',
+      fsType: 'NTFS',
+      capacity: 2000 * GB,
+      candidates: [
+        { volumeId: 3, name: 'Backup Foto', location: 'cassetto 2', mount: 'G:\\', capacity: 2000 * GB, lastSeenAt: Date.now() - 12 * DAY, lastIndexedAt: Date.now() - 12 * DAY },
+        { volumeId: 6, name: 'Backup Foto (copia)', location: 'ufficio', mount: 'G:\\', capacity: 2000 * GB, lastSeenAt: Date.now() - 40 * DAY, lastIndexedAt: Date.now() - 40 * DAY },
+      ],
+    },
+  ];
   const backup = mockBackup(() => volumes);
   const copyResults = new Map<number, CopyResultView>();
   const settingsListeners = new Set<() => void>();
@@ -217,6 +232,20 @@ export function mockBackend(): Backend {
       destination: 'C:\\Users\\me\\Downloads',
     }),
     exportDiagnostics: async () => 'C:\\Users\\me\\Downloads\\prism-diagnostics-20261107-193010.zip',
+    ambiguousVolumes: async () => [...ambiguous],
+    resolveAmbiguous: async (key, volumeId) => {
+      const a = ambiguous.find((x) => x.key === key);
+      if (!a) throw { code: 'volume_not_found', message: key };
+      ambiguous = ambiguous.filter((x) => x.key !== key);
+      if (volumeId !== null) {
+        const v = find(volumeId);
+        v.online = true;
+        v.mount = a.mount;
+      } else {
+        volumes = [...volumes, volume({ id: 100, name: a.label ?? 'Disk', osLabel: a.label, kind: 'external', mount: a.mount, status: 'new', capacity: a.capacity, freeSpace: a.capacity, lastSeenAt: Date.now() })];
+      }
+      emitVolumes();
+    },
     resetCatalog: async () => {
       const n = volumes.length;
       volumes = [];

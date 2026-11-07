@@ -16,6 +16,7 @@ use crate::cleanup_views::{CleanupResultView, CleanupView};
 use crate::diagnostics_state::DiagnosticsView;
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings, VolumeView};
 use crate::duplicates_views::{DupFilterInput, DuplicatesView, RuleInput};
+use crate::identity::AmbiguousView;
 use crate::search_views::SearchResultView;
 use crate::similar_views::SimilarView;
 use crate::space_views::{LargeFileView, SpaceFolderView, TypeStatsView};
@@ -369,6 +370,22 @@ pub async fn image_thumbnail(
     let s = Arc::clone(&state);
     let jpeg = blocking(move || s.image_thumbnail(VolumeId(volume_id), EntryId(entry_id))).await?;
     Ok(tauri::ipc::Response::new(jpeg))
+}
+
+/// Connected disks Prism cannot tell apart, waiting for the user's choice (F02-AC3).
+#[tauri::command]
+pub fn ambiguous_volumes(state: State<'_, Arc<AppState>>) -> R<Vec<AmbiguousView>> {
+    state.ambiguous_volumes()
+}
+
+/// The user says which catalog disk an ambiguous disk is, or that it is a new one (`None`).
+#[tauri::command]
+pub fn resolve_ambiguous(
+    state: State<'_, Arc<AppState>>,
+    key: String,
+    volume_id: Option<i64>,
+) -> R<()> {
+    state.resolve_ambiguous(&key, volume_id.map(VolumeId))
 }
 
 /// Empties the catalog after the user confirmed it (F21-AC4); returns the disks removed.

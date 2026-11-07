@@ -144,8 +144,8 @@ l'estensione dello Store, REVIEW L15).
 - [ ] SMART con storia e notifiche (F17)
 - [ ] `prism-shell` e menu contestuale di Esplora risorse (F18)
 - [x] Diagnostica: log a rotazione, pacchetto diagnostico (F20)
-- [~] Finestra di scelta per le identità ambigue dei volumi (F02-AC3, REVIEW L7) e reset del
-      catalogo con conferma (F21-AC4), rimandati da T3: reset fatto
+- [x] Finestra di scelta per le identità ambigue dei volumi (F02-AC3, REVIEW L7) e reset del
+      catalogo con conferma (F21-AC4), rimandati da T3
 
 ## T10 — Distribuzione e 1.0
 

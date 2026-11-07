@@ -2,6 +2,7 @@
 // (ADR-0014). Outside Tauri (browser development, tests) a simulated backend is used.
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import type { AmbiguousView } from './bindings/AmbiguousView';
 import type { ApiError } from './bindings/ApiError';
 import type { AppInfo } from './bindings/AppInfo';
 import type { CleanupResultView } from './bindings/CleanupResultView';
@@ -71,6 +72,9 @@ export interface Backend {
   exportDiagnostics(): Promise<string>;
   /** Empties the catalog; returns the number of disks removed. */
   resetCatalog(): Promise<number>;
+  ambiguousVolumes(): Promise<AmbiguousView[]>;
+  /** Which catalog disk an ambiguous disk is, or null for a new one. */
+  resolveAmbiguous(key: string, volumeId: number | null): Promise<void>;
   removeVolume(id: number): Promise<void>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
@@ -127,6 +131,8 @@ const tauriBackend: Backend = {
   diagnosticsPreview: () => invoke('diagnostics_preview'),
   exportDiagnostics: () => invoke('export_diagnostics'),
   resetCatalog: () => invoke('reset_catalog'),
+  ambiguousVolumes: () => invoke('ambiguous_volumes'),
+  resolveAmbiguous: (key, volumeId) => invoke('resolve_ambiguous', { key, volumeId }),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),
   setSettings: (settings) => invoke('set_settings', { settings }),

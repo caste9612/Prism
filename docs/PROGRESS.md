@@ -24,6 +24,14 @@
 
 ## Diario
 
+### 2026-11-07 — T9: scelta per le identità ambigue
+
+- `identity.rs` e `monitor::apply_detection`: i volumi ambigui restano in attesa con i loro
+  candidati; la scelta dell'utente si applica al rilevamento successivo e aggiorna il disco
+  scelto con il GUID di quello collegato. Comandi `ambiguous_volumes` e `resolve_ambiguous`.
+- Interfaccia: riquadro "Quale disco è …?" nella schermata *Dischi*. Test dell'app con due
+  cloni nel catalogo, 1 Playwright. REVIEW L7 risolto.
+
 ### 2026-11-07 — T9: diagnostica e reset del catalogo
 
 - Log su file: uno al giorno in `logs` nella cartella dati, 14 tenuti (`tracing-appender`).

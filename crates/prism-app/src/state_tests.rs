@@ -40,6 +40,7 @@ fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
         hashing: crate::hash_jobs::HashingState::default(),
         backup: crate::backup_state::BackupState::default(),
         thumbnails: crate::similar_views::Thumbnails::default(),
+        identities: crate::identity::Identities::default(),
     }
 }
 
@@ -779,4 +780,79 @@ fn reset_of_the_catalog() {
     assert_eq!(after.language, "it");
     assert!(after.hashing_excluded.is_empty());
     assert!(disk.join("a.txt").is_file());
+}
+
+// F02-AC3: a disk that could be two catalog disks (clones with the same serial number) waits for
+// the user's choice; the choice is applied at the next detection and then recognised by itself.
+#[test]
+fn ambiguous_disks_wait_for_the_users_choice() {
+    use crate::monitor::apply_detection;
+    use prism_core::model::VolumeKind;
+
+    let info = |guid: &str, capacity: u64, mount: &str| {
+        let mut i = VolumeInfo::dev_folder(mount);
+        i.kind = VolumeKind::Fixed;
+        i.fs_type = Some("NTFS".into());
+        i.fs_serial = Some(42);
+        i.volume_guid = Some(guid.into());
+        i.capacity = Some(capacity);
+        i
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let (a, b) = (info("A", 100, "E:\\"), info("B", 200, "F:\\"));
+    let a = store
+        .write(move |w| store::insert_volume(w, &a, VolumeStatus::Indexed))
+        .unwrap();
+    let b = store
+        .write(move |w| store::insert_volume(w, &b, VolumeStatus::Indexed))
+        .unwrap();
+    let app = state(store, true, tmp.path());
+    let detected = |guid: &str| DetectedVolume {
+        info: info(guid, 300, "G:\\"),
+        mounts: vec!["G:\\".into()],
+        disks: Vec::new(),
+    };
+
+    let (changed, _) = apply_detection(&app, vec![detected("C")]).unwrap();
+    assert!(changed);
+    assert!(
+        app.online().is_empty(),
+        "not recorded until the user decides"
+    );
+    let waiting = app.ambiguous_volumes().unwrap();
+    assert_eq!(waiting.len(), 1);
+    let ids: Vec<i64> = waiting[0].candidates.iter().map(|c| c.volume_id).collect();
+    assert_eq!(ids, [a.0, b.0]);
+    assert_eq!(
+        app.resolve_ambiguous(&waiting[0].key, Some(VolumeId(999)))
+            .unwrap_err()
+            .code,
+        "volume_not_found"
+    );
+    // Nothing changes while the user has not chosen.
+    let (changed, _) = apply_detection(&app, vec![detected("C")]).unwrap();
+    assert!(!changed);
+
+    // "It is the second one": known from now on, with the GUID of the connected disk.
+    app.resolve_ambiguous(&waiting[0].key, Some(b)).unwrap();
+    let (changed, came_back) = apply_detection(&app, vec![detected("C")]).unwrap();
+    assert!(changed);
+    assert_eq!(came_back, [b], "an indexed disk that comes back is updated");
+    assert!(app.online().contains_key(&b));
+    assert!(app.ambiguous_volumes().unwrap().is_empty());
+    let recorded = app.store.read(|c| store::volume(c, b)).unwrap().unwrap();
+    assert_eq!(recorded.info.volume_guid.as_deref(), Some("C"));
+    let (changed, _) = apply_detection(&app, vec![detected("C")]).unwrap();
+    assert!(!changed, "recognised by itself");
+
+    // Another clone, declared a new disk.
+    let (_, _) = apply_detection(&app, vec![detected("C"), detected("D")]).unwrap();
+    let waiting = app.ambiguous_volumes().unwrap();
+    assert_eq!(waiting.len(), 1);
+    app.resolve_ambiguous(&waiting[0].key, None).unwrap();
+    let _ = apply_detection(&app, vec![detected("C"), detected("D")]).unwrap();
+    assert_eq!(app.online().len(), 2);
+    assert_eq!(app.store.read(store::volumes).unwrap().len(), 3);
+    assert!(app.ambiguous_volumes().unwrap().is_empty());
 }

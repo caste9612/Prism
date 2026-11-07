@@ -22,6 +22,7 @@ use prism_core::volumes::{self, DetectedVolume, VolumeMatch, VolumeSource, match
 use prism_win::volumes::WinVolumeSource;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::identity::{Ambiguous, ambiguity_key};
 use crate::netprobe::{NetProbe, NetStatus};
 use crate::notices::notice_name;
 use crate::state::{AppState, IndexKind, auto_update, job_view};
@@ -114,6 +115,27 @@ fn apply_probe(detected: Vec<DetectedVolume>, net: &NetProbe) -> Vec<DetectedVol
 fn detect_once(app: &AppHandle, state: &AppState) -> Result<(), String> {
     let detected = WinVolumeSource.detect().map_err(|e| e.to_string())?;
     let detected = apply_probe(detected, &state.net);
+    let (changed, came_back) = apply_detection(state, detected)?;
+    // F05-AC2: an indexed volume that comes back is brought up to date.
+    for id in came_back {
+        if let Err(e) = state.submit_index(id, IndexKind::Update) {
+            tracing::warn!(volume = id.0, code = %e.code, "cannot update the reconnected volume");
+        }
+    }
+    if changed {
+        let _ = app.emit("volumes-changed", ());
+    }
+    announce_new_volumes(app, state);
+    Ok(())
+}
+
+/// Matches the detected volumes with the catalog and records what changed: known volumes that
+/// came back or moved, new volumes, ambiguous ones waiting for the user (F02-AC3) or resolved
+/// by a choice. Returns whether the list changed and the volumes that came back.
+pub(crate) fn apply_detection(
+    state: &AppState,
+    detected: Vec<DetectedVolume>,
+) -> Result<(bool, Vec<VolumeId>), String> {
     let known = state
         .store
         .read(store::volumes)
@@ -127,7 +149,32 @@ fn detect_once(app: &AppHandle, state: &AppState) -> Result<(), String> {
     let mut now = HashMap::new();
     let mut changed = false;
     let mut came_back = Vec::new();
+    let mut waiting = Vec::new();
     for (d, m) in detected.into_iter().zip(matches) {
+        // An ambiguous volume the user has decided about becomes known or new.
+        let m = match m {
+            VolumeMatch::Ambiguous(ids) => {
+                let key = ambiguity_key(&d.info);
+                match state.identities.take_choice(&key) {
+                    Some(Some(id)) if ids.contains(&id) && !now.contains_key(&id) => {
+                        tracing::info!(volume = id.0, "ambiguous volume identified by the user");
+                        VolumeMatch::Known(id)
+                    }
+                    Some(None) => {
+                        tracing::info!(mount = ?d.info.last_mount, "ambiguous volume is a new disk");
+                        VolumeMatch::New
+                    }
+                    other => {
+                        if let Some(choice) = other {
+                            // Chosen volume taken by another connected disk: ask again later.
+                            state.identities.keep_choice(key.clone(), choice);
+                        }
+                        VolumeMatch::Ambiguous(ids)
+                    }
+                }
+            }
+            m => m,
+        };
         match &m {
             VolumeMatch::Known(id) => {
                 let id = *id;
@@ -156,7 +203,11 @@ fn detect_once(app: &AppHandle, state: &AppState) -> Result<(), String> {
             }
             VolumeMatch::Ambiguous(ids) => {
                 // The user must choose (F02-AC3); not recorded until then (REVIEW D13).
-                tracing::warn!(?ids, mount = ?d.info.last_mount, "ambiguous volume identity");
+                waiting.push(Ambiguous {
+                    key: ambiguity_key(&d.info),
+                    detected: d,
+                    candidates: ids.clone(),
+                });
             }
         }
     }
@@ -164,17 +215,19 @@ fn detect_once(app: &AppHandle, state: &AppState) -> Result<(), String> {
         changed = true;
     }
     *state.online() = now;
-    // F05-AC2: an indexed volume that comes back is brought up to date.
-    for id in came_back {
-        if let Err(e) = state.submit_index(id, IndexKind::Update) {
-            tracing::warn!(volume = id.0, code = %e.code, "cannot update the reconnected volume");
+    let mut pending = state.identities.pending();
+    let keys = |list: &[Ambiguous]| list.iter().map(|a| a.key.clone()).collect::<Vec<_>>();
+    if keys(&pending) != keys(&waiting) {
+        for a in waiting
+            .iter()
+            .filter(|a| !pending.iter().any(|p| p.key == a.key))
+        {
+            tracing::warn!(ids = ?a.candidates, mount = ?a.detected.info.last_mount, "ambiguous volume identity");
         }
+        changed = true;
     }
-    if changed {
-        let _ = app.emit("volumes-changed", ());
-    }
-    announce_new_volumes(app, state);
-    Ok(())
+    *pending = waiting;
+    Ok((changed, came_back))
 }
 
 /// F02-AC1: while the window is hidden, new disks are announced with a Windows notification;

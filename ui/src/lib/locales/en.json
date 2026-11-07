@@ -506,5 +506,11 @@
     "pendingVideos": "The content analysis still has {count} videos to read: more groups may appear.",
     "summaryVideos": "{count} groups of similar videos",
     "videos": "{count} videos"
+  },
+  "identify": {
+    "title": "Which disk is {name}?",
+    "question": "It looks like more than one disk of the catalog (for example a cloned disk). Which one is it?",
+    "isThis": "It is {name}",
+    "another": "It is another disk"
   }
 }

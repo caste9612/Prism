@@ -568,6 +568,10 @@ Implementazione (T3):
   riconnessione di un volume indicizzato accoda un aggiornamento (F05-AC2); ogni 15 s applica
   il journal ai volumi NTFS indicizzati e collegati (F05-AC1, job `journal`); inoltra
   all'interfaccia gli eventi `jobs-changed` (al massimo ~4 al secondo) e `volumes-changed`.
+- Identità ambigue (F02-AC3, `identity.rs`): `monitor::apply_detection` (separata dal
+  rilevamento, così si prova senza finestra) tiene i volumi `Ambiguous` in attesa con i
+  candidati; la scelta dell'utente (un candidato, o un disco nuovo) si applica al giro
+  successivo come `Known` o `New`, e il disco scelto prende il GUID di quello collegato.
 - `netprobe.rs`: le unità di rete contano come collegate solo quando il server risponde; capacità
   e spazio libero si chiedono in thread separati con un tempo massimo di 5 s (un server spento
   può bloccare la chiamata per decine di secondi), ogni 30 s se raggiungibili e ogni 10 s se no.
