@@ -178,8 +178,10 @@ pub fn update_ntfs(
         }
         Err(e) => return Err(e.into()),
     }
+    let started = std::time::Instant::now();
     let batch = usn::read_journal(&handle, saved.journal_id, saved.next_usn, MAX_RECORDS)?;
     let records = batch.records.len();
+    let read = started.elapsed();
 
     // One change per file: created if any record says so, every parent named by a record.
     let mut grouped: BTreeMap<u64, (bool, Vec<u64>)> = BTreeMap::new();
@@ -215,6 +217,13 @@ pub fn update_ntfs(
         });
     }
 
+    tracing::debug!(
+        records,
+        files = changes.len(),
+        read_ms = read.as_millis(),
+        fetch_ms = (started.elapsed() - read).as_millis(),
+        "journal read"
+    );
     store.write(move |w| store::set_volume_status(w, volume, VolumeStatus::Indexing))?;
     let applied = changes::apply_changes(
         store,

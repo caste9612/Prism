@@ -106,6 +106,45 @@ pub fn reconcile_many(
     cancel: &CancelToken,
     progress: &AtomicU64,
 ) -> Result<ReconcileStats, ReconcileError> {
+    let targets: Vec<(ReconcileTarget, &ScanTree, &[EntryId])> = targets
+        .iter()
+        .map(|(t, tree)| (*t, *tree, &[][..]))
+        .collect();
+    run_targets(store, volume, &targets, None, cancel, progress)
+}
+
+/// Applies the snapshots of the folders touched by a change journal (ADR-0018), like
+/// [`reconcile_many`]. The root of a snapshot may be [`Listing::Partial`]: then only its
+/// listed children are compared, together with `candidates`, the catalog children of that
+/// folder whose file changed (those not listed any more are deleted, unless claimed by
+/// reference elsewhere), however large the folder (REVIEW L4). `refs` is the reference map
+/// the planner loaded before the run: it is not loaded a second time.
+///
+/// # Errors
+/// See [`reconcile`].
+pub fn reconcile_changes(
+    store: &Store,
+    volume: VolumeId,
+    targets: &[(EntryId, &ScanTree, &[EntryId])],
+    refs: store::FileRefMap,
+    cancel: &CancelToken,
+    progress: &AtomicU64,
+) -> Result<ReconcileStats, ReconcileError> {
+    let targets: Vec<(ReconcileTarget, &ScanTree, &[EntryId])> = targets
+        .iter()
+        .map(|(id, tree, c)| (ReconcileTarget::Folder(*id), *tree, *c))
+        .collect();
+    run_targets(store, volume, &targets, Some(refs), cancel, progress)
+}
+
+fn run_targets(
+    store: &Store,
+    volume: VolumeId,
+    targets: &[(ReconcileTarget, &ScanTree, &[EntryId])],
+    ref_map: Option<store::FileRefMap>,
+    cancel: &CancelToken,
+    progress: &AtomicU64,
+) -> Result<ReconcileStats, ReconcileError> {
     let mut run = Run {
         store,
         volume,
@@ -118,7 +157,8 @@ pub fn reconcile_many(
         pending_deletes: Vec::new(),
         seeds: Vec::new(),
         lookups: false,
-        ref_map: None,
+        ref_map,
+        candidates: Vec::new(),
         stats: ReconcileStats::default(),
     };
     let outcome = store.read(|conn| Ok(run.execute(conn, targets)))?;
@@ -154,8 +194,11 @@ struct Run<'a> {
     seeds: Vec<EntryId>,
     /// Whether to look up unmatched scanned entries by file reference in the whole volume.
     lookups: bool,
-    /// File reference → entries of the volume, loaded on the first lookup.
+    /// File reference → entries of the volume before the run: given by the planner of a round
+    /// of changes, otherwise loaded on the first lookup.
     ref_map: Option<store::FileRefMap>,
+    /// Catalog children of the current target whose file changed (partial snapshots).
+    candidates: Vec<EntryId>,
     stats: ReconcileStats,
 }
 
@@ -163,14 +206,15 @@ impl Run<'_> {
     fn execute(
         &mut self,
         conn: &Connection,
-        targets: &[(ReconcileTarget, &ScanTree)],
+        targets: &[(ReconcileTarget, &ScanTree, &[EntryId])],
     ) -> Result<ReconcileStats, ReconcileError> {
-        for (i, (target, tree)) in targets.iter().enumerate() {
+        for (i, (target, tree, candidates)) in targets.iter().enumerate() {
             if i > 0 {
                 // Later targets read the catalog as left by the earlier ones.
                 self.submit()?;
                 self.session.flush()?;
             }
+            self.candidates = candidates.to_vec();
             self.execute_target(conn, *target, tree)?;
         }
         let deletes = std::mem::take(&mut self.pending_deletes);
@@ -262,7 +306,8 @@ impl Run<'_> {
         is_new: bool,
         queue: &mut VecDeque<(NodeId, EntryId, bool)>,
     ) -> Result<(), ReconcileError> {
-        if tree.node(node).listing == Listing::NotListed {
+        let listing = tree.node(node).listing;
+        if listing == Listing::NotListed {
             // Content not part of this snapshot: leave the catalog children as they are.
             return Ok(());
         }
@@ -271,6 +316,8 @@ impl Run<'_> {
             .fetch_add(kids.len() as u64, Ordering::Relaxed);
         let existing: Vec<EntryRecord> = if is_new {
             Vec::new()
+        } else if listing == Listing::Partial {
+            self.partial_existing(conn, tree, &kids, dir)?
         } else {
             store::children(conn, dir)?
                 .into_iter()
@@ -447,8 +494,10 @@ impl Run<'_> {
         }
 
         // Catalog children not seen: deleted, unless the folder was not completely read (then
-        // they are kept, except those whose name now belongs to another entry).
-        let complete = tree.node(node).listing == Listing::Complete;
+        // they are kept, except those whose name now belongs to another entry). A partial
+        // listing compared only children that changed or whose name is taken: those not seen
+        // are gone.
+        let complete = matches!(listing, Listing::Complete | Listing::Partial);
         for (i, e) in existing.iter().enumerate() {
             if !matched[i] && (complete || parked[i]) {
                 self.pending_deletes.push(e.id);
@@ -462,6 +511,49 @@ impl Run<'_> {
             self.submit()?;
         }
         Ok(())
+    }
+
+    /// The catalog children of `dir` that a partial listing must compare: those whose file
+    /// changed ([`Run::candidates`]), the listed files that are already here under another
+    /// name, and the entries that hold a listed name. Not yet matched in this run.
+    fn partial_existing(
+        &self,
+        conn: &Connection,
+        tree: &ScanTree,
+        kids: &[NodeId],
+        dir: EntryId,
+    ) -> Result<Vec<EntryRecord>, StoreError> {
+        let mut seen: HashSet<EntryId> = HashSet::new();
+        let mut out = Vec::new();
+        let mut take = |e: EntryRecord, out: &mut Vec<EntryRecord>| {
+            if e.parent == Some(dir) && !self.used.contains(e.id) && seen.insert(e.id) {
+                out.push(e);
+            }
+        };
+        for &id in &self.candidates {
+            if let Some(e) = store::entry(conn, id)? {
+                take(e, &mut out);
+            }
+        }
+        for &n in kids {
+            let c = tree.node(n);
+            if let Some(r) = c.meta.file_ref {
+                let ids: Vec<EntryId> = self
+                    .ref_map
+                    .as_ref()
+                    .map(|m| m.get(r).iter().map(|(_, id)| *id).collect())
+                    .unwrap_or_default();
+                for id in ids {
+                    if let Some(e) = store::entry(conn, id)? {
+                        take(e, &mut out);
+                    }
+                }
+            }
+            if let Some(e) = store::child_named(conn, dir, c.name)? {
+                take(e, &mut out);
+            }
+        }
+        Ok(out)
     }
 
     fn push(&mut self, op: WriteOp) {

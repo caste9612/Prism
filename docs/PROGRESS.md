@@ -25,6 +25,20 @@
 
 ## Diario
 
+### 2026-11-07 — T10: aggiornamento dal journal più leggero (L4)
+
+- Misura su C: con tempi per fase (nuovi log di debug in `update_ntfs` e `apply_changes`):
+  anche con 10 file cambiati un giro costava ~0,7 s, perché la cartella Temp (115.792 file)
+  si rileggeva e si confrontava per intero a ogni giro.
+- `Listing::Partial` e `reconcile::reconcile_changes` (D50): per ogni cartella toccata solo i
+  file cambiati e le voci che avevano lì; la mappa dei riferimenti passa dal pianificatore al
+  riconciliatore. Ora 12–20 voci confrontate e ~0,32 s per giro (quasi tutto la mappa).
+- Errore mio, trovato dalla misura: una prima versione cercava i riferimenti con query SQL,
+  ma l'indice sui riferimenti non c'è più dal T2 (D6): ogni ricerca leggeva tutto il volume e
+  un giro non finiva. Tolte le query, la mappa resta l'unico modo (ADR-0017).
+- Prove: test di proprietà (160 casi), test lungo (migliaia di casi), test elevati sul disco
+  PRISMTEST con modifiche casuali vere confrontate con la reindicizzazione completa.
+
 ### 2026-11-07 — T10: documentazione per l'utente
 
 - `README.md`: che cosa fa Prism (schermate e menu di Esplora risorse), sicurezza dei file,

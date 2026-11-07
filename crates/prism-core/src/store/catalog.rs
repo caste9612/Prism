@@ -450,6 +450,23 @@ impl FileRefMap {
     }
 }
 
+/// The child of `parent` with exactly this stored name, through the unique index.
+///
+/// # Errors
+/// SQLite errors.
+pub fn child_named(
+    conn: &Connection,
+    parent: EntryId,
+    name: &str,
+) -> Result<Option<EntryRecord>, StoreError> {
+    Ok(conn
+        .prepare_cached(&format!(
+            "SELECT {ENTRY_COLS} FROM entries WHERE parent_id = ?1 AND name = ?2"
+        ))?
+        .query_row(params![parent.0, name], entry_from_row)
+        .optional()?)
+}
+
 /// Whether the volume has any entry.
 ///
 /// # Errors

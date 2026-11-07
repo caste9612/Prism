@@ -249,10 +249,14 @@ Componenti del journal (`prism-win`, ADR-0018):
   coerente con la cache del file system e con la stessa semantica della lettura completa
   (codice `entry_meta` condiviso).
 - `prism-core::changes::apply_changes`: dai file cambiati (`FileChange`: stato attuale e
-  genitori nominati dai record) agli elenchi superficiali delle cartelle toccate (figli
-  invariati con i metadati del catalogo, sottocartelle `NotListed`), applicati con
-  `reconcile_many` (più bersagli in una sola esecuzione, ordinati per profondità reale,
-  eliminazioni rimandate alla fine).
+  genitori nominati dai record) agli elenchi **parziali** delle cartelle toccate
+  (`Listing::Partial`: solo i file cambiati che ora sono lì, con le voci che quei file avevano
+  nella cartella; sottocartelle `NotListed`), applicati con `reconcile_changes` (più bersagli
+  in una sola esecuzione, ordinati per profondità reale, eliminazioni rimandate alla fine).
+  Il riconciliatore confronta solo quelle voci e i nomi occupati, senza leggere tutta la
+  cartella: un giro costa come le modifiche, non come le cartelle (REVIEW D50). La mappa dei
+  riferimenti (`file_ref_map`, non c'è un indice SQL: ADR-0017) si carica una volta per giro
+  e passa al riconciliatore.
 - `prism-win::ntfs`: `index_ntfs` (posizione del journal letta prima della lettura della MFT e
   salvata dopo) e `update_ntfs` (journal → `apply_changes`; ripiego su `index_ntfs` se la
   posizione manca o è persa, o se le modifiche non si possono applicare: es. cartella con

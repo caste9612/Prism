@@ -34,6 +34,10 @@ pub enum Listing {
     /// The content of the folder is not part of this snapshot (partial updates from a change
     /// journal, ADR-0018): the reconciler leaves its catalog children untouched.
     NotListed,
+    /// Only the children that changed are listed (a folder touched by a change journal): the
+    /// reconciler compares them, and the catalog children it is told about, without reading
+    /// the whole folder (REVIEW L4). The other catalog children stay as they are.
+    Partial,
 }
 
 /// A file or folder found by an enumeration, as read from a [`ScanTree`].
@@ -120,7 +124,8 @@ impl Node {
         match self.flags >> LISTING_SHIFT {
             0 => Listing::Complete,
             1 => Listing::Unreadable,
-            _ => Listing::NotListed,
+            2 => Listing::NotListed,
+            _ => Listing::Partial,
         }
     }
 
@@ -129,6 +134,7 @@ impl Node {
             Listing::Complete => 0,
             Listing::Unreadable => 1,
             Listing::NotListed => 2,
+            Listing::Partial => 3,
         };
         self.flags = (self.flags & DIR) | (code << LISTING_SHIFT);
     }
@@ -323,6 +329,13 @@ impl ScanTreeBuilder {
     pub fn mark_not_listed(&mut self, dir: NodeId) {
         if let Some(node) = self.nodes.nodes.get_mut(dir as usize) {
             node.set_listing(Listing::NotListed);
+        }
+    }
+
+    /// Marks folder `dir` as listed only in part: its children are the ones that changed.
+    pub fn mark_partial(&mut self, dir: NodeId) {
+        if let Some(node) = self.nodes.nodes.get_mut(dir as usize) {
+            node.set_listing(Listing::Partial);
         }
     }
 

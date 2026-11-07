@@ -3,13 +3,16 @@
 //! provides the current state of files through a [`ChangeSource`].
 //!
 //! For every folder touched by the changes (old and new parents of the changed files), a
-//! *shallow* snapshot is built: the catalog children that did not change (with their catalog
-//! metadata) plus the current state of the changed files that are now there; the folder's own
-//! metadata is read again (its modification time changes without a journal record of its
+//! *partial* snapshot is built (`Listing::Partial`): the current state of the changed files
+//! that are now there, and the catalog entries those files had in that folder, so that the
+//! reconciler compares only what changed, however large the folder (REVIEW L4); the folder's
+//! own metadata is read again (its modification time changes without a journal record of its
 //! own). Sub-folders keep their content (`Listing::NotListed`), except folders that are new to
 //! the catalog, whose changed children are listed below them. All snapshots go through one
 //! run of the reconciler, ordered by depth on the disk now, so the result equals a full
-//! indexing of the same state (F05-AC3) and moves keep their entries (F05-AC4).
+//! indexing of the same state (F05-AC3) and moves keep their entries (F05-AC4). File
+//! references are looked up in a map of the volume (there is no SQL index on them, ADR-0017),
+//! loaded once per round and handed to the reconciler.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
@@ -19,7 +22,7 @@ use rusqlite::Connection;
 use crate::cancel::CancelToken;
 use crate::exclusion::{ChildCheck, ExclusionPolicy, RuleCursor};
 use crate::model::{EntryId, EntryMeta, VolumeId};
-use crate::reconcile::{self, ReconcileError, ReconcileStats, ReconcileTarget};
+use crate::reconcile::{self, ReconcileError, ReconcileStats};
 use crate::scan::{NodeId, ScanChild, ScanTree, ScanTreeBuilder};
 use crate::store::{self, FileRefMap, Store, StoreError};
 
@@ -99,22 +102,39 @@ pub fn apply_changes(
     if changes.is_empty() {
         return Ok(ApplyOutcome::Applied(ReconcileStats::default()));
     }
-    let plan =
-        store.read(|conn| Ok(Planner::new(conn, volume, policy, changes, source)?.plan()))?;
+    let started = std::time::Instant::now();
+    let (plan, map, lookups) = store.read(|conn| {
+        let planner = Planner::new(conn, volume, policy, changes, source)?;
+        let lookups = started.elapsed();
+        let plan = planner.plan();
+        Ok((plan, planner.map, lookups))
+    })?;
+    let planned = started.elapsed();
     let targets = match plan? {
         Planned::Targets(t) => t,
         Planned::Full(reason) => return Ok(ApplyOutcome::FullReconcileNeeded(reason)),
     };
-    let refs: Vec<(ReconcileTarget, &ScanTree)> = targets
+    let refs: Vec<(EntryId, &ScanTree, &[EntryId])> = targets
         .iter()
-        .map(|(id, tree)| (ReconcileTarget::Folder(*id), tree))
+        .map(|(id, tree, candidates)| (*id, tree, candidates.as_slice()))
         .collect();
-    let stats = reconcile::reconcile_many(store, volume, &refs, cancel, progress)?;
+    let stats = reconcile::reconcile_changes(store, volume, &refs, map, cancel, progress)?;
+    tracing::debug!(
+        changes = changes.len(),
+        targets = refs.len(),
+        nodes = refs.iter().map(|(_, t, _)| t.len()).sum::<usize>(),
+        lookups_ms = lookups.as_millis(),
+        plan_ms = (planned - lookups).as_millis(),
+        reconcile_ms = (started.elapsed() - planned).as_millis(),
+        "journal changes applied"
+    );
     Ok(ApplyOutcome::Applied(stats))
 }
 
 enum Planned {
-    Targets(Vec<(EntryId, ScanTree)>),
+    /// Folders to reconcile, with their partial snapshot and the catalog children whose file
+    /// changed.
+    Targets(Vec<(EntryId, ScanTree, Vec<EntryId>)>),
     Full(String),
 }
 
@@ -173,6 +193,8 @@ impl<'a> Planner<'a> {
             return Ok(Planned::Full("the catalog has no file references".into()));
         }
         let mut affected: BTreeSet<EntryId> = BTreeSet::new();
+        // Catalog children whose file changed, by folder: compared even if not listed.
+        let mut candidates: HashMap<EntryId, Vec<EntryId>> = HashMap::new();
         for change in self.changed.values() {
             // Folders named by the journal records.
             for parent in &change.parents_seen {
@@ -184,6 +206,7 @@ impl<'a> Planner<'a> {
             for (_, id) in self.map.get(change.file_ref) {
                 if let Some(parent) = store::entry(self.conn, *id)?.and_then(|e| e.parent) {
                     affected.insert(parent);
+                    candidates.entry(parent).or_default().push(*id);
                 }
             }
             // New positions.
@@ -207,7 +230,7 @@ impl<'a> Planner<'a> {
             }
         }
 
-        let mut targets: Vec<(usize, EntryId, ScanTree)> = Vec::new();
+        let mut targets: Vec<(usize, EntryId, ScanTree, Vec<EntryId>)> = Vec::new();
         for dir in affected {
             let Some(entry) = store::entry(self.conn, dir)? else {
                 continue;
@@ -230,12 +253,16 @@ impl<'a> Planner<'a> {
             let Some(cursor) = self.policy.cursor_for(&components) else {
                 continue;
             };
-            let tree = self.snapshot(dir, dir_ref, meta, &cursor)?;
-            targets.push((components.len(), dir, tree));
+            let tree = self.snapshot(dir_ref, meta, &cursor);
+            let olds = candidates.remove(&dir).unwrap_or_default();
+            targets.push((components.len(), dir, tree, olds));
         }
-        targets.sort_by_key(|(depth, id, _)| (*depth, *id));
+        targets.sort_by_key(|(depth, id, _, _)| (*depth, *id));
         Ok(Planned::Targets(
-            targets.into_iter().map(|(_, id, t)| (id, t)).collect(),
+            targets
+                .into_iter()
+                .map(|(_, id, t, c)| (id, t, c))
+                .collect(),
         ))
     }
 
@@ -305,36 +332,16 @@ impl<'a> Planner<'a> {
         Ok(Some(parts))
     }
 
-    /// The shallow snapshot of catalog folder `dir` (see the module documentation).
-    fn snapshot(
-        &self,
-        dir: EntryId,
-        dir_ref: u64,
-        meta: EntryMeta,
-        cursor: &RuleCursor,
-    ) -> Result<ScanTree, StoreError> {
+    /// The partial snapshot of the catalog folder with reference `dir_ref`: the changed files
+    /// that are now in it (see the module documentation).
+    fn snapshot(&self, dir_ref: u64, meta: EntryMeta, cursor: &RuleCursor) -> ScanTree {
         let mut builder = ScanTreeBuilder::new(meta);
+        builder.mark_partial(ScanTree::ROOT);
         let mut children: Vec<(ScanChild, Nested)> = Vec::new();
-        for c in store::children(self.conn, dir)? {
-            if c.meta
-                .file_ref
-                .is_some_and(|r| self.changed.contains_key(&r))
-            {
-                continue; // replaced by its current state below, if still here
-            }
-            children.push((
-                ScanChild {
-                    name: c.name,
-                    is_dir: c.is_dir,
-                    meta: c.meta,
-                },
-                None,
-            ));
-        }
         self.changed_children(dir_ref, cursor, &mut children);
         let mut seen: HashSet<u64> = HashSet::new();
         self.add_listing(&mut builder, ScanTree::ROOT, children, &mut seen);
-        Ok(builder.finish(crate::scan::ScanStats::default()))
+        builder.finish(crate::scan::ScanStats::default())
     }
 
     /// The changed files that are now in folder `parent_ref`, excluded names left out. New
