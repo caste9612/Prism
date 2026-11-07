@@ -1,0 +1,19 @@
+[package]
+name = "prism-cli"
+description = "Prism development CLI: scans, benchmarks and diagnostics (not a public product)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "prism-cli"
+path = "src/main.rs"
+
+[dependencies]
+prism-core.workspace = true
+
+[lints]
+workspace = true

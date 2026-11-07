@@ -1,0 +1,19 @@
+[package]
+name = "prism-win"
+description = "Windows implementations of the Prism platform traits (volumes, MFT, USN, SMART, shell)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+prism-core.workspace = true
+
+[features]
+# Tests that need administrator rights; run through the admin runner (docs/TESTING.md §4).
+admin-tests = []
+
+[lints]
+workspace = true

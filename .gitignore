@@ -1,0 +1,19 @@
+# Rust
+/target/
+
+# Frontend (from T3)
+node_modules/
+/ui/dist/
+
+# Local data, never committed
+*.db
+*.db-shm
+*.db-wal
+*.vhdx
+*.log
+
+# IDE / OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
