@@ -24,7 +24,7 @@ Project documents are currently written in Italian.
 
 ## Development
 
-Requirements: Windows 10/11 x64, Rust (the version is pinned in `rust-toolchain.toml`).
+Requirements: Windows 11 x64, Rust (the version is pinned in `rust-toolchain.toml`).
 
 ```powershell
 .\scripts\check.ps1     # format check, clippy, tests

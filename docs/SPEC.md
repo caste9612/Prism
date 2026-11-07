@@ -47,8 +47,7 @@ Czkawka/dupeGuru per i duplicati) è il **catalogo offline**: sapere cosa c'è s
 
 ## 4. Piattaforma e requisiti generali
 
-- **Sistema operativo**: solo Windows, x64. Versioni minime: Windows 10 22H2 e Windows 11
-  **[DA CONFERMARE]**.
+- **Sistema operativo**: solo **Windows 11**, x64.
 - **Privilegi**: Prism gira **sempre come amministratore** (manifest `requireAdministrator`).
   L'avvio con Windows avviene tramite un'attività pianificata "esegui con i privilegi più
   elevati", quindi senza prompt UAC (ADR-0003).
@@ -114,8 +113,8 @@ salute SMART se disponibile, avanzamento degli hash.
 - **F04-AC4** Le dimensioni delle cartelle (totale, numero di file e sottocartelle) sono
   disponibili subito dopo l'indicizzazione, senza ricalcoli lenti.
 - **F04-AC5** Esiste **una sola** politica di esclusione, usata sia dall'indicizzazione sia
-  dagli aggiornamenti. Default: si indicizza tutto, tranne le cartelle di sistema non utili
-  (`$RECYCLE.BIN`, `System Volume Information`) **[DA CONFERMARE]**. L'utente può aggiungere
+  dagli aggiornamenti. Default: si indicizza tutto, tranne `$RECYCLE.BIN` e
+  `System Volume Information` (così la treemap mostra tutto lo spazio usato). L'utente può aggiungere
   esclusioni globali o per volume. Un'esclusione confronta il percorso esatto o il nome esatto
   della cartella, mai una sottostringa.
 - **F04-AC6** L'indicizzazione di un volume può essere annullata; un'indicizzazione annullata
@@ -295,7 +294,7 @@ Vale per ogni eliminazione avviata da Prism (duplicati, pulizia, simili).
 - **F19-AC2** Menu del tray: Apri Prism, Cerca, stato dei job in corso, Pausa/Riprendi hash
   in background, Esci.
 - **F19-AC3** L'avvio con Windows (attività pianificata) si attiva o disattiva dalle
-  impostazioni; per default è attivo **[DA CONFERMARE]**.
+  impostazioni; per default è attivo.
 - **F19-AC4** Una sola istanza: avviare Prism quando è già aperto porta in primo piano
   l'istanza esistente.
 
@@ -336,7 +335,7 @@ Vale per ogni eliminazione avviata da Prism (duplicati, pulizia, simili).
 | NF3 | **Memoria**: ≤ 500 MB con 5 milioni di voci nel catalogo **[da validare]**. |
 | NF4 | **Affidabilità**: un crash o lo spegnimento durante un job non corrompono il catalogo; all'avvio successivo i job interrotti vengono ripresi o annullati in modo pulito. |
 | NF5 | **Sicurezza**: nessuna operazione su percorsi arbitrari passati dall'interfaccia; CSP restrittiva; nessun contenuto remoto nella webview (ADR-0003). |
-| NF6 | **Privacy**: nessuna telemetria verso l'esterno nella 1.0 **[DA CONFERMARE]**; il catalogo resta sul PC. |
+| NF6 | **Privacy**: nessuna telemetria nella 1.0; l'unica connessione in uscita è il controllo degli aggiornamenti. Il catalogo resta sul PC. |
 | NF7 | **Accessibilità**: navigazione completa da tastiera, contrasto adeguato in entrambi i temi, etichette per gli screen reader. |
 | NF8 | **Testabilità**: ogni criterio di accettazione ha almeno un test automatico, oppure una voce nella checklist di verifica manuale della tappa. |
 
@@ -355,14 +354,14 @@ Vale per ogni eliminazione avviata da Prism (duplicati, pulizia, simili).
 
 | # | Domanda | Quando serve deciderla |
 |---|---|---|
-| Q1 | Versione minima di Windows (proposta: 10 22H2 e 11, x64). | T3 |
-| Q2 | Esclusioni di default (proposta: solo `$RECYCLE.BIN` e `System Volume Information`). | T1 |
+| Q1 | ~~Versione minima di Windows~~ — **decisa** (2026-11-07): solo Windows 11 x64. | — |
+| Q2 | ~~Esclusioni di default~~ — **decisa** (2026-11-07): solo `$RECYCLE.BIN` e `System Volume Information`. | — |
 | Q3 | Soglie di inattività e risorse per gli hash in background. | T6 |
 | Q4 | Categorie della pulizia guidata. | T4 |
 | Q5 | Formati immagine aggiuntivi (HEIC/RAW). | T8 |
 | Q6 | Video simili: Media Foundation o ffmpeg (ADR-0013). | T8 |
 | Q7 | Firma del codice: tipo di certificato e costo. | T10 |
 | Q8 | Licenza del progetto (il repo oggi ha MIT) e repository pubblico o privato. | T10 |
-| Q9 | Telemetria/crash report anonimi, anche solo opt-in. | T10 |
-| Q10 | Avvio con Windows attivo per default. | T3 |
+| Q9 | ~~Telemetria~~ — **decisa** (2026-11-07): nessuna nella 1.0 (NF6). | — |
+| Q10 | ~~Avvio con Windows di default~~ — **decisa** (2026-11-07): attivo (F19-AC3). | — |
 | Q11 | Ramo principale finale (oggi sul remoto c'è solo `develop`). | T10 |

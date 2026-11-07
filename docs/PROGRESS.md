@@ -8,7 +8,7 @@
 - **Tappa**: T0 completata, in attesa della revisione della SPEC da parte dell'utente.
 - **Prossimo passo**: T1 — schema SQLite, archivio con scrittore unico, walker, riconciliazione.
 - **Bloccanti**: nessuno.
-- **Decisioni in sospeso**: SPEC §8 (Q1–Q11); ADR-0010 (indice di ricerca) e ADR-0013 (video).
+- **Decisioni in sospeso**: SPEC §8 (Q3–Q8, Q11); ADR-0010 (indice di ricerca) e ADR-0013 (video).
 
 ## Diario
 
@@ -28,3 +28,8 @@
   Rust 1.92.0 fissata; `scripts/check.ps1`; CI su GitHub Actions (Windows).
 - Scelta per i test con amministratore: runner tramite attività pianificata + disco virtuale
   di test, da configurare con l'utente in T2 (TESTING §4).
+- Verificato che `scripts/check.ps1` si ferma con un errore quando un controllo fallisce
+  (prova con formattazione volutamente sbagliata, poi ripristinata).
+- Decise con l'utente: solo Windows 11 (Q1); esclusioni di default solo `$RECYCLE.BIN` e
+  `System Volume Information` (Q2); nessuna telemetria nella 1.0 (Q9); avvio con Windows attivo
+  per default (Q10).

@@ -25,7 +25,7 @@ domande aperte del capitolo 8) e segnalare correzioni.
 - [ ] Schema SQLite e migrazioni; test di migrazione
 - [ ] Archivio: thread scrittore + pool di lettori (ADR-0008)
 - [ ] Modello volumi/voci, ricostruzione percorsi, `dir_stats` incrementali
-- [ ] `ExclusionPolicy` unica (F04-AC5) e decisione sulle esclusioni di default (Q2)
+- [ ] `ExclusionPolicy` unica (F04-AC5) con le esclusioni di default decise (Q2)
 - [ ] `WalkEnumerator` parallelo senza `metadata()` per file
 - [ ] `Reconciler` unico; test di proprietà "aggiornamento = reindicizzazione" (F05-AC3)
 - [ ] `SandboxGuard` per le operazioni distruttive (TESTING S2)
@@ -57,7 +57,7 @@ Criteri coperti: F02-AC3, F04-AC1, F05-AC1/AC2/AC4.
 - [ ] Schermata catalogo (F01), disco nuovo (F02), etichette (F03), impostazioni di base (F21)
 - [ ] Test e2e con IPC simulato
 
-Criteri coperti: F01, F02, F03, F19, F21 (parziale). Domande Q1 e Q10.
+Criteri coperti: F01, F02, F03, F19, F21 (parziale).
 **Verifica utente**: aspetto e usabilità della schermata catalogo; avvio con Windows.
 
 ## T4 — Spazio
@@ -101,6 +101,6 @@ Criteri coperti: F01, F02, F03, F19, F21 (parziale). Domande Q1 e Q10.
 
 - [ ] Installer: attività pianificata, menu contestuale, WebView2, disinstallazione (F22)
 - [ ] Aggiornamenti automatici firmati (F22-AC3)
-- [ ] Firma del codice (Q7), licenza (Q8), telemetria (Q9), ramo principale (Q11)
+- [ ] Firma del codice (Q7), licenza (Q8), ramo principale (Q11)
 - [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali
 - [ ] Merge di `rewrite` sul ramo principale e rilascio 1.0
