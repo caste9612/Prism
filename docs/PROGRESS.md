@@ -8,9 +8,8 @@
 - **Tappa**: T3 in corso. Fatti: motore dei job, app Tauri con tray e istanza singola,
   interfaccia Svelte con schermata catalogo, disco nuovo, etichette e impostazioni. L'app si
   prova seguendo `docs/REVIEW.md` §4.
-- **Prossimo passo**: resto di T3 — test e2e dell'interfaccia con IPC simulato (Playwright con
-  Edge già installato), rifiniture del monitor (REVIEW L5, L6, L8), prototipi attività
-  pianificata e apertura non elevata (ADR-0003). Poi T4. Nessuna sosta (CLAUDE.md).
+- **Prossimo passo**: resto di T3 — rifiniture del monitor (REVIEW L5, L6, L8), prototipi
+  attività pianificata e apertura non elevata (ADR-0003). Poi T4. Nessuna sosta (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -24,6 +23,19 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T3: test end-to-end dell'interfaccia
+
+- Playwright (`ui/e2e/catalog.spec.ts`, 7 test) sul backend simulato: dischi scollegati visibili
+  con data dell'ultimo avvistamento (F01-AC1), disco nuovo indicizzato con avanzamento
+  (F02-AC1, F01-AC3), *Non ora*, *Ignora sempre* e ripristino dalle impostazioni (F02-AC4),
+  etichette (F03-AC1), rimozione con conferma (F01-AC5), lingua e tema (F21-AC1). In
+  `scripts/check.ps1` e nella CI.
+- Difetti trovati scrivendo i test e corretti: i due dialoghi avevano lo stesso id del titolo
+  (nome accessibile sbagliato), le schede non avevano un nome accessibile, e un disco scollegato
+  mostrava la data dell'ultimo aggiornamento invece di quella in cui era stato visto (F01-AC1).
+- `npm audit`: 2 avvisi di gravità bassa in `deepmerge`, dipendenza del plugin Svelte usato
+  solo per la compilazione (nessuna correzione disponibile; non finisce nell'app).
 
 ### 2026-11-07 — T3: app Tauri e interfaccia
 

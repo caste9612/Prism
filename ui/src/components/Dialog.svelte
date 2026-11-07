@@ -17,6 +17,9 @@
   } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
+  // Several dialogs live in the page at once: each needs its own title id.
+  const uid = $props.id();
+  const titleId = `${uid}-title`;
 
   $effect(() => {
     if (!dialog) return;
@@ -25,8 +28,8 @@
   });
 </script>
 
-<dialog bind:this={dialog} onclose={onclose} aria-labelledby="dialog-title">
-  <h2 id="dialog-title">{title}</h2>
+<dialog bind:this={dialog} onclose={onclose} aria-labelledby={titleId}>
+  <h2 id={titleId}>{title}</h2>
   <div class="body">{@render children()}</div>
   {#if actions}
     <div class="actions">{@render actions()}</div>

@@ -73,7 +73,7 @@ Criteri coperti: F02-AC3, F02-AC5, F04-AC1, F05-AC1/AC2/AC3/AC4.
 - [x] Schermata catalogo (F01), disco nuovo (F02), etichette (F03), impostazioni di base (F21)
 - [ ] Rifiniture del monitor: sonda delle unità di rete (REVIEW L5), sorveglianza cartelle per
       i volumi non NTFS (L6), notifica di sistema per i dischi nuovi (L8)
-- [ ] Test e2e con IPC simulato
+- [x] Test e2e con IPC simulato (Playwright, `ui/e2e/`)
 
 Criteri coperti: F01, F02, F03, F19, F21 (parziale).
 **Sosta di revisione annullata** (decisione dell'utente, 2026-11-07): lo sviluppo prosegue fino

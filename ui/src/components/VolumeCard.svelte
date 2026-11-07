@@ -41,7 +41,7 @@
   );
 </script>
 
-<article class="card" class:offline={!volume.online} style:--label={volume.color ?? 'transparent'}>
+<article class="card" class:offline={!volume.online} style:--label={volume.color ?? 'transparent'} aria-label={volumeName(volume)}>
   <header>
     <span class="kind" title={t(`kind.${volume.kind}`)}><Icon name={volume.kind} size={20} /></span>
     <div class="title">
@@ -104,10 +104,11 @@
       {#if volume.status !== 'indexed' && volume.status !== 'indexing'}
         <span class="status {volume.status}">{t(`status.${volume.status}`)}</span>
       {/if}
-      {#if volume.lastIndexedAt !== null}
-        {t('catalog.indexedOn', { when: whenText(volume.lastIndexedAt) })}
-      {:else if !volume.online && volume.lastSeenAt !== null}
+      <!-- F01-AC1: for a disconnected disk, when it was last seen matters most. -->
+      {#if !volume.online && volume.lastSeenAt !== null}
         {t('catalog.lastSeen', { when: whenText(volume.lastSeenAt) })}
+      {:else if volume.lastIndexedAt !== null}
+        {t('catalog.indexedOn', { when: whenText(volume.lastIndexedAt) })}
       {:else if volume.status === 'new'}
         {t('catalog.neverIndexed')}
       {/if}

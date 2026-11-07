@@ -39,7 +39,10 @@ Lo sviluppo avviene sul PC dell'utente, che contiene dati reali. Per questo:
 1. `cargo fmt --all -- --check`
 2. `cargo clippy --workspace --all-targets -- -D warnings`
 3. `cargo test --workspace`
-4. (da T3) `npm run check` e `npm test` in `ui/`
+4. (da T3) `npm run check`, `npm test` e `npm run e2e` in `ui/`. I test end-to-end
+   (Playwright, `ui/e2e/`) aprono l'interfaccia con il backend simulato nel Chromium di
+   Playwright, da scaricare una volta con `npx playwright install chromium --only-shell`
+   (su questa macchina Edge non è installato; Chromium è anche il motore di WebView2).
 
 La CI su GitHub Actions (`.github/workflows/ci.yml`, Windows) esegue gli stessi controlli. Si
 attiva solo quando il branch viene pubblicato su GitHub.

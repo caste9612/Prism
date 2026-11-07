@@ -21,6 +21,8 @@ if (Test-Path 'ui/package.json') {
     try {
         Invoke-Step 'ui: type check' { npm run check }
         Invoke-Step 'ui: tests' { npm test }
+        # Needs Playwright's Chromium once: npx playwright install chromium --only-shell
+        Invoke-Step 'ui: end-to-end' { npm run e2e }
     } finally {
         Pop-Location
     }

@@ -59,5 +59,10 @@ jobs:
       - name: Tests
         run: npm test
 
+      - name: End-to-end tests (simulated backend)
+        run: |
+          npx playwright install chromium --only-shell
+          npm run e2e
+
       - name: Build
         run: npm run build
