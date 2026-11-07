@@ -11,7 +11,11 @@
   import LabelsDialog from './LabelsDialog.svelte';
   import VolumeCard from './VolumeCard.svelte';
 
-  let { volumes, onerror }: { volumes: VolumeView[]; onerror: (message: string) => void } = $props();
+  let {
+    volumes,
+    onerror,
+    onspace,
+  }: { volumes: VolumeView[]; onerror: (message: string) => void; onspace: (v: VolumeView) => void } = $props();
 
   let dismissed = $state(new Set<number>());
   let editing = $state<VolumeView | null>(null);
@@ -121,7 +125,7 @@
     <h2 class="section">{t('catalog.onlineSection')}</h2>
     <div class="grid">
       {#each groups.online as v (v.id)}
-        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onopen={open} onremove={(x) => (removing = x)} />
+        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onopen={open} {onspace} onremove={(x) => (removing = x)} />
       {/each}
     </div>
   {/if}
@@ -130,7 +134,7 @@
     <h2 class="section">{t('catalog.offlineSection')}</h2>
     <div class="grid">
       {#each groups.offline as v (v.id)}
-        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onopen={open} onremove={(x) => (removing = x)} />
+        <VolumeCard volume={v} onindex={index} oncancel={cancel} onlabels={(x) => (editing = x)} onopen={open} {onspace} onremove={(x) => (removing = x)} />
       {/each}
     </div>
   {/if}

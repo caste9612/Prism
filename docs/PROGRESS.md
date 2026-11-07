@@ -7,9 +7,8 @@
 
 - **Tappa**: T4 in corso (T3 completata il 2026-11-07). L'app si prova seguendo
   `docs/REVIEW.md` §4.
-- **Prossimo passo**: T4 — schermata Spazio nell'app (treemap su canvas con drill-down e
-  breadcrumb, elenco dei più grandi, statistiche per tipo), poi la pulizia guidata (F09) con
-  l'eliminazione sicura nel Cestino (ADR-0012). Nessuna sosta (CLAUDE.md).
+- **Prossimo passo**: T4 — eliminazione sicura di base (Cestino, verifica sul disco, registro
+  delle azioni; ADR-0012) e pulizia guidata (F09). Nessuna sosta (CLAUDE.md).
 - **Bloccanti**: nessuno. Il runner amministratore è configurato e verificato (attività
   `PrismDevAdminTests`, disco di test PRISMTEST): i test elevati si lanciano con
   `schtasks /run /tn PrismDevAdminTests` senza intervento dell'utente. Il montaggio del VHDX non
@@ -23,6 +22,22 @@
   CLAUDE.md).
 
 ## Diario
+
+### 2026-11-07 — T4: schermata Spazio
+
+- App: comandi asincroni `space_folder` (cartella, breadcrumb, contenuto e treemap in una
+  chiamata), `largest_files`, `type_stats`, `open_entry`, `reveal_entry`; tipi esportati con
+  `ts-rs`, categoria di ogni file calcolata nel backend.
+- Interfaccia: schermata *Spazio* dalla scheda di un disco indicizzato, con mappa (treemap
+  *squarified* su canvas, cartelle annidate, tooltip, legenda), elenco del contenuto, file più
+  grandi e statistiche per tipo (disco o catalogo). Palette delle categorie validata con lo
+  script della guida di visualizzazione (daltonismo e contrasto) in entrambi i temi (D21).
+- Test: 6 Vitest del layout (aree proporzionali, nessuna sovrapposizione, annidamento, punto
+  sotto il puntatore), 5 Playwright (F08-AC1/AC2/AC3/AC4, apertura).
+- Provato sull'app vera su D: (655.162 voci, indicizzato dall'app in ~8,5 s in debug). Dallo
+  screenshot: con 6 livelli fissi le cartelle profonde dei giochi restavano blocchi vuoti →
+  treemap che espande per prime le cartelle più grandi a qualunque profondità (D20; C: 11.592
+  nodi in 0,48 s).
 
 ### 2026-11-07 — T4: analisi dello spazio dal catalogo
 

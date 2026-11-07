@@ -8,6 +8,7 @@ import type { Settings } from './bindings/Settings';
 import type { VolumeView } from './bindings/VolumeView';
 import type { Backend, Unlisten } from './api';
 import { cardJob } from './catalog';
+import { mockHasEntry, mockLargestFiles, mockSpaceFolder, mockTypeStats } from './mock-space';
 
 const GB = 1_000_000_000;
 const DAY = 86_400_000;
@@ -128,6 +129,18 @@ export function mockBackend(): Backend {
     },
     openVolume: async (id) => {
       if (!find(id).online) throw { code: 'volume_offline', message: String(id) };
+    },
+    spaceFolder: async (volumeId, folderId) => mockSpaceFolder(find(volumeId).id, folderId),
+    largestFiles: async (volumeId, folderId, limit) => mockLargestFiles(find(volumeId).id, folderId, limit),
+    typeStats: async (volumeId) =>
+      mockTypeStats(volumeId === null ? volumes.filter((v) => v.lastIndexedAt !== null).map((v) => v.id) : [find(volumeId).id]),
+    openEntry: async (volumeId, entryId) => {
+      if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
+      if (!mockHasEntry(volumeId, entryId)) throw { code: 'not_found', message: String(entryId) };
+    },
+    revealEntry: async (volumeId, entryId) => {
+      if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
+      if (!mockHasEntry(volumeId, entryId)) throw { code: 'not_found', message: String(entryId) };
     },
     removeVolume: async (id) => {
       volumes = volumes.filter((v) => v.id !== id);

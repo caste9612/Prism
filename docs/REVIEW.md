@@ -35,6 +35,9 @@ Decisioni successive (da compilare durante lo sviluppo):
 | D17 | 2026-11-07 | T3 | Impostazioni salvate come un documento JSON nella tabella `settings` del catalogo; l'opzione "Avvia con Windows" registra o rimuove l'attività pianificata (D18) | File di configurazione separato | `prism-app/src/commands.rs` | F21-AC1 |
 | D18 | 2026-11-07 | T3 | Avvio con Windows: attività pianificata `Prism` all'accesso dell'utente, con i privilegi più elevati, 10 s dopo l'accesso, finestra nascosta nel tray (`--autostart`); Prism la riallinea a ogni avvio (percorso del programma) e quando cambia l'impostazione. Le build di **sviluppo** non la creano mai (solo l'impostazione viene salvata) | Chiave `Run` del registro (non può partire elevato senza UAC); attività creata solo dall'installer | `prism-win::autostart`, `AppState::apply_autostart` | ADR-0003 |
 | D19 | 2026-11-07 | T3 | Dischi nuovi a finestra nascosta: notifica di Windows (toast) nella lingua dell'interfaccia, una sola per i dischi trovati insieme; a finestra visibile basta il riquadro. Le build di release registrano l'identificativo `com.prism.catalog` (nome e icona) in `HKCU\Software\Classes\AppUserModelId`; quelle di sviluppo usano l'identificativo di Windows PowerShell per non scrivere nel registro | Plugin di notifica di Tauri; icona del tray con fumetto | `prism-win::notify`, `prism-app/src/notices.rs` | SPEC F02-AC1 |
+| D20 | 2026-11-07 | T4 | Treemap sulla dimensione **logica** dei file (non sullo spazio allocato), con le cartelle più grandi espanse per prime a qualunque profondità, soglia 0,002 % e al massimo 12.000 nodi; gli elementi più piccoli raggruppati in un blocco grigio | Dimensione allocata; livelli fissi (provato: le cartelle profonde restavano vuote) | `TreemapOptions` in `prism-core::space` | ARCHITECTURE §4.6 |
+| D21 | 2026-11-07 | T4 | Nove categorie di file (immagini, video, audio, documenti, archivi, immagini disco, codice, programmi, altro) con la palette categoriale validata per daltonismo in entrambi i temi; `.ts` conta come video (i flussi video pesano più dei sorgenti TypeScript) | Colori per estensione; categorie configurabili | `category_of` in `prism-core::space`, `--cat-*` in `ui/src/app.css` | F08-AC3 |
+| D22 | 2026-11-07 | T4 | La schermata *Spazio* si apre dall'icona sulla scheda di un disco indicizzato (nessuna voce nel menu laterale); le statistiche dell'intero catalogo sono una scelta dentro *Tipi di file* | Voce *Spazio* nel menu con scelta del disco | `ui/src/App.svelte` | F01-AC4 |
 
 ## 2. Cose che richiedono l'utente
 
@@ -129,3 +132,21 @@ Note sulle prove di T3:
   sicurezza della sessione. Si può cancellare a mano;
 - nel Centro notifiche possono esserci due notifiche di prova a nome di Windows PowerShell
   ("Prism (test)" e "7 nuovi dischi trovati"), generate verificando le notifiche.
+
+### Checklist T4 (spazio)
+
+1. Sulla scheda di un disco indicizzato, icona *Spazio*: si apre la mappa del disco con
+   l'elenco del contenuto dal più grande (F08-AC1/AC2).
+2. Clic su una cartella nella mappa o nell'elenco: si entra nella cartella; il percorso in alto
+   (breadcrumb) e il pulsante *Cartella superiore* riportano indietro. Passando sopra la mappa
+   compaiono nome, dimensione e tipo.
+3. Le cartelle profonde (giochi, dischi virtuali, `node_modules`) mostrano i propri file grandi
+   colorati per tipo; legenda sotto la mappa.
+4. Scheda *File più grandi*: i 100 file più grandi della cartella corrente, con la cartella in
+   cui si trovano; *Apri* e *Mostra in Esplora risorse* (disco collegato) aprono senza
+   privilegi di amministratore.
+5. Scheda *Tipi di file*: categorie, estensioni e fasce di dimensione, per il disco o per
+   l'intero catalogo (F08-AC3).
+6. Disco non collegato: mappa, elenco e statistiche funzionano con i dati dell'ultima
+   indicizzazione; nessun pulsante di apertura (F08-AC4).
+7. Giudizio sulla leggibilità della mappa in tema chiaro e scuro (U5).

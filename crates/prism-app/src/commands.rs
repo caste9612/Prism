@@ -4,11 +4,12 @@
 use std::sync::Arc;
 
 use prism_core::jobs::JobId;
-use prism_core::model::{VolumeId, VolumeLabels, VolumeStatus};
+use prism_core::model::{EntryId, VolumeId, VolumeLabels, VolumeStatus};
 use prism_core::store;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings, VolumeView};
+use crate::space_views::{LargeFileView, SpaceFolderView, TypeStatsView};
 use crate::state::{AppState, IndexKind, SETTINGS_KEY, access_path, job_view};
 use crate::tray;
 
@@ -120,6 +121,61 @@ pub fn open_volume(state: State<'_, Arc<AppState>>, id: i64) -> R<()> {
         .ok_or_else(|| ApiError::new("volume_offline", id))?;
     let root = access_path(&detected).ok_or_else(|| ApiError::new("volume_offline", id))?;
     prism_win::shell::open(&root).map_err(|e| ApiError::new("open_failed", e))
+}
+
+/// Runs a catalog read away from the main thread and the async runtime: the space queries can
+/// take a few hundred milliseconds on large volumes (NF1).
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> R<T> + Send + 'static) -> R<T> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| ApiError::new("unknown", e))?
+}
+
+/// A folder of a volume (its root if `folder_id` is missing) with its treemap (F08-AC1/AC2).
+#[tauri::command]
+pub async fn space_folder(
+    state: State<'_, Arc<AppState>>,
+    volume_id: i64,
+    folder_id: Option<i64>,
+) -> R<SpaceFolderView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.space_folder(VolumeId(volume_id), folder_id.map(EntryId))).await
+}
+
+/// The largest files below a folder (F08-AC2).
+#[tauri::command]
+pub async fn largest_files(
+    state: State<'_, Arc<AppState>>,
+    volume_id: i64,
+    folder_id: Option<i64>,
+    limit: usize,
+) -> R<Vec<LargeFileView>> {
+    let s = Arc::clone(&state);
+    blocking(move || s.largest_files(VolumeId(volume_id), folder_id.map(EntryId), limit)).await
+}
+
+/// Statistics by type of a volume, or of the whole catalog without `volume_id` (F08-AC3).
+#[tauri::command]
+pub async fn type_stats(
+    state: State<'_, Arc<AppState>>,
+    volume_id: Option<i64>,
+) -> R<TypeStatsView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.type_stats(volume_id.map(VolumeId))).await
+}
+
+/// Opens a file or folder of the catalog with the user's normal rights (ADR-0003).
+#[tauri::command]
+pub fn open_entry(state: State<'_, Arc<AppState>>, volume_id: i64, entry_id: i64) -> R<()> {
+    let path = state.entry_path(VolumeId(volume_id), EntryId(entry_id))?;
+    prism_win::shell::open(&path).map_err(|e| ApiError::new("open_failed", e))
+}
+
+/// Shows a file or folder of the catalog selected in Explorer (ADR-0003).
+#[tauri::command]
+pub fn reveal_entry(state: State<'_, Arc<AppState>>, volume_id: i64, entry_id: i64) -> R<()> {
+    let path = state.entry_path(VolumeId(volume_id), EntryId(entry_id))?;
+    prism_win::shell::reveal(&path).map_err(|e| ApiError::new("open_failed", e))
 }
 
 /// F01-AC5: removes the catalog data of a volume; files on the disk are never touched.

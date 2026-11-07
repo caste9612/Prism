@@ -80,13 +80,13 @@ pub struct TreemapOptions {
 }
 
 impl Default for TreemapOptions {
-    /// Measured on C: with 1.37 million entries: about 4,800 nodes in 0.22 s
-    /// (docs/benchmarks/2026-11-07-t4-space.md).
+    /// The depth is only a safety limit: size threshold and node budget decide. Measured on
+    /// C: with 1.37 million entries (docs/benchmarks/2026-11-07-t4-space.md).
     fn default() -> Self {
         Self {
-            depth: 6,
+            depth: 64,
             min_fraction: 0.000_02,
-            max_nodes: 8000,
+            max_nodes: 12_000,
         }
     }
 }
@@ -120,13 +120,18 @@ pub fn treemap(
     #[allow(clippy::cast_sign_loss)]
     let min_size = (((size as f64) * opts.min_fraction).ceil() as u64).max(1);
 
-    // Breadth-first, so that the node budget is shared fairly: a large first folder cannot
-    // take it all before its siblings get their children. Nodes live in a flat list (with the
-    // index of their parent and the levels left below them) and are assembled at the end.
+    // Largest folders first, at any depth: the node budget goes where the space is, so the big
+    // files of deep folders (games, virtual disks) are drawn before small shallow items. With a
+    // fixed number of levels, deep trees showed only empty folder blocks. Nodes live in a flat
+    // list (with the index of their parent and the levels left below them) and are assembled
+    // at the end.
     let mut flat: Vec<(TreemapNode, Option<usize>, u32)> = vec![(root, None, opts.depth)];
-    let mut queue = std::collections::VecDeque::from([0usize]);
+    let mut queue = std::collections::BinaryHeap::from([(size, std::cmp::Reverse(0usize))]);
     let mut budget = opts.max_nodes;
-    while let Some(i) = queue.pop_front() {
+    while let Some((_, std::cmp::Reverse(i))) = queue.pop() {
+        if budget == 0 {
+            break; // the folders left are drawn as plain blocks
+        }
         let (node, _, levels) = &flat[i];
         if *levels == 0 || !node.is_dir {
             continue;
@@ -143,8 +148,10 @@ pub fn treemap(
                     children: Vec::new(),
                     other: 0,
                 };
+                if item.is_dir {
+                    queue.push((item.size, std::cmp::Reverse(flat.len())));
+                }
                 flat.push((child, Some(i), levels - 1));
-                queue.push_back(flat.len() - 1);
             } else {
                 flat[i].0.other += item.size;
             }
@@ -644,10 +651,10 @@ mod tests {
         assert_eq!(small.other, 200);
     }
 
-    // The node budget is spent level by level: the small folder gets its child before the
-    // large one gets grandchildren.
+    // The node budget goes to the largest folders first, whatever their depth: the big file
+    // two levels down is drawn, the small folder's child is grouped.
     #[test]
-    fn treemap_budget_is_shared_breadth_first() {
+    fn treemap_budget_goes_to_the_largest_folders() {
         let (_d, store, volume) = catalog(&[
             (r"Big\", 0),
             (r"Big\Sub\", 0),
@@ -673,11 +680,14 @@ mod tests {
         let big = &tree.children[0];
         let small = &tree.children[1];
         assert_eq!((big.name.as_str(), small.name.as_str()), ("Big", "Small"));
-        assert_eq!(small.children.len(), 1);
         let sub = &big.children[0];
         assert_eq!(sub.name, "Sub");
-        assert!(sub.children.is_empty());
-        assert_eq!(sub.other, 5_000);
+        assert_eq!(sub.children.len(), 1);
+        assert_eq!(sub.children[0].name, "deep.bin");
+        // Budget spent: Small is not expanded and is drawn as a plain block.
+        assert!(small.children.is_empty());
+        assert_eq!(small.other, 0);
+        assert_eq!(small.size, 1_000);
     }
 
     #[test]

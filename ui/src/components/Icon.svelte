@@ -17,6 +17,9 @@
     pin: 'M12 22s7-6.3 7-12a7 7 0 0 0-14 0c0 5.7 7 12 7 12z M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
     plus: 'M12 5v14 M5 12h14',
     open: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
+    back: 'M15 18l-6-6 6-6',
+    up: 'M12 19V5 M5 12l7-7 7 7',
+    space: 'M3 3h18v18H3z M3 12h10 M13 3v18 M13 15h8',
   };
   let { name, size = 18 }: { name: string; size?: number } = $props();
 </script>

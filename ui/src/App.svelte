@@ -12,10 +12,12 @@
   import CatalogView from './components/CatalogView.svelte';
   import Icon from './components/Icon.svelte';
   import SettingsView from './components/SettingsView.svelte';
+  import SpaceView from './components/SpaceView.svelte';
 
-  type Page = 'catalog' | 'settings';
+  type Page = 'catalog' | 'settings' | 'space';
 
   let page = $state<Page>('catalog');
+  let spaceVolume = $state<number | null>(null);
   let volumes = $state<VolumeView[]>([]);
   let settings = $state<Settings>({ language: 'system', theme: 'system', autostart: true });
   let info = $state<AppInfo | null>(null);
@@ -106,7 +108,7 @@
     {#each nav as item (item.page)}
       <button
         class="nav-item"
-        class:active={page === item.page}
+        class:active={page === item.page || (item.page === 'catalog' && page === 'space')}
         aria-current={page === item.page ? 'page' : undefined}
         onclick={() => (page = item.page)}
       >
@@ -117,8 +119,23 @@
   </nav>
 
   <main>
-    {#if page === 'catalog'}
-      <CatalogView {volumes} onerror={showToast} />
+    {#if page === 'space' && spaceVolume !== null && volumes.some((v) => v.id === spaceVolume)}
+      {#key spaceVolume}
+        <SpaceView
+          volume={volumes.find((v) => v.id === spaceVolume)!}
+          onback={() => (page = 'catalog')}
+          onerror={showToast}
+        />
+      {/key}
+    {:else if page === 'catalog' || page === 'space'}
+      <CatalogView
+        {volumes}
+        onerror={showToast}
+        onspace={(v) => {
+          spaceVolume = v.id;
+          page = 'space';
+        }}
+      />
     {:else}
       <SettingsView {settings} {volumes} {info} onchange={changeSettings} onerror={showToast} />
     {/if}

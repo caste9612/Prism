@@ -22,6 +22,20 @@
   --danger-soft: #fdecec;
   --track: #e6e8ef;
   --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 2px 8px rgb(16 24 40 / 5%);
+  /* File categories (treemap, statistics): validated categorical palette, fixed order;
+     three slots are below 3:1 on light surfaces, so they always come with labels. */
+  --cat-images: #2a78d6;
+  --cat-videos: #eb6834;
+  --cat-audio: #1baf7a;
+  --cat-documents: #eda100;
+  --cat-archives: #e87ba4;
+  --cat-disk_images: #008300;
+  --cat-code: #6250d6;
+  --cat-programs: #e34948;
+  --cat-other: #9b9ea8;
+  --cat-dir: #e3e6ee;
+  --cat-dir-2: #d5d9e4;
+  --cat-label: #ffffff;
 }
 
 :root[data-theme='dark'] {
@@ -43,6 +57,18 @@
   --danger-soft: #3a1e22;
   --track: #2b3040;
   --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 2px 10px rgb(0 0 0 / 25%);
+  --cat-images: #3987e5;
+  --cat-videos: #d95926;
+  --cat-audio: #199e70;
+  --cat-documents: #c98500;
+  --cat-archives: #d55181;
+  --cat-disk_images: #008300;
+  --cat-code: #9085e9;
+  --cat-programs: #e66767;
+  --cat-other: #5d6274;
+  --cat-dir: #262a38;
+  --cat-dir-2: #30354a;
+  --cat-label: #ffffff;
 }
 
 * {

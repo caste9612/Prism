@@ -12,10 +12,13 @@ use prism_core::cancel::CancelToken;
 use prism_core::exclusion::ExclusionPolicy;
 use prism_core::indexer::{self, IndexProgress, IndexRequest};
 use prism_core::jobs::{JobContext, JobEngine, JobId, JobInfo, JobSpec, Priority};
-use prism_core::model::{DisplayKind, Volume, VolumeId, VolumeKind, VolumeStatus};
+use prism_core::model::{DisplayKind, EntryId, Volume, VolumeId, VolumeKind, VolumeStatus};
+use prism_core::names;
 use prism_core::reconcile::ReconcileTarget;
 use prism_core::refresh;
 use prism_core::scan::WalkEnumerator;
+use prism_core::space::{self, StatsScope, TreemapOptions};
+use prism_core::store::StoreError;
 use prism_core::store::{self, Store};
 use prism_core::volumes::DetectedVolume;
 use prism_win::{autostart, ntfs};
@@ -23,6 +26,7 @@ use prism_win::{autostart, ntfs};
 use crate::dto::{ApiError, JobView, Settings, VolumeView};
 use crate::netprobe::NetProbe;
 use crate::notices::Notices;
+use crate::space_views::{CrumbView, LargeFileView, MAX_ITEMS, SpaceFolderView, TypeStatsView};
 
 pub struct AppState {
     pub store: Store,
@@ -198,6 +202,74 @@ impl AppState {
                 .map_err(|e| e.to_string())
             }),
         }))
+    }
+}
+
+/// Space analysis (F08); catalog reads only, so offline volumes work too (F08-AC4).
+impl AppState {
+    pub fn space_folder(
+        &self,
+        volume: VolumeId,
+        folder: Option<EntryId>,
+    ) -> Result<SpaceFolderView, ApiError> {
+        Ok(self.store.read(|c| {
+            let folder = space::folder_of_volume(c, volume, folder)?;
+            let breadcrumb = space::breadcrumb(c, folder)?
+                .into_iter()
+                .map(|(id, name)| CrumbView { id: id.0, name })
+                .collect();
+            let mut items = space::folder_items(c, folder)?;
+            let more_items = items.len().saturating_sub(MAX_ITEMS) as u64;
+            items.truncate(MAX_ITEMS);
+            let treemap = space::treemap(c, folder, TreemapOptions::default())?;
+            Ok(SpaceFolderView {
+                volume_id: volume.0,
+                folder_id: folder.0,
+                breadcrumb,
+                items: items.into_iter().map(Into::into).collect(),
+                more_items,
+                treemap: treemap.into(),
+            })
+        })?)
+    }
+
+    pub fn largest_files(
+        &self,
+        volume: VolumeId,
+        folder: Option<EntryId>,
+        limit: usize,
+    ) -> Result<Vec<LargeFileView>, ApiError> {
+        Ok(self.store.read(|c| {
+            let folder = space::folder_of_volume(c, volume, folder)?;
+            Ok(space::largest_files(c, folder, limit.min(1000))?
+                .into_iter()
+                .map(Into::into)
+                .collect())
+        })?)
+    }
+
+    pub fn type_stats(&self, volume: Option<VolumeId>) -> Result<TypeStatsView, ApiError> {
+        let scope = volume.map_or(StatsScope::Catalog, StatsScope::Volume);
+        Ok(self.store.read(|c| space::type_stats(c, scope, 25))?.into())
+    }
+
+    /// Path on disk of a catalog entry of a connected volume (ADR-0003: the interface passes
+    /// ids, the backend resolves paths).
+    pub fn entry_path(&self, volume: VolumeId, entry: EntryId) -> Result<PathBuf, ApiError> {
+        let detected = self.detected(volume)?;
+        let root = access_path(&detected)
+            .ok_or_else(|| ApiError::new("volume_offline", format!("volume {volume}")))?;
+        let rel = self.store.read(|c| {
+            let e = store::entry(c, entry)?
+                .filter(|e| e.volume == volume)
+                .ok_or_else(|| StoreError::NotFound(format!("entry {entry} of {volume}")))?;
+            store::relative_path(c, e.id)
+        })?;
+        let mut path = root;
+        for part in rel.split('\\').filter(|p| !p.is_empty()) {
+            path.push(names::decode(part));
+        }
+        Ok(path)
     }
 }
 

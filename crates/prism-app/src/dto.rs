@@ -149,6 +149,11 @@ impl ApiError {
 
 impl From<prism_core::store::StoreError> for ApiError {
     fn from(e: prism_core::store::StoreError) -> Self {
-        Self::new("store", e)
+        match e {
+            // An id that is not (or no longer) in the catalog, e.g. a folder removed by an
+            // update while its treemap was open.
+            prism_core::store::StoreError::NotFound(_) => Self::new("not_found", e),
+            _ => Self::new("store", e),
+        }
     }
 }

@@ -6,8 +6,11 @@ import type { ApiError } from './bindings/ApiError';
 import type { AppInfo } from './bindings/AppInfo';
 import type { JobView } from './bindings/JobView';
 import type { LabelsInput } from './bindings/LabelsInput';
+import type { LargeFileView } from './bindings/LargeFileView';
 import type { NativeTexts } from './bindings/NativeTexts';
 import type { Settings } from './bindings/Settings';
+import type { SpaceFolderView } from './bindings/SpaceFolderView';
+import type { TypeStatsView } from './bindings/TypeStatsView';
 import type { VolumeView } from './bindings/VolumeView';
 import { t } from './i18n.svelte';
 import { mockBackend } from './mock';
@@ -23,6 +26,11 @@ export interface Backend {
   setLabels(id: number, labels: LabelsInput): Promise<void>;
   setIgnored(id: number, ignored: boolean): Promise<void>;
   openVolume(id: number): Promise<void>;
+  spaceFolder(volumeId: number, folderId: number | null): Promise<SpaceFolderView>;
+  largestFiles(volumeId: number, folderId: number | null, limit: number): Promise<LargeFileView[]>;
+  typeStats(volumeId: number | null): Promise<TypeStatsView>;
+  openEntry(volumeId: number, entryId: number): Promise<void>;
+  revealEntry(volumeId: number, entryId: number): Promise<void>;
   removeVolume(id: number): Promise<void>;
   getSettings(): Promise<Settings>;
   setSettings(settings: Settings): Promise<void>;
@@ -40,6 +48,11 @@ const tauriBackend: Backend = {
   setLabels: (id, labels) => invoke('set_labels', { id, labels }),
   setIgnored: (id, ignored) => invoke('set_ignored', { id, ignored }),
   openVolume: (id) => invoke('open_volume', { id }),
+  spaceFolder: (volumeId, folderId) => invoke('space_folder', { volumeId, folderId }),
+  largestFiles: (volumeId, folderId, limit) => invoke('largest_files', { volumeId, folderId, limit }),
+  typeStats: (volumeId) => invoke('type_stats', { volumeId }),
+  openEntry: (volumeId, entryId) => invoke('open_entry', { volumeId, entryId }),
+  revealEntry: (volumeId, entryId) => invoke('reveal_entry', { volumeId, entryId }),
   removeVolume: (id) => invoke('remove_volume', { id }),
   getSettings: () => invoke('get_settings'),
   setSettings: (settings) => invoke('set_settings', { settings }),

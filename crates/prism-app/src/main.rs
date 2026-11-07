@@ -7,6 +7,7 @@ mod dto;
 mod monitor;
 mod netprobe;
 mod notices;
+mod space_views;
 mod state;
 mod tray;
 mod watchers;
@@ -147,6 +148,11 @@ fn main() {
             commands::set_labels,
             commands::set_ignored,
             commands::open_volume,
+            commands::space_folder,
+            commands::largest_files,
+            commands::type_stats,
+            commands::open_entry,
+            commands::reveal_entry,
             commands::remove_volume,
             commands::get_settings,
             commands::set_settings,

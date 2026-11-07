@@ -269,9 +269,20 @@ FTS5 con tokenizer `trigram`. Il parser dei filtri (F07-AC5) è indipendente dal
 - **Contenuto di una cartella** ordinato per dimensione (`folder_items`): figli con la
   dimensione del sottoalbero dagli aggregati `dir_stats` (un file con più hard link conta una
   volta); dimensione logica, non allocata.
-- **Treemap** (`treemap`): albero potato, riempito **in ampiezza** fino a 6 livelli; gli
-  elementi sotto lo 0,002 % della cartella finiscono in `other`, al massimo 8.000 nodi. La
-  disposizione dei rettangoli e il disegno su canvas sono nell'interfaccia.
+- **Treemap** (`treemap`): albero potato in cui si espandono **per prime le cartelle più
+  grandi, a qualunque profondità** (coda a priorità per dimensione): gli elementi sotto lo
+  0,002 % della cartella finiscono in `other`, al massimo 12.000 nodi; la profondità (64) è
+  solo un limite di sicurezza. Con un numero fisso di livelli le cartelle profonde (giochi,
+  dischi virtuali) restavano blocchi vuoti. Le cartelle non espanse si disegnano come blocchi
+  pieni.
+- **Interfaccia** (`ui/src/lib/treemap.ts`, `components/Treemap.svelte`): disposizione
+  *squarified* (Bruls, Huizing, van Wijk) in TypeScript, cartelle annidate con una striscia del
+  titolo, disegno su canvas; colori dei file per categoria (palette categoriale validata in
+  entrambi i temi, ordine fisso, `--cat-*` in `app.css`), etichette sui blocchi abbastanza
+  grandi, tooltip, legenda. Il canvas è nascosto agli screen reader: lo stesso contenuto e le
+  stesse azioni sono nell'elenco accanto (NF7). I comandi (`space_folder`, `largest_files`,
+  `type_stats`) sono asincroni e leggono il catalogo fuori dal thread principale (NF1);
+  `open_entry`/`reveal_entry` aprono file e cartelle senza privilegi (ADR-0003).
 - **File più grandi** di un sottoalbero (`largest_files`): per la radice una scansione per
   volume; per una sottocartella una CTE ricorsiva con ordine di join fissato (vedi il
   benchmark: senza, SQLite sceglieva un piano quadratico).
@@ -281,8 +292,8 @@ FTS5 con tokenizer `trigram`. Il parser dei filtri (F07-AC5) è indipendente dal
 - I comandi passano identificativi del catalogo; `folder_of_volume` verifica che la cartella
   appartenga al volume indicato (ADR-0003).
 
-Misure su C: (1,37 milioni di voci): treemap 0,22 s, file più grandi 0,14–0,34 s, statistiche
-0,23 s (`docs/benchmarks/2026-11-07-t4-space.md`).
+Misure su C: (1,37 milioni di voci): treemap 0,48 s (11.592 nodi), file più grandi
+0,14–0,34 s, statistiche 0,23 s (`docs/benchmarks/2026-11-07-t4-space.md`).
 
 ## 5. Accesso ai dati (ADR-0008)
 
