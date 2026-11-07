@@ -48,9 +48,9 @@ misura: 108–129 B per voce senza indice di ricerca), NF4 (parziale).
 - [x] Prototipo lettore MFT, misure su VHDX e su C:/D: (sola lettura); decisione go/no-go:
       **go** (ADR-0017; C: 5,7 s contro 14,3 s del walker)
 - [~] `MftEnumerator` completo: fatti frammentazione della `$MFT`, record di estensione
-      (`$ATTRIBUTE_LIST`), hard link, ADS, confronto con il walker sul disco di test; restano
-      `$MFT` con `$ATTRIBUTE_LIST` nel record 0, verifica di file compressi/sparsi
-      (rimandato: REVIEW L2)
+      (`$ATTRIBUTE_LIST`), hard link, ADS, file compressi e sparsi (T10), confronto con il
+      walker sul disco di test; resta `$MFT` con `$ATTRIBUTE_LIST` nel record 0, che non si
+      riproduce sul disco di test (REVIEW L2: si usa il walker)
 - [x] Istantanea `ScanTree` compatta: fatta in T10 (REVIEW D49; picco 223 B per voce con la
       MFT, 174 con il walker)
 - [x] Journal USN: lettura, posizione salvata, gestione journal non valido, recupero dei

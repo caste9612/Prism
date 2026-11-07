@@ -25,6 +25,15 @@
 
 ## Diario
 
+### 2026-11-07 — T10: file compressi e sparsi nel lettore MFT (L2)
+
+- Test elevato `mft.rs`: un file compresso (`compact /c`) e uno sparso (`fsutil sparse`) sul
+  disco PRISMTEST, sul percorso già accettato dalla guardia. Il lettore MFT dà dimensione e
+  attributi uguali al walker e uno spazio occupato molto sotto la dimensione. Primo tentativo
+  fallito perché gli strumenti non accettano i percorsi `\\?\`.
+- `check.ps1` ora controlla con clippy anche i test elevati: la `ScanTree` compatta (D49)
+  aveva lasciato in `tests/usn.rs` un `&*` che nessun controllo vedeva.
+
 ### 2026-11-07 — T10: aggiornamento dal journal più leggero (L4)
 
 - Misura su C: con tempi per fase (nuovi log di debug in `update_ntfs` e `apply_changes`):

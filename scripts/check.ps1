@@ -14,6 +14,8 @@ function Invoke-Step([string]$Name, [scriptblock]$Command) {
 
 Invoke-Step 'cargo fmt' { cargo fmt --all -- --check }
 Invoke-Step 'cargo clippy' { cargo clippy --workspace --all-targets --locked -- -D warnings }
+# The elevated tests are compiled and linted here too (they run only through the admin runner).
+Invoke-Step 'cargo clippy (admin tests)' { cargo clippy -p prism-win --features admin-tests --all-targets --locked -- -D warnings }
 Invoke-Step 'cargo test' { cargo test --workspace --locked }
 
 if (Test-Path 'ui/package.json') {

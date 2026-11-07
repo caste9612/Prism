@@ -186,7 +186,7 @@ fn journal_records_and_single_file_fetches() {
     let in_tree = |name: &str| {
         tree.children(ScanTree::ROOT)
             .map(|n| tree.node(n))
-            .find(|n| &*n.name == name)
+            .find(|n| n.name == name)
             .unwrap_or_else(|| panic!("{name} not in the tree"))
             .meta
     };

@@ -83,6 +83,24 @@ impl Drop for TestDir {
     }
 }
 
+/// Runs a Windows tool that changes `file` (compression, sparse ranges), after the sandbox
+/// guard of the test volume accepted the path.
+fn file_tool(volume: &Path, program: &str, before: &[&str], file: &Path, after: &[&str]) {
+    let checked = SandboxGuard::new([volume]).unwrap().check(file).unwrap();
+    // The tools do not take `\\?\` paths.
+    let text = checked.to_string_lossy();
+    let plain = text.strip_prefix(r"\\?\").unwrap_or(&text);
+    let status = std::process::Command::new(program)
+        .args(before)
+        .arg(plain)
+        .args(after)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "{program} {before:?} {after:?} failed");
+}
+
 /// Writes cached metadata of the test volume to disk, so that the raw MFT read sees it.
 fn flush_volume(volume: &Path) {
     let letter = volume.to_string_lossy().chars().next().unwrap();
@@ -147,6 +165,19 @@ fn mft_and_walker_agree_on_the_test_volume() {
     let ads = dir.file("ads.txt", 100, 8);
     let stream = PathBuf::from(format!("{}:extra", ads.display()));
     dir.fs.write(&stream, &vec![b's'; 20_000]).unwrap();
+    // REVIEW L2: a compressed file and a sparse one, whose allocation is far below their
+    // size (the walker reports neither attribute differently from the MFT).
+    let compressed = dir.file(r"special\compressed.bin", 1 << 20, 9);
+    file_tool(&volume, "compact", &["/c", "/q"], &compressed, &[]);
+    let sparse = dir.file(r"special\sparse.bin", 1 << 20, 10);
+    file_tool(&volume, "fsutil", &["sparse", "setflag"], &sparse, &[]);
+    file_tool(
+        &volume,
+        "fsutil",
+        &["sparse", "setrange"],
+        &sparse,
+        &["0", "1048576"],
+    );
     flush_volume(&volume);
 
     let relative = vec![dir.name.clone()];
@@ -184,6 +215,20 @@ fn mft_and_walker_agree_on_the_test_volume() {
     let ads = m["ads.txt"].1;
     assert_eq!(ads.size, 100);
     assert!(ads.alloc_size.unwrap() >= 20_000, "{ads:?}");
+    // Compressed and sparse files: the logical size, the attribute, and the space really used.
+    const COMPRESSED: u32 = 0x800;
+    const SPARSE: u32 = 0x200;
+    let c = m[r"special\compressed.bin"].1;
+    assert_eq!(c.size, 1 << 20);
+    assert_ne!(c.attrs & COMPRESSED, 0, "{c:?}");
+    assert!(
+        c.alloc_size.unwrap() < 1 << 18,
+        "compressed allocation {c:?}"
+    );
+    let s = m[r"special\sparse.bin"].1;
+    assert_eq!(s.size, 1 << 20);
+    assert_ne!(s.attrs & SPARSE, 0, "{s:?}");
+    assert!(s.alloc_size.unwrap() < 1 << 16, "sparse allocation {s:?}");
 }
 
 #[test]
