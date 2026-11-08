@@ -53,6 +53,13 @@
     disco fisico e per NAS (D64): sul PC dell'utente C:, D: ed E: stanno sotto "Samsung SSD 990
     PRO 2TB · NVMe · 3 partizioni".
 - Prova dell'app vera: 14 su 14 (con le anteprime); test elevati verdi.
+- Rilascio: chiave degli aggiornamenti creata (password casuale in `~\.tauri`), PR #2 unita in
+  `develop` dall'utente, workflow *Release* avviato e approvato dall'utente. Vecchio Prism
+  1.0.1 (portatile) e i suoi dati spostati nel Cestino su richiesta dell'utente.
+- README aggiornato con sette screenshot presi dall'interfaccia con il backend simulato
+  (`npm --prefix ui run screens`, `docs/screenshots/`): dati inventati. Tolto dal backend
+  simulato il numero di serie di un disco reale; il NAS simulato ora ha un indirizzo IP e un
+  nome imparato, come quelli veri.
 
 ### 2026-11-08 — Versione 2.0.0, icona ovunque, prova dell'app vera
 
