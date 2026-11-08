@@ -23,7 +23,9 @@ da zero**: questo branch (`rewrite`) sostituirà il ramo principale alla 1.0.
   comunque, in CI no (CI rossa su `736db7c` per questo).
 - **Push**: consentito **solo** per il branch `rewrite` su `origin`, periodicamente (CI e
   backup). Mai force push, mai push di altri branch, mai merge sul ramo principale senza
-  approvazione dell'utente.
+  approvazione dell'utente. Dal 2026-11-08 `develop` (ramo predefinito) contiene la
+  riscrittura: si continua a lavorare su `rewrite` e si porta su `develop` con una pull request
+  solo quando l'utente lo chiede.
 - **Autonomia totale fino alla 1.0, senza soste** (decisione dell'utente, 2026-11-07
   pomeriggio). Si procede tappa dopo tappa fino all'ultima voce della roadmap che non richiede
   l'utente. La sosta di revisione di fine T3 è **annullata**: l'utente fa **una sola revisione

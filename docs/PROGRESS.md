@@ -20,6 +20,14 @@
 
 ## Diario
 
+### 2026-11-08 — Merge su develop (U2, parte)
+
+- Su richiesta dell'utente `rewrite` va su `develop` (ramo predefinito del repository) con una
+  pull request. Da `develop` arrivava un solo commit (il README del vecchio Prism con i suoi
+  screenshot): tenuto il README nuovo, tolti gli screenshot della vecchia interfaccia, riga di
+  stato del README aggiornata (le release 1.0.0 e 1.0.1 sono del vecchio Prism).
+- Resta il rilascio (U2): numero di versione maggiore di 1.0.1 (consigliato 2.0.0), dopo U7 e U3.
+
 ### 2026-11-08 — T11: nuova interfaccia costruita
 
 - Fondamenta: variabili CSS chiare e scure del linguaggio B+C, caratteri inclusi

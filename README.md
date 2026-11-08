@@ -7,8 +7,9 @@ the catalog available when the drive is unplugged. On top of the catalog it offe
 search, disk-space analysis, exact and similar duplicates, backup verification and disk
 health monitoring.
 
-> **Status:** version 1.0 is being finished on the `rewrite` branch. No release is published
-> yet.
+> **Status:** this is the new Prism, rewritten from scratch and being finished. The releases
+> published so far (1.0.0 and 1.0.1) are the previous version; the first release of the new one
+> will be announced here.
 
 ## What Prism does
 
