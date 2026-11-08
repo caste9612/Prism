@@ -22,7 +22,7 @@ test('F10-AC1/AC2: identical files on every disk, where each copy is, space to r
   await expect(video).toContainText('recoverable 8.4 GB');
   await expect(video).toContainText('Backup Foto · cassetto 2');
   await expect(video).toContainText('not connected');
-  await expect(video).toContainText('NAS Big-Storage');
+  await expect(video).toContainText('NAS Media');
   // F06-AC5: the analysis is not over, the list may grow.
   await expect(page.getByText('Content analysis still has 12,480 files to read')).toBeVisible();
   await page.screenshot({ path: 'test-results/duplicates.png', fullPage: true });
@@ -42,7 +42,7 @@ test('F10-AC3: rules propose the copies to delete, the user changes them', async
   // Keep the copy on the NAS instead.
   const rules = page.getByRole('region', { name: 'Selection rules' });
   await rules.getByRole('combobox', { name: 'Selection rules' }).first().selectOption('keepOnVolume');
-  await rules.getByRole('combobox', { name: 'Disk' }).selectOption({ label: 'NAS Big-Storage' });
+  await rules.getByRole('combobox', { name: 'Disk' }).selectOption({ label: 'NAS Media' });
   await rules.getByRole('button', { name: 'Apply rules' }).click();
   await expect(boxes.nth(0)).toBeChecked();
   await expect(boxes.nth(2)).not.toBeChecked();

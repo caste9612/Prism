@@ -57,7 +57,7 @@ test('F13-AC5, F15-AC2/AC5: copy of the missing files with preview and outcome',
   const dialog = page.getByRole('dialog', { name: 'Copy the missing files' });
   await expect(dialog).toContainText('never overwritten');
   // The backup disk is not connected: another connected disk is proposed.
-  await choose(page, 'Copy to', 'NAS Big-Storage', 'Copia');
+  await choose(page, 'Copy to', 'NAS Media', 'Copia');
   await expect(dialog).toContainText('5 files, 16.3 MB, to Y:\\Copia');
   await dialog.getByRole('radio', { name: /Copy with another name/ }).check();
   await dialog.getByRole('button', { name: 'Copy', exact: true }).click();
@@ -86,7 +86,7 @@ test('F14-AC1/AC2/AC3: comparison by content finds the renamed file; tree by sta
   await openBackup(page);
   await page.getByRole('tab', { name: 'Compare' }).click();
   await choose(page, 'Folder A', 'Data');
-  await choose(page, 'Folder B', 'NAS Big-Storage');
+  await choose(page, 'Folder B', 'NAS Media');
   await page.getByRole('button', { name: 'Compare', exact: true }).click();
   const filters = page.getByRole('group', { name: 'Show' });
   await expect(filters.getByText('Only in A').locator('..')).toContainText('1');

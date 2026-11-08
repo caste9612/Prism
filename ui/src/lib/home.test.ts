@@ -49,7 +49,7 @@ describe('cards grouped by physical disk and by server (D64)', () => {
     expect(groups.map((g) => [g.kind, g.volumes.map((v) => v.name)])).toEqual([
       ['disk', ['Data', 'Windows']],
       ['disk', ['KINGSTON']],
-      ['server', ['NAS Big-Storage']],
+      ['server', ['NAS Media']],
       ['disk', ['Backup Foto']],
     ]);
     expect(groupTitle(groups[0]!)).toBe('WDC WD20EZRZ-00Z5HB0 · SATA');
@@ -110,12 +110,12 @@ describe('catalog cards', () => {
     const ignored = volumes.map((v) => (v.id === 5 ? { ...v, status: 'ignored' } : v));
     expect(filterCounts(ignored).all).toBe(4);
     expect(catalogCards(ignored, 'all', 'name').map((v) => v.id)).not.toContain(5);
-    expect(catalogCards(volumes, 'network', 'name').map((v) => v.name)).toEqual(['NAS Big-Storage']);
+    expect(catalogCards(volumes, 'network', 'name').map((v) => v.name)).toEqual(['NAS Media']);
     expect(catalogCards(volumes, 'offline', 'name').map((v) => v.name)).toEqual(['Backup Foto']);
   });
 
   it('connected first, then network, then the drawer; within each the chosen order', () => {
-    expect(catalogCards(volumes, 'all', 'name').map((v) => v.name)).toEqual(['Data', 'KINGSTON', 'Windows', 'NAS Big-Storage', 'Backup Foto']);
+    expect(catalogCards(volumes, 'all', 'name').map((v) => v.name)).toEqual(['Data', 'KINGSTON', 'Windows', 'NAS Media', 'Backup Foto']);
     // Space used: Data (648 GB) before Windows (255 GB) before the stick (13 GB).
     expect(catalogCards(volumes, 'online', 'used').map((v) => v.name)).toEqual(['Data', 'Windows', 'KINGSTON']);
     // By location: disks without one last.

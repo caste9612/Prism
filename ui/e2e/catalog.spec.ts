@@ -101,17 +101,17 @@ test('F03-AC1: name, location and colour of a disk', async ({ page }) => {
 });
 
 test('F01-AC5: removing a disk asks for confirmation', async ({ page }) => {
-  let menu = await cardMenu(page, 'NAS Big-Storage');
+  let menu = await cardMenu(page, 'NAS Media');
   await menu.getByRole('menuitem', { name: 'Remove from catalog…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Remove “NAS Big-Storage” from the catalog?' });
+  const dialog = page.getByRole('dialog', { name: 'Remove “NAS Media” from the catalog?' });
   await expect(dialog).toContainText('The files on the disk are not touched.');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
-  await expect(card(page, 'NAS Big-Storage')).toBeVisible();
+  await expect(card(page, 'NAS Media')).toBeVisible();
 
-  menu = await cardMenu(page, 'NAS Big-Storage');
+  menu = await cardMenu(page, 'NAS Media');
   await menu.getByRole('menuitem', { name: 'Remove from catalog…' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Remove from catalog' }).click();
-  await expect(card(page, 'NAS Big-Storage')).toHaveCount(0);
+  await expect(card(page, 'NAS Media')).toHaveCount(0);
 });
 
 test('F21-AC1: language and theme apply immediately', async ({ page }) => {
@@ -150,7 +150,7 @@ test('D63/D64: disks grouped by physical disk and by server; network folders wit
   await expect(disk.getByRole('article', { name: 'Data' })).toBeVisible();
   const nas = page.getByRole('region', { name: 'NAS DISKSTATION · 192.168.1.20' });
   await expect(nas).toContainText('1 folder');
-  const share = nas.getByRole('article', { name: 'NAS Big-Storage' });
+  const share = nas.getByRole('article', { name: 'NAS Media' });
   await expect(share).toContainText('NAS · DISKSTATION');
   await expect(share.locator('.letter.net')).toContainText('Y:');
   await expect(page.getByRole('region', { name: 'WD Elements 25A2 · USB' }).getByRole('article', { name: 'Backup Foto' })).toBeVisible();
@@ -158,50 +158,50 @@ test('D63/D64: disks grouped by physical disk and by server; network folders wit
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const list = page.locator('table.data');
   await expect(list.getByRole('rowheader').first()).toContainText('WDC WD20EZRZ-00Z5HB0');
-  await expect(list.getByRole('row', { name: 'NAS Big-Storage' })).toContainText('NAS · DISKSTATION');
+  await expect(list.getByRole('row', { name: 'NAS Media' })).toContainText('NAS · DISKSTATION');
   await page.getByRole('button', { name: 'Cards', exact: true }).click();
 });
 
 test('D59: a network folder with a known name at another address waits for the user', async ({ page }) => {
   const panel = page.getByRole('region', { name: 'A network folder at a new address?' });
-  await expect(panel).toContainText('\\\\192.168.1.21\\Big-Storage');
+  await expect(panel).toContainText('\\\\192.168.1.21\\Media');
   await expect(panel).toContainText('router gives the NAS another address');
-  await expect(panel).toContainText('before at \\\\192.168.1.20\\Big-Storage');
+  await expect(panel).toContainText('before at \\\\192.168.1.20\\Media');
   await expect(panel.getByRole('button', { name: 'It is another folder' })).toBeVisible();
-  await panel.getByRole('button', { name: 'Yes, it is NAS Big-Storage' }).click();
+  await panel.getByRole('button', { name: 'Yes, it is NAS Media' }).click();
   await expect(panel).toHaveCount(0);
   // The other question is still there.
   await expect(page.getByRole('region', { name: 'Which disk is Backup Foto?' })).toBeVisible();
 });
 
 test('D59: a network folder gets a new address by hand, checked first', async ({ page }) => {
-  await openDisk(page, 'NAS Big-Storage');
-  await page.getByRole('button', { name: 'Actions for NAS Big-Storage' }).click();
-  await page.getByRole('menu', { name: 'Actions for NAS Big-Storage' }).getByRole('menuitem', { name: 'Change network address…' }).click();
+  await openDisk(page, 'NAS Media');
+  await page.getByRole('button', { name: 'Actions for NAS Media' }).click();
+  await page.getByRole('menu', { name: 'Actions for NAS Media' }).getByRole('menuitem', { name: 'Change network address…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Network address' });
-  await expect(dialog).toContainText('In the catalog it is \\\\192.168.1.20\\Big-Storage.');
+  await expect(dialog).toContainText('In the catalog it is \\\\192.168.1.20\\Media.');
   const field = dialog.getByRole('textbox', { name: 'New network path' });
-  await expect(field).toHaveValue('\\\\192.168.1.20\\Big-Storage');
+  await expect(field).toHaveValue('\\\\192.168.1.20\\Media');
   const use = dialog.getByRole('button', { name: 'Use this address' });
   await expect(use).toBeDisabled();
   // Not a network path.
-  await field.fill('D:\\Big-Storage');
+  await field.fill('D:\\Media');
   await dialog.getByRole('button', { name: 'Check' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Type a network path like \\\\server\\folder.');
   // A path that does not answer cannot be used.
-  await field.fill('\\\\192.168.1.99\\Big-Storage');
+  await field.fill('\\\\192.168.1.99\\Media');
   await dialog.getByRole('button', { name: 'Check' }).click();
   await expect(dialog.getByRole('status')).toHaveText('This path does not answer.');
   await expect(use).toBeDisabled();
   // One that answers, with most of the catalog there.
-  await field.fill('\\\\192.168.1.21\\Big-Storage\\');
+  await field.fill('\\\\192.168.1.21\\Media\\');
   await dialog.getByRole('button', { name: 'Check' }).click();
   await expect(dialog.getByRole('status')).toHaveText('It answers: 3 of the 4 main folders and files of the catalog are here too.');
   await use.click();
   await expect(dialog).toHaveCount(0);
-  await page.getByRole('button', { name: 'Actions for NAS Big-Storage' }).click();
-  await page.getByRole('menu', { name: 'Actions for NAS Big-Storage' }).getByRole('menuitem', { name: 'Change network address…' }).click();
-  await expect(page.getByRole('dialog', { name: 'Network address' })).toContainText('In the catalog it is \\\\192.168.1.21\\Big-Storage.');
+  await page.getByRole('button', { name: 'Actions for NAS Media' }).click();
+  await page.getByRole('menu', { name: 'Actions for NAS Media' }).getByRole('menuitem', { name: 'Change network address…' }).click();
+  await expect(page.getByRole('dialog', { name: 'Network address' })).toContainText('In the catalog it is \\\\192.168.1.21\\Media.');
 });
 
 test('F17-AC1/AC2: the health of a disk with its values and history', async ({ page }) => {

@@ -2,7 +2,7 @@
 
 Prism è il catalogo di tutti i dischi di un utente Windows (anche scollegati), con ricerca,
 analisi dello spazio, duplicati, verifica dei backup e salute dei dischi. È una **riscrittura
-da zero**: questo branch (`rewrite`) sostituirà il ramo principale alla 1.0.
+da zero**, pubblicata come 2.0.0; dal 2026-11-08 si lavora direttamente su `develop`.
 
 ## All'inizio di ogni sessione
 
@@ -21,11 +21,12 @@ da zero**: questo branch (`rewrite`) sostituirà il ramo principale alla 1.0.
   (fmt, clippy con `-D warnings`, test). Commit in autonomia. Se `Cargo.lock` (o
   `ui/package-lock.json`) è modificato, va nello stesso commit: in locale `--locked` passa
   comunque, in CI no (CI rossa su `736db7c` per questo).
-- **Push**: consentito **solo** per il branch `rewrite` su `origin`, periodicamente (CI e
-  backup). Mai force push, mai push di altri branch, mai merge sul ramo principale senza
-  approvazione dell'utente. Dal 2026-11-08 `develop` (ramo predefinito) contiene la
-  riscrittura: si continua a lavorare su `rewrite` e si porta su `develop` con una pull request
-  solo quando l'utente lo chiede.
+- **Branch e push** (decisione dell'utente, 2026-11-08: "smetti di aprire pull request,
+  spostiamo tutto su develop e lavoriamo lì"): si lavora sul branch `develop` (ramo
+  predefinito) nel worktree `D:\Progetti\Github\Prism-next`, con commit e push diretti su
+  `origin/develop`, senza pull request. Mai force push. Il branch `rewrite` è chiuso (unito in
+  `develop` con le PR #2 e #3). Le release partono dal workflow *Release* su `develop`, con
+  l'approvazione dell'utente.
 - **Autonomia totale fino alla 1.0, senza soste** (decisione dell'utente, 2026-11-07
   pomeriggio). Si procede tappa dopo tappa fino all'ultima voce della roadmap che non richiede
   l'utente. La sosta di revisione di fine T3 è **annullata**: l'utente fa **una sola revisione

@@ -24,7 +24,7 @@ export function newVolumePrompts(volumes: VolumeView[], dismissed: Set<number>):
 /**
  * Name shown for a volume. Without a user or system label the backend falls back to the mount
  * point; like Explorer, show it as "Local disk (C:)" instead of a bare "C:\". A network share is
- * called by its folder name ("Big-Storage"): the network icon and the server say the rest
+ * called by its folder name ("Media"): the network icon and the server say the rest
  * (REVIEW D63).
  */
 export function displayName(v: VolumeView, kindLabel: string): string {

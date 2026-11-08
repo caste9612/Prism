@@ -21,7 +21,7 @@ test('F09-AC1: categories with explanation and total', async ({ page }) => {
   await expect(group(page, /^Chrome cache · Windows/)).toContainText('cookies, passwords and history are never touched');
   await expect(page.getByText('Recycle Bin of Windows: 12 items, 1.3 GB.')).toBeVisible();
   // Only the proposals of this disk.
-  await expect(group(page, /NAS Big-Storage/)).toHaveCount(0);
+  await expect(group(page, /NAS Media/)).toHaveCount(0);
   await page.screenshot({ path: 'test-results/cleanup.png', fullPage: true });
 });
 
@@ -63,8 +63,8 @@ test('F16-AC1: moving to the Recycle Bin asks for confirmation, then reports', a
 });
 
 test('F16-AC2: on a disk without Recycle Bin the deletion is permanent and says so', async ({ page }) => {
-  await openCleanup(page, 'NAS Big-Storage');
-  const nas = group(page, /^Large and old files · NAS Big-Storage/);
+  await openCleanup(page, 'NAS Media');
+  const nas = group(page, /^Large and old files · NAS Media/);
   await nas.getByRole('checkbox').first().check();
   await nas.getByRole('button', { name: /Delete permanently/ }).click();
   const dialog = page.getByRole('dialog', { name: /permanently\?$/ });

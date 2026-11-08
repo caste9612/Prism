@@ -5,19 +5,17 @@
 
 ## Stato attuale
 
-- **Tappa**: T11 — nuova interfaccia (dalla revisione dell'utente del 2026-11-08, ADR-0019).
-  T10 resta completa per la parte autonoma.
-- **Prossimo passo**: pubblicazione della 2.0.0 chiesta dall'utente (REVIEW U2): servono le sue
-  scelte su chiavi degli aggiornamenti (U7) e firma (U1), poi installer finale, PR `rewrite` →
-  `develop` e release `v2.0.0` (note in `docs/releases/2.0.0.md`). Intanto l'utente prova l'app
-  di sviluppo.
+- **Stato**: **Prism 2.0.0 pubblicato** il 2026-11-08 (release `v2.0.0` su GitHub, aggiornamenti
+  automatici attivi). Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: installare la 2.0.0 sul PC dell'utente (installer già in `Downloads`, serve
+  il suo clic UAC) e fare la copia di sicurezza della chiave degli aggiornamenti
+  (`~\.tauri\prism-updater.key` e la sua password); poi le richieste dell'utente.
 - **Bloccanti**: nessuno.
-- **Decisioni in sospeso**: Q7 firma del codice (U1), chiavi degli aggiornamenti (U7).
-- **Modalità di lavoro** (aggiornata 2026-11-07, ~15:30): autonomia totale **senza soste**
-  fino alla 1.0; le decisioni si prendono in autonomia e si registrano in `docs/REVIEW.md`, che
-  guida l'unica revisione dell'utente. Push consentito solo del branch `rewrite` (vedi
-  CLAUDE.md). Il runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo
-  rimuove (U6).
+- **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); prova su un PC
+  pulito (U3).
+- **Modalità di lavoro** (aggiornata 2026-11-08): autonomia; le decisioni si registrano in
+  `docs/REVIEW.md`. Commit e push direttamente su `develop`, niente pull request (CLAUDE.md). Il
+  runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
 
@@ -60,6 +58,16 @@
   (`npm --prefix ui run screens`, `docs/screenshots/`): dati inventati. Tolto dal backend
   simulato il numero di serie di un disco reale; il NAS simulato ora ha un indirizzo IP e un
   nome imparato, come quelli veri.
+- **Release 2.0.0 pubblicata** (13:26 UTC, run 42483929205): installer 6.428.090 byte,
+  `latest.json` servito da `releases/latest`, firma fatta con la chiave dell'app (verificato
+  l'identificativo). Installer scaricato in `Downloads`; l'installazione aspetta il clic UAC
+  dell'utente.
+- Su richiesta dell'utente: niente più pull request, si lavora direttamente su `develop`
+  (CLAUDE.md); README rifatto sul modello di quello di Orbit (intestazione con badge, *Why*,
+  *Install*, *Features* con screenshot, *Footprint* con le misure dei benchmark, *Stack & key
+  decisions*, scorciatoie); screenshot orizzontali 1440×900 in una cornice da finestra; NAS
+  simulato rinominato "NAS Media"; nel catalogo i gruppi di dischi si affiancano quando ci
+  stanno (D64).
 
 ### 2026-11-08 — Versione 2.0.0, icona ovunque, prova dell'app vera
 

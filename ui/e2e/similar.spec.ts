@@ -37,7 +37,7 @@ test('F11-AC1: the similarity threshold and the disk filter', async ({ page }) =
   await slider.fill('10');
   await expect(page.getByText('3 groups of similar images')).toBeVisible();
   await expect(page.getByRole('article', { name: 'ricevuta.tif' })).toBeVisible();
-  await page.getByRole('combobox', { name: 'Disk' }).selectOption({ label: 'NAS Big-Storage' });
+  await page.getByRole('combobox', { name: 'Disk' }).selectOption({ label: 'NAS Media' });
   await expect(page.getByText('1 group of similar images')).toBeVisible();
   await slider.fill('0');
   await expect(page.getByText('No similar images with this setting.')).toBeVisible();

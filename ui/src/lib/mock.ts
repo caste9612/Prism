@@ -60,7 +60,7 @@ export function sampleVolumes(now = Date.now()): VolumeView[] {
     volume({ id: 1, name: 'Windows', group: 'disk:WDC WD20EZRZ-00Z5HB0|WD-WCC6Y1234567', diskModel: 'WDC WD20EZRZ-00Z5HB0', bus: 'sata', osLabel: 'Windows', kind: 'internal', mount: 'C:\\', capacity: 439 * GB, freeSpace: 184 * GB, indexedSize: 210 * GB, fileCount: 951_644, folderCount: 307_861, lastIndexedAt: now - 3 * 60_000, lastSeenAt: now, hashes: { total: 900_000, hashed: 412_000, running: true, waiting: null, skipped: 0 }, health: { status: 'warning', unavailable: null, temperature: 38 } }),
     volume({ id: 2, name: 'Data', group: 'disk:WDC WD20EZRZ-00Z5HB0|WD-WCC6Y1234567', diskModel: 'WDC WD20EZRZ-00Z5HB0', bus: 'sata', osLabel: 'Data', kind: 'internal', mount: 'D:\\', capacity: 977 * GB, freeSpace: 329 * GB, indexedSize: 612 * GB, fileCount: 544_808, folderCount: 76_107, lastIndexedAt: now - 2 * 3_600_000, lastSeenAt: now, hashes: { total: 500_000, hashed: 500_000, running: false, waiting: null, skipped: 0 }, health: { status: 'warning', unavailable: null, temperature: 38 } }),
     volume({ id: 3, name: 'Backup Foto', group: 'disk:WD Elements 25A2|WX12', diskModel: 'WD Elements 25A2', bus: 'usb', userName: 'Backup Foto', location: 'cassetto 2', color: '#f59e0b', kind: 'external', mount: 'G:\\', online: false, capacity: 2000 * GB, freeSpace: 700 * GB, indexedSize: 1240 * GB, fileCount: 182_340, folderCount: 9_811, lastIndexedAt: now - 12 * DAY, lastSeenAt: now - 12 * DAY }),
-    volume({ id: 4, name: 'NAS Big-Storage', group: 'net:192.168.1.20', server: '192.168.1.20', serverName: 'DISKSTATION', userName: 'NAS Big-Storage', kind: 'network', fsType: null, mount: 'Y:\\', path: '\\\\192.168.1.20\\Big-Storage', indexedSize: 634 * GB, fileCount: 187_683, folderCount: 12_400, lastIndexedAt: now - DAY, lastSeenAt: now }),
+    volume({ id: 4, name: 'NAS Media', group: 'net:192.168.1.20', server: '192.168.1.20', serverName: 'DISKSTATION', userName: 'NAS Media', kind: 'network', fsType: null, mount: 'Y:\\', path: '\\\\192.168.1.20\\Media', indexedSize: 634 * GB, fileCount: 187_683, folderCount: 12_400, lastIndexedAt: now - DAY, lastSeenAt: now }),
     volume({ id: 5, name: 'KINGSTON', group: 'disk:Kingston DataTraveler 3.0|K1', diskModel: 'Kingston DataTraveler 3.0', bus: 'usb', osLabel: 'KINGSTON', kind: 'stick', fsType: 'exFAT', mount: 'H:\\', status: 'new', capacity: 64 * GB, freeSpace: 51 * GB, lastSeenAt: now }),
   ];
 }
@@ -119,15 +119,15 @@ export function mockBackend(): Backend {
       ],
     },
     {
-      key: 'net|\\\\192.168.1.21\\BIG-STORAGE',
+      key: 'net|\\\\192.168.1.21\\MEDIA',
       network: true,
-      path: '\\\\192.168.1.21\\Big-Storage',
+      path: '\\\\192.168.1.21\\Media',
       label: null,
-      mount: '\\\\192.168.1.21\\Big-Storage',
+      mount: '\\\\192.168.1.21\\Media',
       fsType: null,
       capacity: null,
       candidates: [
-        { volumeId: 4, name: 'NAS Big-Storage', location: null, mount: 'Y:\\', path: '\\\\192.168.1.20\\Big-Storage', capacity: null, lastSeenAt: Date.now() - DAY, lastIndexedAt: Date.now() - DAY },
+        { volumeId: 4, name: 'NAS Media', location: null, mount: 'Y:\\', path: '\\\\192.168.1.20\\Media', capacity: null, lastSeenAt: Date.now() - DAY, lastIndexedAt: Date.now() - DAY },
       ],
     },
   ];

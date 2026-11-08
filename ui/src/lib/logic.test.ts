@@ -66,7 +66,7 @@ describe('catalog screen', () => {
     const vols = sampleVolumes();
     vols[1]!.status = 'ignored';
     const g = visibleVolumes(vols);
-    expect(g.online.map((v) => v.name)).toEqual(['KINGSTON', 'NAS Big-Storage', 'Windows']);
+    expect(g.online.map((v) => v.name)).toEqual(['KINGSTON', 'NAS Media', 'Windows']);
     expect(g.offline.map((v) => v.name)).toEqual(['Backup Foto']);
   });
 

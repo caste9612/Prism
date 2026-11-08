@@ -283,9 +283,11 @@
   {:else if cards.length === 0}
     <p class="empty card">{t('catalog.noneInFilter')}</p>
   {:else if view === 'cards'}
+    <!-- Groups side by side when they fit, each as wide as its cards (REVIEW D64). -->
+    <div class="groups">
     {#each groups as g (g.key)}
       {@const detail = groupDetail(g)}
-      <section class="disk-group" aria-label={groupTitle(g)}>
+      <section class="disk-group" aria-label={groupTitle(g)} style:--cards={g.volumes.length}>
         <h2 class="group-head">
           <Icon name={g.kind === 'server' ? 'network' : 'disks'} size={14} />
           <span class="group-title">{groupTitle(g)}</span>
@@ -308,6 +310,7 @@
         </div>
       </section>
     {/each}
+    </div>
   {:else}
     <div class="card list">
       <table class="data">
@@ -514,11 +517,21 @@
     grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
     gap: var(--gap);
   }
-  /* REVIEW D64: one physical disk or one server, its cards under a light heading. */
+  /* REVIEW D64: one physical disk or one server, its cards under a light heading. Groups sit
+     side by side when they fit: each grows with its number of cards, so the cards of a row
+     keep about the same width. */
+  .groups {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 18px 28px;
+  }
   .disk-group {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    flex: var(--cards) 1 calc(var(--cards) * 270px + (var(--cards) - 1) * var(--gap));
+    min-width: min(270px, 100%);
   }
   .group-head {
     display: flex;

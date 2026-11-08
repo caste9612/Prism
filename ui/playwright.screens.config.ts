@@ -12,7 +12,7 @@ export default defineConfig({
     headless: true,
     locale: 'en-US',
     colorScheme: 'light',
-    viewport: { width: 1280, height: 800 },
+    viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 2,
   },
   webServer: {
