@@ -1,13 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
+import { card, openCatalog, openDisk, openWhole } from './nav';
 
 // The backup screen with the simulated backend (src/lib/mock-backup.ts): a check finds 5 files
 // without a copy (in Foto\2024, Foto\2023 and Documenti), the copy of 5 files ends with one
 // failure, a comparison has one file of each kind plus a renamed one.
 
 async function openBackup(page: Page) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Backup', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Backup', level: 1 })).toBeVisible();
+  await openCatalog(page);
+  await openWhole(page, 'Backup');
+  await expect(page.getByRole('tab', { name: 'Check a backup' })).toHaveAttribute('aria-selected', 'true');
 }
 
 const side = (page: Page, name: string) => page.getByRole('group', { name, exact: true });
@@ -36,7 +37,7 @@ test('F13-AC4: missing files by folder, with search', async ({ page }) => {
   await choose(page, 'Backup 1', 'Backup Foto (not connected)');
   await page.getByRole('button', { name: 'Check', exact: true }).click();
   await expect(page.getByRole('button', { name: /^Foto$/ })).toBeVisible();
-  await expect(page.getByText('5 files · 16.3 MB')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Folder' }).getByText('5 files · 16.3 MB')).toBeVisible();
   await page.getByRole('button', { name: /^Foto$/ }).click();
   await expect(page.getByRole('button', { name: /^2024$/ })).toBeVisible();
   await page.getByRole('button', { name: /^2024$/ }).click();
@@ -102,4 +103,11 @@ test('F14-AC1/AC2/AC3: comparison by content finds the renamed file; tree by sta
   await page.getByRole('radio', { name: 'by path' }).check();
   await page.getByRole('button', { name: 'Compare', exact: true }).click();
   await expect(filters.getByText('Only in B').locator('..')).toContainText('2');
+});
+
+test('the backup tab of a disk proposes it as the folder to protect', async ({ page }) => {
+  await openCatalog(page);
+  await expect(card(page, 'Data')).toBeVisible();
+  await openDisk(page, 'Data', 'Backup');
+  await expect(side(page, 'Files to protect').getByRole('combobox', { name: 'Disk' })).toHaveValue('2');
 });

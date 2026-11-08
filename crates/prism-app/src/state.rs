@@ -298,6 +298,17 @@ impl AppState {
         })?)
     }
 
+    /// The most recent records of the actions log, newest first (at most 1000).
+    pub fn recent_actions(&self, limit: usize) -> Result<Vec<crate::dto::ActionView>, ApiError> {
+        let limit = limit.min(1000);
+        Ok(self
+            .store
+            .read(|c| store::actions_log(c, limit))?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
     pub fn type_stats(&self, volume: Option<VolumeId>) -> Result<TypeStatsView, ApiError> {
         let scope = volume.map_or(StatsScope::Catalog, StatsScope::Volume);
         Ok(self.store.read(|c| space::type_stats(c, scope, 25))?.into())

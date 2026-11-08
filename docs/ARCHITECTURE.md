@@ -630,6 +630,34 @@ Implementazione (T3):
   `src/lib/bindings/` (rigenerati da `cargo test -p prism-app`, `TS_RS_EXPORT_DIR` in
   `.cargo/config.toml`; la CI verifica che siano aggiornati).
 
+Interfaccia "B+C" (T11, ADR-0019):
+
+- **Navigazione** (`src/lib/nav.svelte.ts`): un solo stato `route` — `catalog`, `disk`
+  (volume, scheda, cartella), `all` (funzioni su tutto il catalogo), `search`, `settings` — e
+  `visit`, che cresce a ogni navigazione per riaprire una schermata con nuovi parametri. Nessun
+  menu laterale: `TopBar.svelte` (logo, percorso, casella di ricerca, pulsante dei dischi nuovi
+  con il suo riquadro, impostazioni), poi la schermata, poi la barra di stato in `App.svelte`.
+- **Catalogo** (`CatalogView.svelte`, `DiskCard.svelte`): filtri, ordine e colori in
+  `catalog.ts` (`catalogCards`, `filterCounts`, `stickerColor`, `knownLocations`,
+  `diskQuery`); la vista Schede/Elenco resta nel `localStorage` (solo una comodità). Le barre
+  per categoria vengono da `categories.svelte.ts`: chiede `type_stats` di un disco alla volta in
+  sottofondo e tiene il risultato almeno 10 minuti (un milione di file costa circa un secondo).
+  Le *Ultime azioni* vengono dal comando `recent_actions` (registro delle azioni, F16-AC6),
+  raggruppate in operazioni da `actions.ts`.
+- **Disco** (`DiskView.svelte`): intestazione e schede; ogni scheda riusa la schermata della
+  funzione con il parametro `scope` (l'id del disco) — Duplicati con il filtro sul disco, Simili
+  con il disco scelto, Backup con il disco come sorgente, Pulizia con le sole proposte del
+  disco — più `HealthView` e `TypesView`.
+- **Stile**: variabili CSS in `app.css` (chiaro e scuro, `--accent` è l'inchiostro delle
+  selezioni, `--signal` l'arancione), classi comuni (`.pills`, `.stats`, `.actionbar`,
+  `.sticker`, `table.data`); caratteri inclusi da `src/fonts.ts` (`@fontsource`, OFL). La mappa
+  (`Treemap.svelte`, canvas) mescola il colore della categoria con la superficie e scrive in
+  inchiostro.
+- **Icona**: `scripts/make-icons.py` disegna il prisma a strati da una geometria su 64 unità
+  (la stessa di `Logo.svelte`) e scrive le icone di `crates/prism-app/icons/`.
+- **Test end-to-end**: i percorsi comuni (aprire un disco, una scheda, il blocco del catalogo,
+  le impostazioni) stanno in `ui/e2e/nav.ts`.
+
 ## 8. Sicurezza (ADR-0003)
 
 Prism gira elevato, quindi la superficie d'attacco della webview va ridotta al minimo:

@@ -63,6 +63,16 @@
     return lo > 1 ? text.slice(0, lo) + '…' : null;
   }
 
+  /** `a` mixed into `b`: `share` of `a` (both `#rrggbb`; anything else is returned as is). */
+  function mix(a: string, b: string, share: number): string {
+    const rgb = (c: string) => (/^#[0-9a-f]{6}$/i.test(c) ? [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) : null);
+    const ca = rgb(a);
+    const cb = rgb(b);
+    if (!ca || !cb) return a;
+    const m = ca.map((v, i) => Math.round(v * share + cb[i]! * (1 - share)));
+    return `rgb(${m[0]}, ${m[1]}, ${m[2]})`;
+  }
+
   $effect(() => {
     void themeTick;
     if (!canvas || !box) return;
@@ -74,39 +84,43 @@
     const css = getComputedStyle(box);
     const color = (name: string) => css.getPropertyValue(name).trim() || '#888';
     const surface = color('--surface');
+    // B+C tiles (ADR-0019): the category colour mixed with the surface, labels in ink.
+    const share = (parseFloat(color('--tile-mix')) || 30) / 100;
+    const tile = (name: string) => mix(color(name), surface, share);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = surface;
     ctx.fillRect(0, 0, width, height);
-    ctx.font = '11px "Segoe UI Variable Text", "Segoe UI", sans-serif';
+    ctx.font = '500 11.5px Inter, "Segoe UI", sans-serif';
     ctx.textBaseline = 'middle';
     for (const cell of cells) {
       const { x, y, w, h } = cell.rect;
       const role = colorRole(cell);
-      ctx.fillStyle =
-        role === 'dir' ? color(cell.depth % 2 === 0 ? '--cat-dir' : '--cat-dir-2') : color(`--cat-${role}`);
-      // A 1px surface gap around every block keeps neighbours apart.
-      ctx.fillRect(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1));
+      ctx.fillStyle = role === 'dir' ? color(cell.depth % 2 === 0 ? '--cat-dir' : '--cat-dir-2') : tile(`--cat-${role}`);
+      // A small surface gap around every block keeps neighbours apart.
+      const bw = Math.max(0, w - 2);
+      const bh = Math.max(0, h - 2);
+      ctx.beginPath();
+      if (bw > 10 && bh > 10) ctx.roundRect(x + 1, y + 1, bw, bh, 4);
+      else ctx.rect(x + 1, y + 1, bw, bh);
+      ctx.fill();
       const name = cell.node?.name ?? '';
       if (cell.nested) {
         ctx.fillStyle = color('--text-2');
-        const text = fit(ctx, name, w - 8);
-        if (text) ctx.fillText(text, x + 4, y + 8);
-      } else if (cell.node !== null && role !== 'dir' && w > 70 && h > 22) {
+        const text = fit(ctx, name, w - 10);
+        if (text) ctx.fillText(text, x + 6, y + 9);
+      } else if (cell.node !== null && role !== 'dir' && w > 60 && h > 22) {
         ctx.fillStyle = color('--cat-label');
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-        ctx.shadowBlur = 2;
-        const text = fit(ctx, name, w - 8);
-        if (text) ctx.fillText(text, x + 4, y + 10);
-        ctx.shadowBlur = 0;
+        const text = fit(ctx, name, w - 12);
+        if (text) ctx.fillText(text, x + 7, y + 12);
       } else if (role === 'dir' && w > 60 && h > 20) {
         ctx.fillStyle = color('--text-2');
-        const text = fit(ctx, name, w - 8);
-        if (text) ctx.fillText(text, x + 4, y + 10);
+        const text = fit(ctx, name, w - 12);
+        if (text) ctx.fillText(text, x + 7, y + 12);
       }
     }
     if (hover) {
       const { x, y, w, h } = hover.rect;
-      ctx.strokeStyle = color('--accent');
+      ctx.strokeStyle = color('--signal');
       ctx.lineWidth = 2;
       ctx.strokeRect(x + 1, y + 1, Math.max(0, w - 2), Math.max(0, h - 2));
     }

@@ -33,7 +33,32 @@
     "hashesDone": "Content analysed",
     "hashesRunning": "in progress",
     "hashesPaused": "paused",
-    "hashesTitle": "{hashed} of {total} files analysed: needed to find duplicates and to check backups"
+    "hashesTitle": "{hashed} of {total} files analysed: needed to find duplicates and to check backups",
+    "filter": "Show",
+    "filters": {
+      "all": "All",
+      "online": "Connected",
+      "network": "Network",
+      "offline": "In the drawer"
+    },
+    "sort": "Sort",
+    "sorts": {
+      "location": "Location",
+      "name": "Name",
+      "used": "Space used"
+    },
+    "view": "View",
+    "cards": "Cards",
+    "list": "List",
+    "noneInFilter": "No disk here.",
+    "columns": {
+      "disk": "Disk",
+      "where": "Where",
+      "used": "Used",
+      "free": "Free",
+      "files": "Files",
+      "state": "State"
+    }
   },
   "kind": {
     "internal": "Internal disk",
@@ -68,7 +93,8 @@
     "close": "Close",
     "confirm": "Confirm",
     "open": "Open in Explorer",
-    "space": "Space"
+    "space": "Space",
+    "more": "More actions"
   },
   "newDisk": {
     "title": "New disk: {name}",
@@ -80,17 +106,35 @@
     "manyTitle": "{count} new disks found",
     "manyQuestion": "Add them to the catalog? Indexing only reads the disks.",
     "indexAll": "Index all",
-    "notNowAll": "Not now"
+    "notNowAll": "Not now",
+    "pillOne": "1 new disk",
+    "pillMany": "{count} new disks",
+    "popoverTitle": "New disks",
+    "optionsFor": "Options for {name}",
+    "hint": "Adding a disk only reads it. “⋯” for name and location, or to ignore it."
   },
   "labels": {
-    "title": "Name and location",
+    "title": "Name, location and colour",
     "name": "Name",
     "namePlaceholder": "e.g. Photo backup",
-    "location": "Physical location",
+    "location": "Where it is",
     "locationPlaceholder": "e.g. drawer 2",
     "notes": "Notes",
     "color": "Colour",
-    "noColor": "No colour"
+    "noColor": "No colour",
+    "intro": "They tell the disk apart even when it is in a drawer.",
+    "recent": "Used recently:",
+    "autoColor": "Automatic colour",
+    "colors": {
+      "ink": "Black",
+      "blue": "Blue",
+      "green": "Green",
+      "yellow": "Yellow",
+      "orange": "Orange",
+      "pink": "Pink",
+      "purple": "Purple",
+      "grey": "Grey"
+    }
   },
   "remove": {
     "title": "Remove “{name}” from the catalog?",
@@ -140,7 +184,17 @@
     "resetKeep": "No file on your disks is touched. Settings stay.",
     "resetUnderstood": "I understand that the catalog of the disconnected disks is lost until they are indexed again",
     "resetNow": "Reset",
-    "resetDone": "Catalog reset: {count} disks removed."
+    "resetDone": "Catalog reset: {count} disks removed.",
+    "sections": "Sections",
+    "section": {
+      "general": "General",
+      "hashing": "Content analysis",
+      "ignored": "Ignored disks",
+      "updates": "Updates",
+      "diagnostics": "Diagnostics",
+      "catalog": "Catalog",
+      "about": "About Prism"
+    }
   },
   "language": {
     "en": "English",
@@ -216,7 +270,9 @@
     "folder": "Folder",
     "modified": "Modified",
     "actions": "Actions",
-    "files": "{count} files"
+    "files": "{count} files",
+    "folders": "Folders",
+    "filesColumn": "Files"
   },
   "category": {
     "images": "Images",
@@ -244,7 +300,8 @@
     "bands": "By size",
     "below": "under {size}",
     "range": "{from} – {to}",
-    "over": "{size} and more"
+    "over": "{size} and more",
+    "loading": "Counting the files by type…"
   },
   "cleanup": {
     "title": "Cleanup",
@@ -286,7 +343,9 @@
     "resultFailed": "Not removed (in use?): {count}.",
     "binsTitle": "Recycle Bin",
     "bin": "Recycle Bin of {name}: {count} items, {size}.",
-    "binHint": "That space is freed when you empty the Recycle Bin from Explorer."
+    "binHint": "That space is freed when you empty the Recycle Bin from Explorer.",
+    "never": "Never proposed: Windows, programs, AppData, game and app folders, hidden or system items.",
+    "nothingHere": "Nothing to clean up on this disk."
   },
   "search": {
     "label": "Search all disks",
@@ -353,7 +412,8 @@
       "bad_online": "“{value}”: use online:yes or online:no.",
       "bad_regex": "The regular expression is not valid: {value}",
       "unknown_disk": "No disk is called “{value}”."
-    }
+    },
+    "title": "Search"
   },
   "time": {
     "justNow": "just now",
@@ -414,7 +474,18 @@
     "result": "Deleted: {count}. Freed: {size}.",
     "resultSkipped": "Left alone because they changed: {count}.",
     "resultFailed": "Not removed (in use?): {count}.",
-    "open": "Show in Explorer"
+    "open": "Show in Explorer",
+    "recoverableCaption": "Recoverable",
+    "groupsCaption": "Groups",
+    "pendingCaption": "Still to read",
+    "pausedShort": "content analysis paused",
+    "pendingShort": "files without content analysis yet",
+    "biggestFirst": "Groups with the most recoverable space first",
+    "recoverableShort": "recoverable",
+    "chipDrop": "to remove",
+    "chipKeep": "keep",
+    "barPermanent": "Some are on disks without a Recycle Bin: there they are deleted for good.",
+    "barRecycle": "They go to the Recycle Bin. The content is read again before acting."
   },
   "backup": {
     "title": "Backup",
@@ -484,7 +555,10 @@
     "path": "Folder",
     "files": "{count} files",
     "moreFiles": "…and {count} more files in this folder",
-    "emptyLevel": "Nothing here with these filters."
+    "emptyLevel": "Nothing here with these filters.",
+    "coveredOf": "of {name} has a copy",
+    "filesWord": "files",
+    "copyBoxHint": "Every file is read back and compared with the original before it takes its real name."
   },
   "similar": {
     "title": "Similar",
@@ -511,7 +585,11 @@
     "tabVideos": "Videos",
     "pendingVideos": "The content analysis still has {count} videos to read: more groups may appear.",
     "summaryVideos": "{count} groups of similar videos",
-    "videos": "{count} videos"
+    "videos": "{count} videos",
+    "thresholdLabel": "Similarity",
+    "thresholdHint": "resized, recompressed, small edits",
+    "noDelete": "Nothing is deleted from here: similar images are not identical copies.",
+    "groupDiff": "differ by up to {value} of 64"
   },
   "identify": {
     "title": "Which disk is {name}?",
@@ -559,6 +637,12 @@
       "good": "good",
       "warning": "attention",
       "critical": "critical"
+    },
+    "word": {
+      "good": "Good",
+      "warning": "Needs attention",
+      "critical": "Critical",
+      "unavailable": "Not available"
     }
   },
   "updates": {
@@ -574,5 +658,97 @@
     "confirmTitle": "Install Prism {version}?",
     "confirm": "Prism closes, installs the new version and starts again. The jobs in progress stop and resume afterwards.",
     "installNow": "Install and restart"
+  },
+  "top": {
+    "home": "Prism — catalog",
+    "catalog": "Catalog",
+    "wholeCatalog": "Whole catalog",
+    "search": "Search every disk",
+    "searchPlaceholder": "Search every disk, even the ones in a drawer…"
+  },
+  "tabs": {
+    "space": "Space",
+    "duplicates": "Duplicates",
+    "similar": "Similar",
+    "backup": "Backup",
+    "cleanup": "Cleanup",
+    "health": "Health",
+    "types": "File types"
+  },
+  "card": {
+    "actionsFor": "Actions for {name}",
+    "inDrawer": "In the drawer",
+    "inDrawerSeen": "In the drawer · seen {when}",
+    "content": "content {percent}%",
+    "contentDone": "content analysed",
+    "updateNow": "Update now",
+    "labels": "Name, location and colour…",
+    "ignore": "Always ignore this disk",
+    "remove": "Remove from catalog…",
+    "usedUnknown": "Used space unknown",
+    "used": "used",
+    "free": "free",
+    "files": "files",
+    "health": "health",
+    "healthNa": "n/a",
+    "search": "Search in this disk…"
+  },
+  "whole": {
+    "title": "Whole catalog",
+    "catalog": "Catalog",
+    "disks": "disks",
+    "files": "Files",
+    "catalogued": "Catalogued",
+    "duplicates": "Duplicates",
+    "similar": "Similar",
+    "groups": "groups",
+    "backup": "Backup",
+    "verify": "check a backup"
+  },
+  "activity": {
+    "title": "In progress",
+    "index": "Indexing · {name}",
+    "update": "Update · {name}",
+    "copy": "Copy to {name}",
+    "hash": "Content analysis · {name}",
+    "none": "Nothing running.",
+    "paused": "The content analysis is paused."
+  },
+  "lastActions": {
+    "title": "Last actions",
+    "none": "Prism has not moved or deleted any file yet.",
+    "recycled": "{count} to the Recycle Bin",
+    "deleted": "{count} deleted",
+    "from": "from {name}",
+    "skipped": "{count} left in place",
+    "failed": "{count} failed"
+  },
+  "disk": {
+    "used": "Used",
+    "ofTotal": "{percent}% of {total}",
+    "indexed": "indexed files",
+    "free": "Free",
+    "files": "Files",
+    "health": "Health",
+    "content": "Content analysed",
+    "updated": "Updated",
+    "seen": "Last seen",
+    "functions": "Functions of the disk",
+    "gone": "This disk is no longer in the catalog."
+  },
+  "healthTab": {
+    "loading": "Reading the health of the disk…",
+    "offline": "The disk is not connected: its health is read when it is.",
+    "noSigns": "No sign of failure.",
+    "readOnly": "Read every hour, with read-only commands.",
+    "temperatures": "Temperature of the last readings",
+    "chartLabel": "Temperature between {min} and {max} °C",
+    "notify": "If the status gets worse, or replaced sectors and errors grow, Prism tells you with a notification."
+  },
+  "statusbar": {
+    "online": "{count} connected · updated automatically",
+    "hashing": "content analysis at the lowest priority",
+    "hashingPaused": "content analysis paused",
+    "dev": "development build"
   }
 }

@@ -38,19 +38,20 @@
 
 <style>
   dialog {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border: 0;
+    border-radius: 16px;
     background: var(--surface);
     color: var(--text);
-    padding: 22px 24px;
+    padding: 22px;
     width: min(460px, 92vw);
-    box-shadow: 0 20px 50px rgb(0 0 0 / 30%);
+    box-shadow: var(--shadow-pop);
   }
   dialog::backdrop {
     background: rgb(10 12 20 / 45%);
   }
   h2 {
-    font-size: 17px;
+    font-size: 20px;
+    line-height: 1.25;
     margin-bottom: 14px;
   }
   .body {

@@ -7,8 +7,9 @@
 
 - **Tappa**: T11 — nuova interfaccia (dalla revisione dell'utente del 2026-11-08, ADR-0019).
   T10 resta completa per la parte autonoma.
-- **Prossimo passo**: costruire la nuova interfaccia "B+C" seguendo la ROADMAP T11 e i disegni
-  approvati; poi l'utente la prova, e si riprende da `docs/REVIEW.md` §0 (U7, U1, U3, U2).
+- **Prossimo passo**: l'utente prova la nuova interfaccia sull'app di sviluppo (REVIEW §4,
+  checklist T11) e la confronta con i disegni; poi si riprende da `docs/REVIEW.md` §0 (U7, U1,
+  U3, U2).
 - **Bloccanti**: nessuno.
 - **Decisioni in sospeso**: Q7 firma del codice (U1), Q11 ramo principale (U2).
 - **Modalità di lavoro** (aggiornata 2026-11-07, ~15:30): autonomia totale **senza soste**
@@ -18,6 +19,26 @@
   rimuove (U6).
 
 ## Diario
+
+### 2026-11-08 — T11: nuova interfaccia costruita
+
+- Fondamenta: variabili CSS chiare e scure del linguaggio B+C, caratteri inclusi
+  (`@fontsource`: Inter, Space Grotesk, IBM Plex Mono), barra in alto, navigazione dal disco
+  (`nav.svelte.ts`), niente menu laterale.
+- Catalogo: blocco "Tutto il catalogo", schede compatte con colore e posizione, barra per
+  categorie (calcolata in sottofondo un disco alla volta), filtri, ordine, vista elenco, dischi
+  nuovi in un riquadro a comparsa, attività in corso, ultime azioni, barra di stato.
+- Backend: comando `recent_actions` (registro delle azioni per le *Ultime azioni*), con test.
+- Schermata del disco con le schede Spazio (mappa a riquadri tinti e tabella con colonne),
+  Duplicati, Simili, Backup, Pulizia, Salute (nuova, al posto della finestra), Tipi di file;
+  le schermate di funzione hanno il parametro `scope` per limitarsi a un disco. Ricerca,
+  Impostazioni (sezioni a sinistra, interruttori), finestre e avvisi nel nuovo stile;
+  *Cerca in questo disco…* nel menu "⋯" (F01-AC4).
+- Icona "prisma a strati" generata da `scripts/make-icons.py` (stessa geometria del logo).
+- Test: 46 unitari (nuovi: ultime azioni, filtri, ordine, colori, barre), 48 end-to-end
+  riscritti sui nuovi percorsi con le stesse verifiche (`ui/e2e/nav.ts` per i percorsi comuni).
+- Trovato durante il lavoro: con il disco come filtro, la schermata Duplicati ricordava quel
+  disco anche per tutto il catalogo; ora il disco della scheda non si ricorda.
 
 ### 2026-11-08 — Revisione dell'utente: nuova interfaccia (T11)
 

@@ -33,7 +33,32 @@
     "hashesDone": "Contenuto analizzato",
     "hashesRunning": "in corso",
     "hashesPaused": "in pausa",
-    "hashesTitle": "{hashed} file analizzati su {total}: serve a trovare i duplicati e a verificare i backup"
+    "hashesTitle": "{hashed} file analizzati su {total}: serve a trovare i duplicati e a verificare i backup",
+    "filter": "Mostra",
+    "filters": {
+      "all": "Tutti",
+      "online": "Collegati",
+      "network": "Rete",
+      "offline": "Nel cassetto"
+    },
+    "sort": "Ordina",
+    "sorts": {
+      "location": "Posizione",
+      "name": "Nome",
+      "used": "Spazio usato"
+    },
+    "view": "Vista",
+    "cards": "Schede",
+    "list": "Elenco",
+    "noneInFilter": "Nessun disco qui.",
+    "columns": {
+      "disk": "Disco",
+      "where": "Dove",
+      "used": "Usato",
+      "free": "Libero",
+      "files": "File",
+      "state": "Stato"
+    }
   },
   "kind": {
     "internal": "Disco interno",
@@ -68,7 +93,8 @@
     "close": "Chiudi",
     "confirm": "Conferma",
     "open": "Apri in Esplora risorse",
-    "space": "Spazio"
+    "space": "Spazio",
+    "more": "Altre azioni"
   },
   "newDisk": {
     "title": "Nuovo disco: {name}",
@@ -80,17 +106,35 @@
     "manyTitle": "{count} nuovi dischi trovati",
     "manyQuestion": "Vuoi aggiungerli al catalogo? L'indicizzazione legge soltanto i dischi.",
     "indexAll": "Indicizza tutti",
-    "notNowAll": "Non ora"
+    "notNowAll": "Non ora",
+    "pillOne": "1 nuovo disco",
+    "pillMany": "{count} nuovi dischi",
+    "popoverTitle": "Dischi nuovi",
+    "optionsFor": "Opzioni per {name}",
+    "hint": "Aggiungere un disco lo legge soltanto. “⋯” per nome e posizione o per ignorarlo."
   },
   "labels": {
-    "title": "Nome e posizione",
+    "title": "Nome, posizione e colore",
     "name": "Nome",
     "namePlaceholder": "es. Backup foto",
-    "location": "Posizione fisica",
+    "location": "Dove si trova",
     "locationPlaceholder": "es. cassetto 2",
     "notes": "Note",
     "color": "Colore",
-    "noColor": "Nessun colore"
+    "noColor": "Nessun colore",
+    "intro": "Servono a riconoscere il disco anche quando è nel cassetto.",
+    "recent": "Usate di recente:",
+    "autoColor": "Colore automatico",
+    "colors": {
+      "ink": "Nero",
+      "blue": "Blu",
+      "green": "Verde",
+      "yellow": "Giallo",
+      "orange": "Arancione",
+      "pink": "Rosa",
+      "purple": "Viola",
+      "grey": "Grigio"
+    }
   },
   "remove": {
     "title": "Rimuovere «{name}» dal catalogo?",
@@ -140,7 +184,17 @@
     "resetKeep": "Nessun file sui tuoi dischi viene toccato. Le impostazioni restano.",
     "resetUnderstood": "Ho capito che il catalogo dei dischi scollegati va perso finché non li indicizzo di nuovo",
     "resetNow": "Azzera",
-    "resetDone": "Catalogo azzerato: {count} dischi tolti."
+    "resetDone": "Catalogo azzerato: {count} dischi tolti.",
+    "sections": "Sezioni",
+    "section": {
+      "general": "Generale",
+      "hashing": "Analisi del contenuto",
+      "ignored": "Dischi ignorati",
+      "updates": "Aggiornamenti",
+      "diagnostics": "Diagnostica",
+      "catalog": "Catalogo",
+      "about": "Informazioni su Prism"
+    }
   },
   "language": {
     "en": "English",
@@ -216,7 +270,9 @@
     "folder": "Cartella",
     "modified": "Modificato",
     "actions": "Azioni",
-    "files": "{count} file"
+    "files": "{count} file",
+    "folders": "Cartelle",
+    "filesColumn": "File"
   },
   "category": {
     "images": "Immagini",
@@ -244,7 +300,8 @@
     "bands": "Per dimensione",
     "below": "sotto {size}",
     "range": "{from} – {to}",
-    "over": "{size} e oltre"
+    "over": "{size} e oltre",
+    "loading": "Conteggio dei file per tipo…"
   },
   "cleanup": {
     "title": "Pulizia",
@@ -286,7 +343,9 @@
     "resultFailed": "Non rimossi (in uso?): {count}.",
     "binsTitle": "Cestino",
     "bin": "Cestino di {name}: {count} elementi, {size}.",
-    "binHint": "Quello spazio si libera svuotando il Cestino da Esplora risorse."
+    "binHint": "Quello spazio si libera svuotando il Cestino da Esplora risorse.",
+    "never": "Mai proposti: Windows, programmi, AppData, cartelle di giochi e di app, elementi nascosti o di sistema.",
+    "nothingHere": "Niente da pulire su questo disco."
   },
   "search": {
     "label": "Cerca in tutti i dischi",
@@ -353,7 +412,8 @@
       "bad_online": "«{value}»: usa online:yes o online:no.",
       "bad_regex": "L'espressione regolare non è valida: {value}",
       "unknown_disk": "Nessun disco si chiama «{value}»."
-    }
+    },
+    "title": "Ricerca"
   },
   "time": {
     "justNow": "proprio ora",
@@ -414,7 +474,18 @@
     "result": "Eliminati: {count}. Liberati: {size}.",
     "resultSkipped": "Lasciati perché cambiati: {count}.",
     "resultFailed": "Non rimossi (in uso?): {count}.",
-    "open": "Mostra in Esplora risorse"
+    "open": "Mostra in Esplora risorse",
+    "recoverableCaption": "Recuperabili",
+    "groupsCaption": "Gruppi",
+    "pendingCaption": "Ancora da leggere",
+    "pausedShort": "analisi del contenuto in pausa",
+    "pendingShort": "file ancora senza analisi del contenuto",
+    "biggestFirst": "I gruppi con più spazio recuperabile per primi",
+    "recoverableShort": "recuperabili",
+    "chipDrop": "da togliere",
+    "chipKeep": "tieni",
+    "barPermanent": "Alcune sono su dischi senza Cestino: lì l'eliminazione è definitiva.",
+    "barRecycle": "Vanno nel Cestino. Il contenuto viene riletto prima di agire."
   },
   "backup": {
     "title": "Backup",
@@ -484,7 +555,10 @@
     "path": "Cartella",
     "files": "{count} file",
     "moreFiles": "…e altri {count} file in questa cartella",
-    "emptyLevel": "Niente qui con questi filtri."
+    "emptyLevel": "Niente qui con questi filtri.",
+    "coveredOf": "di {name} ha una copia",
+    "filesWord": "file",
+    "copyBoxHint": "Ogni file viene riletto e confrontato con l'originale prima di prendere il nome vero."
   },
   "similar": {
     "title": "Simili",
@@ -511,7 +585,11 @@
     "tabVideos": "Video",
     "pendingVideos": "L'analisi del contenuto deve ancora leggere {count} video: potrebbero comparire altri gruppi.",
     "summaryVideos": "{count} gruppi di video simili",
-    "videos": "{count} video"
+    "videos": "{count} video",
+    "thresholdLabel": "Somiglianza",
+    "thresholdHint": "ridimensionate, ricompresse, piccoli ritocchi",
+    "noDelete": "Da qui non si elimina nulla: le immagini simili non sono copie identiche.",
+    "groupDiff": "differiscono fino a {value} su 64"
   },
   "identify": {
     "title": "Quale disco è {name}?",
@@ -559,6 +637,12 @@
       "good": "buona",
       "warning": "da tenere d'occhio",
       "critical": "critica"
+    },
+    "word": {
+      "good": "Buona",
+      "warning": "Attenzione",
+      "critical": "Critica",
+      "unavailable": "Non disponibile"
     }
   },
   "updates": {
@@ -574,5 +658,97 @@
     "confirmTitle": "Installare Prism {version}?",
     "confirm": "Prism si chiude, installa la nuova versione e riparte. Le attività in corso si fermano e riprendono dopo.",
     "installNow": "Installa e riavvia"
+  },
+  "top": {
+    "home": "Prism — catalogo",
+    "catalog": "Catalogo",
+    "wholeCatalog": "Tutto il catalogo",
+    "search": "Cerca in tutti i dischi",
+    "searchPlaceholder": "Cerca in tutti i dischi, anche quelli nel cassetto…"
+  },
+  "tabs": {
+    "space": "Spazio",
+    "duplicates": "Duplicati",
+    "similar": "Simili",
+    "backup": "Backup",
+    "cleanup": "Pulizia",
+    "health": "Salute",
+    "types": "Tipi di file"
+  },
+  "card": {
+    "actionsFor": "Azioni per {name}",
+    "inDrawer": "Nel cassetto",
+    "inDrawerSeen": "Nel cassetto · visto {when}",
+    "content": "contenuto {percent}%",
+    "contentDone": "contenuto analizzato",
+    "updateNow": "Aggiorna adesso",
+    "labels": "Nome, posizione e colore…",
+    "ignore": "Ignora sempre questo disco",
+    "remove": "Rimuovi dal catalogo…",
+    "usedUnknown": "Spazio usato sconosciuto",
+    "used": "usato",
+    "free": "libero",
+    "files": "file",
+    "health": "salute",
+    "healthNa": "n/d",
+    "search": "Cerca in questo disco…"
+  },
+  "whole": {
+    "title": "Tutto il catalogo",
+    "catalog": "Catalogo",
+    "disks": "dischi",
+    "files": "File",
+    "catalogued": "Catalogati",
+    "duplicates": "Duplicati",
+    "similar": "Simili",
+    "groups": "gruppi",
+    "backup": "Backup",
+    "verify": "verifica un backup"
+  },
+  "activity": {
+    "title": "Attività in corso",
+    "index": "Indicizzazione · {name}",
+    "update": "Aggiornamento · {name}",
+    "copy": "Copia verso {name}",
+    "hash": "Analisi del contenuto · {name}",
+    "none": "Nessuna attività in corso.",
+    "paused": "L'analisi del contenuto è in pausa."
+  },
+  "lastActions": {
+    "title": "Ultime azioni",
+    "none": "Prism non ha ancora spostato né eliminato alcun file.",
+    "recycled": "{count} nel Cestino",
+    "deleted": "{count} eliminati",
+    "from": "da {name}",
+    "skipped": "{count} lasciati al loro posto",
+    "failed": "{count} non riusciti"
+  },
+  "disk": {
+    "used": "Usato",
+    "ofTotal": "{percent}% di {total}",
+    "indexed": "file indicizzati",
+    "free": "Libero",
+    "files": "File",
+    "health": "Salute",
+    "content": "Contenuto analizzato",
+    "updated": "Aggiornato",
+    "seen": "Visto",
+    "functions": "Funzioni del disco",
+    "gone": "Questo disco non è più nel catalogo."
+  },
+  "healthTab": {
+    "loading": "Lettura della salute del disco…",
+    "offline": "Il disco non è collegato: la salute si legge quando lo è.",
+    "noSigns": "Nessun segnale di guasto.",
+    "readOnly": "Letta ogni ora, solo con comandi di lettura.",
+    "temperatures": "Temperatura delle ultime letture",
+    "chartLabel": "Temperatura tra {min} e {max} °C",
+    "notify": "Se lo stato peggiora, o crescono settori sostituiti ed errori, Prism ti avvisa con una notifica."
+  },
+  "statusbar": {
+    "online": "{count} collegati · aggiornati automaticamente",
+    "hashing": "analisi del contenuto a priorità minima",
+    "hashingPaused": "analisi del contenuto in pausa",
+    "dev": "build di sviluppo"
   }
 }

@@ -6,9 +6,12 @@
   let savedFilter: DupFilterInput = { minSize: 1_000_000, category: null, volumeId: null, folder: null };
   let savedRules: RuleInput[] = [{ kind: 'keepOldest', volumeId: null, text: null }];
 
-  /** Opens the duplicates of a folder (Explorer menu, F18-AC1). */
-  export function presetDuplicates(volumeId: number, folder: string) {
-    savedFilter = { ...savedFilter, volumeId, folder: folder || null };
+  /**
+   * Opens the duplicates of a folder (Explorer menu, F18-AC1): the screen opens on the tab of
+   * its disk (ADR-0019), which gives the disk; the folder is remembered here.
+   */
+  export function presetDuplicates(_volumeId: number, folder: string) {
+    savedFilter = { ...savedFilter, folder: folder || null };
   }
 </script>
 
@@ -23,9 +26,9 @@
   import type { Settings } from '../lib/bindings/Settings';
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import type { ApiError } from '../lib/bindings/ApiError';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { backend, errorMessage } from '../lib/api';
-  import { volumeName } from '../lib/catalog';
+  import { stickerColor, volumeName } from '../lib/catalog';
   import { MIN_SIZES, RULE_KINDS, canSelect, onlyOfflineLeft, proposed, ruleComplete, toggle, totals, type Selection } from '../lib/duplicates';
   import { formatBytes, formatCount } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
@@ -37,17 +40,22 @@
     settings,
     onchange,
     onerror,
+    scope = null,
   }: {
     volumes: VolumeView[];
     settings: Settings;
     onchange: (s: Settings) => void;
     onerror: (message: string) => void;
+    /** The disk of the screen (ADR-0019): its copies only; the whole catalog when null. */
+    scope?: number | null;
   } = $props();
 
   const lang = $derived(language());
   const CATEGORIES = ['images', 'videos', 'audio', 'documents', 'archives', 'disk_images', 'code', 'programs', 'other'];
 
-  let filter = $state<DupFilterInput>({ ...savedFilter });
+  let filter = $state<DupFilterInput>(
+    untrack(() => (scope !== null ? { ...savedFilter, volumeId: scope } : { ...savedFilter })),
+  );
   let rules = $state<RuleInput[]>(savedRules.map((r) => ({ ...r })));
   let view = $state<DuplicatesView | null>(null);
   let selection = $state<Selection>(new Map());
@@ -61,7 +69,8 @@
 
   async function load() {
     loading = true;
-    savedFilter = { ...filter };
+    // The disk of a disk tab is not a choice to remember for the whole catalog.
+    savedFilter = { ...filter, volumeId: scope === null ? filter.volumeId : savedFilter.volumeId };
     savedRules = rules.map((r) => ({ ...r }));
     try {
       const v = await backend.duplicateGroups(
@@ -131,172 +140,200 @@
 </script>
 
 <section class="dups">
-  <header class="page-head">
+  <div class="stats" aria-label={t('duplicates.title')}>
     <div>
-      <h1>{t('duplicates.title')}</h1>
-      <p class="muted">{t('duplicates.subtitle')}</p>
+      <div class="caption">{t('duplicates.recoverableCaption')}</div>
+      <div class="value signal">{view ? formatBytes(view.totalRecoverable, lang) : '…'}</div>
     </div>
-    <button onclick={load} disabled={loading || busy}><Icon name="refresh" size={15} /> {t('duplicates.refresh')}</button>
-  </header>
+    <div>
+      <div class="caption">{t('duplicates.groupsCaption')}</div>
+      <div class="value">{view ? formatCount(view.totalGroups, lang) : '…'}</div>
+      {#if view && view.totalGroups > groups.length}<div class="detail">{t('duplicates.shownOf', { count: formatCount(groups.length, lang) })}</div>{/if}
+    </div>
+    <div>
+      <div class="caption">{t('duplicates.pendingCaption')}</div>
+      <div class="value">{view ? formatCount(view.pendingFiles, lang) : '…'}</div>
+      <div class="detail">{settings.hashingPaused ? t('duplicates.pausedShort') : t('duplicates.pendingShort')}</div>
+    </div>
+    <div class="refresh-cell">
+      <button onclick={load} disabled={loading || busy}><Icon name="refresh" size={15} /> {t('duplicates.refresh')}</button>
+    </div>
+  </div>
 
   {#if view && view.pendingFiles > 0}
-    <div class="pending" role="status">
+    <div class="note-line" role="status">
       <span>
         {settings.hashingPaused
           ? t('duplicates.pendingPaused', { count: formatCount(view.pendingFiles, lang) })
           : t('duplicates.pending', { count: formatCount(view.pendingFiles, lang) })}
       </span>
       {#if settings.hashingPaused}
-        <button class="small" onclick={() => onchange({ ...settings, hashingPaused: false })}>{t('duplicates.resume')}</button>
+        <button class="small primary" onclick={() => onchange({ ...settings, hashingPaused: false })}>{t('duplicates.resume')}</button>
       {/if}
     </div>
   {/if}
 
   {#if result}
-    <div class="result" role="status">
+    <div class="note-line done" role="status">
       <span>{result}</span>
-      <button class="ghost" aria-label={t('actions.close')} onclick={() => (result = null)}><Icon name="close" size={14} /></button>
+      <button class="ghost icon" aria-label={t('actions.close')} onclick={() => (result = null)}><Icon name="close" size={14} /></button>
     </div>
   {/if}
 
-  <div class="filters" role="group" aria-label={t('duplicates.filters')}>
-    <label>
-      <span>{t('duplicates.minSize')}</span>
-      <select value={String(filter.minSize)} onchange={(e) => setFilter({ minSize: Number(e.currentTarget.value) })}>
-        {#each MIN_SIZES as s (s)}
-          <option value={String(s)}>{s === 0 ? t('duplicates.anySize') : formatBytes(s, lang)}</option>
-        {/each}
-      </select>
-    </label>
-    <label>
-      <span>{t('duplicates.type')}</span>
-      <select value={filter.category ?? ''} onchange={(e) => setFilter({ category: e.currentTarget.value || null })}>
-        <option value="">{t('duplicates.anyType')}</option>
-        {#each CATEGORIES as c (c)}
-          <option value={c}>{t(`category.${c}`)}</option>
-        {/each}
-      </select>
-    </label>
-    <label>
-      <span>{t('duplicates.disk')}</span>
-      <select
-        value={filter.volumeId === null ? '' : String(filter.volumeId)}
-        onchange={(e) => setFilter({ volumeId: e.currentTarget.value ? Number(e.currentTarget.value) : null })}
-      >
-        <option value="">{t('duplicates.anyDisk')}</option>
-        {#each catalogued as v (v.id)}
-          <option value={String(v.id)}>{volumeName(v)}</option>
-        {/each}
-      </select>
-    </label>
-    <label class="grow">
-      <span>{t('duplicates.folder')}</span>
-      <input
-        value={filter.folder ?? ''}
-        placeholder={t('duplicates.folderPlaceholder')}
-        spellcheck="false"
-        onchange={(e) => setFilter({ folder: e.currentTarget.value.trim() || null })}
-      />
-    </label>
-  </div>
-
-  <details class="rules" open>
-    <summary>{t('duplicates.rules')}</summary>
-    <p class="muted hint">{t('duplicates.rulesHint')}</p>
-    <ol>
-      {#each rules as r, i (i)}
-        <li>
-          <select aria-label={t('duplicates.rules')} value={r.kind} onchange={(e) => setRule(i, { kind: e.currentTarget.value })}>
-            {#each RULE_KINDS as k (k)}
-              <option value={k}>{t(`duplicates.rule.${k}`)}</option>
+  <div class="body">
+    <aside class="side">
+      <section class="card box" role="group" aria-label={t('duplicates.filters')}>
+        <h2>{t('duplicates.filters')}</h2>
+        <div class="field">
+          <span class="field-label">{t('duplicates.minSize')}</span>
+          <div class="chips">
+            {#each MIN_SIZES as m (m)}
+              <button class="small" aria-pressed={filter.minSize === m} onclick={() => setFilter({ minSize: m })}>
+                {m === 0 ? t('duplicates.anySize') : formatBytes(m, lang)}
+              </button>
             {/each}
-          </select>
-          {#if r.kind === 'keepOnVolume'}
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">{t('duplicates.type')}</span>
+          <div class="chips">
+            <button class="small" aria-pressed={filter.category === null} onclick={() => setFilter({ category: null })}>{t('duplicates.anyType')}</button>
+            {#each CATEGORIES as c (c)}
+              <button class="small" aria-pressed={filter.category === c} onclick={() => setFilter({ category: c })}>{t(`category.${c}`)}</button>
+            {/each}
+          </div>
+        </div>
+        {#if scope === null}
+          <label class="field">
+            <span class="field-label">{t('duplicates.disk')}</span>
             <select
-              aria-label={t('duplicates.disk')}
-              value={r.volumeId === null ? '' : String(r.volumeId)}
-              onchange={(e) => setRule(i, { volumeId: e.currentTarget.value ? Number(e.currentTarget.value) : null })}
+              value={filter.volumeId === null ? '' : String(filter.volumeId)}
+              onchange={(e) => setFilter({ volumeId: e.currentTarget.value ? Number(e.currentTarget.value) : null })}
             >
-              <option value="">—</option>
+              <option value="">{t('duplicates.anyDisk')}</option>
               {#each catalogued as v (v.id)}
                 <option value={String(v.id)}>{volumeName(v)}</option>
               {/each}
             </select>
-          {:else if r.kind === 'neverIn'}
-            <input aria-label={t('duplicates.ruleText')} value={r.text ?? ''} spellcheck="false" oninput={(e) => setRule(i, { text: e.currentTarget.value })} />
-          {/if}
-          <button class="ghost icon" title={t('duplicates.removeRule')} aria-label={t('duplicates.removeRule')} onclick={() => (rules = rules.filter((_, j) => j !== i))}>
-            <Icon name="close" size={14} />
-          </button>
-        </li>
-      {/each}
-    </ol>
-    <div class="rule-actions">
-      <button class="ghost small" onclick={() => (rules = [...rules, { kind: 'keepShortestPath', volumeId: null, text: null }])}>
-        <Icon name="plus" size={14} /> {t('duplicates.addRule')}
-      </button>
-      <button class="small" onclick={load} disabled={loading || busy}>{t('duplicates.apply')}</button>
-    </div>
-  </details>
+          </label>
+        {/if}
+        <label class="field">
+          <span class="field-label">{t('duplicates.folder')}</span>
+          <input
+            value={filter.folder ?? ''}
+            placeholder={t('duplicates.folderPlaceholder')}
+            spellcheck="false"
+            onchange={(e) => setFilter({ folder: e.currentTarget.value.trim() || null })}
+          />
+        </label>
+      </section>
 
-  {#if view === null}
-    <p class="muted">{loading ? t('duplicates.loading') : ''}</p>
-  {:else if groups.length === 0}
-    <p class="empty muted">{t('duplicates.nothing')}</p>
-  {:else}
-    <p class="summary">
-      <strong>{t('duplicates.summary', { groups: formatCount(view.totalGroups, lang), size: formatBytes(view.totalRecoverable, lang) })}</strong>
-      {#if view.totalGroups > groups.length}
-        <span class="muted"> · {t('duplicates.shownOf', { count: formatCount(groups.length, lang) })}</span>
-      {/if}
-    </p>
-    {#each groups as g (g.key)}
-      {@const s = sel(g)}
-      <article class="group" aria-label={fileName(g)}>
-        <header>
-          <div class="g-title">
-            <h2 title={fileName(g)}>{fileName(g)}</h2>
-            <p class="muted">{t(`category.${g.kind}`)} · {formatBytes(g.size, lang)} · {t('duplicates.copies', { count: formatCount(g.files.length, lang) })}</p>
-          </div>
-          <strong class="g-total">{t('duplicates.recoverable', { size: formatBytes(g.recoverable, lang) })}</strong>
-        </header>
-        <ul class="copies">
-          {#each g.files as f (f.entryId)}
-            {@const checked = s.has(f.entryId)}
-            {@const allowed = canSelect(g, f, s)}
-            <li class:offline={!f.online}>
-              <label title={f.online ? f.fullPath : t('duplicates.offlineHint')}>
-                <input type="checkbox" {checked} disabled={!checked && !allowed} onchange={() => (selection = toggle(selection, g, f))} />
-                <span class="where">
-                  <span class="disk">{diskLabel(f)}{#if !f.online}<span class="badge">{t('duplicates.offline')}</span>{/if}</span>
-                  <span class="path">{folderOf(f) || '\\'}</span>
-                </span>
-              </label>
-              <span class="muted when">{date(f.modified)}</span>
-              {#if f.online}
-                <button class="ghost icon" title={t('duplicates.open')} aria-label={t('duplicates.open')} onclick={() => reveal(f)}>
-                  <Icon name="open" size={15} />
-                </button>
-              {:else}
-                <span></span>
-              {/if}
+      <section class="card box rules" aria-label={t('duplicates.rules')}>
+        <h2>{t('duplicates.rules')}</h2>
+        <ol>
+          {#each rules as r, i (i)}
+            <li>
+              <span class="mono n">{i + 1}</span>
+              <div class="rule-fields">
+                <select aria-label={t('duplicates.rules')} value={r.kind} onchange={(e) => setRule(i, { kind: e.currentTarget.value })}>
+                  {#each RULE_KINDS as k (k)}
+                    <option value={k}>{t(`duplicates.rule.${k}`)}</option>
+                  {/each}
+                </select>
+                {#if r.kind === 'keepOnVolume'}
+                  <select
+                    aria-label={t('duplicates.disk')}
+                    value={r.volumeId === null ? '' : String(r.volumeId)}
+                    onchange={(e) => setRule(i, { volumeId: e.currentTarget.value ? Number(e.currentTarget.value) : null })}
+                  >
+                    <option value="">—</option>
+                    {#each catalogued as v (v.id)}
+                      <option value={String(v.id)}>{volumeName(v)}</option>
+                    {/each}
+                  </select>
+                {:else if r.kind === 'neverIn'}
+                  <input aria-label={t('duplicates.ruleText')} value={r.text ?? ''} spellcheck="false" oninput={(e) => setRule(i, { text: e.currentTarget.value })} />
+                {/if}
+              </div>
+              <button class="ghost icon" title={t('duplicates.removeRule')} aria-label={t('duplicates.removeRule')} onclick={() => (rules = rules.filter((_, j) => j !== i))}>
+                <Icon name="close" size={14} />
+              </button>
             </li>
           {/each}
-        </ul>
-        {#if onlyOfflineLeft(g, s)}
-          <p class="note">{t('duplicates.onlyOfflineLeft')}</p>
-        {/if}
-      </article>
-    {/each}
-  {/if}
+        </ol>
+        <div class="rule-actions">
+          <button onclick={() => (rules = [...rules, { kind: 'keepShortestPath', volumeId: null, text: null }])}>
+            + {t('duplicates.addRule')}
+          </button>
+          <button class="primary" onclick={load} disabled={loading || busy}>{t('duplicates.apply')}</button>
+        </div>
+        <p class="hint">{t('duplicates.rulesHint')}</p>
+      </section>
+    </aside>
+
+    <div class="list">
+      {#if view === null}
+        <p class="empty card">{loading ? t('duplicates.loading') : ''}</p>
+      {:else if groups.length === 0}
+        <p class="empty card">{t('duplicates.nothing')}</p>
+      {:else}
+        <p class="list-head">
+          <span>{t('duplicates.biggestFirst')}</span>
+          <span class="mono muted">{t('duplicates.summary', { groups: formatCount(view.totalGroups, lang), size: formatBytes(view.totalRecoverable, lang) })}</span>
+        </p>
+        {#each groups as g (g.key)}
+          {@const s = sel(g)}
+          <article class="group card" aria-label={fileName(g)}>
+            <header>
+              <span class="swatch" style:background="var(--cat-{g.kind})" title={t(`category.${g.kind}`)}></span>
+              <h2 title={fileName(g)}>{fileName(g)}</h2>
+              <span class="mono muted">{formatBytes(g.size, lang)} × {formatCount(g.files.length, lang)}</span>
+              <span class="g-total">{t('duplicates.recoverableShort')} <b class="mono">{formatBytes(g.recoverable, lang)}</b></span>
+            </header>
+            <ul class="copies">
+              {#each g.files as f (f.entryId)}
+                {@const checked = s.has(f.entryId)}
+                {@const allowed = canSelect(g, f, s)}
+                {@const vol = volumes.find((v) => v.id === f.volumeId)}
+                <li class:offline={!f.online}>
+                  <label title={f.online ? f.fullPath : t('duplicates.offlineHint')}>
+                    <input type="checkbox" {checked} disabled={!checked && !allowed} onchange={() => (selection = toggle(selection, g, f))} />
+                    <span class="disk" style:--sticker={vol ? stickerColor(vol) : undefined}>
+                      <span class="sticker" class:ring={!f.online}></span>
+                      <span class="disk-name">{diskLabel(f)}</span>
+                    </span>
+                    <span class="path mono">{folderOf(f) || '\\'}</span>
+                  </label>
+                  <span class="mono muted when">{date(f.modified)}</span>
+                  <span class="chip {checked ? 'drop' : f.online ? 'keep' : 'drawer'}">
+                    {checked ? t('duplicates.chipDrop') : f.online ? t('duplicates.chipKeep') : t('duplicates.offline')}
+                  </span>
+                  {#if f.online}
+                    <button class="ghost icon" title={t('duplicates.open')} aria-label={t('duplicates.open')} onclick={() => reveal(f)}>
+                      <Icon name="open" size={15} />
+                    </button>
+                  {:else}
+                    <span></span>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+            {#if onlyOfflineLeft(g, s)}
+              <p class="group-note">{t('duplicates.onlyOfflineLeft')}</p>
+            {/if}
+          </article>
+        {/each}
+      {/if}
+    </div>
+  </div>
 
   {#if chosen.count > 0}
-    <div class="bar" role="region" aria-label={t('duplicates.selected', { count: formatCount(chosen.count, lang), size: formatBytes(chosen.bytes, lang) })}>
-      <span>{t('duplicates.selected', { count: formatCount(chosen.count, lang), size: formatBytes(chosen.bytes, lang) })}</span>
-      <span class="spacer"></span>
-      <button class="ghost small" onclick={() => (selection = new Map())}>{t('duplicates.clearSelection')}</button>
-      <button class="primary" class:danger={chosen.permanent} disabled={busy} onclick={() => (confirming = true)}>
-        <Icon name="trash" size={15} /> {t('duplicates.deleteSelected', { size: formatBytes(chosen.bytes, lang) })}
+    <div class="actionbar" role="region" aria-label={t('duplicates.selected', { count: formatCount(chosen.count, lang), size: formatBytes(chosen.bytes, lang) })}>
+      <span class="total">{t('duplicates.selected', { count: formatCount(chosen.count, lang), size: formatBytes(chosen.bytes, lang) })}</span>
+      <span class="note">{chosen.permanent ? t('duplicates.barPermanent') : t('duplicates.barRecycle')}</span>
+      <button class="push" onclick={() => (selection = new Map())}>{t('duplicates.clearSelection')}</button>
+      <button class="signal" disabled={busy} onclick={() => (confirming = true)}>
+        {t('duplicates.deleteSelected', { size: formatBytes(chosen.bytes, lang) })}
       </button>
     </div>
   {/if}
@@ -307,15 +344,18 @@
   title={t('duplicates.confirmTitle', { count: formatCount(chosen.count, lang), size: formatBytes(chosen.bytes, lang) })}
   onclose={() => (confirming = false)}
 >
-  <p>{t('duplicates.confirmCheck')}</p>
-  {#if chosen.permanent}
-    <p class="warn"><strong>{t('duplicates.confirmPermanent')}</strong></p>
-  {:else}
-    <p>{t('duplicates.confirmRecycle')}</p>
-  {/if}
+  <ul class="confirm">
+    <li>{t('duplicates.keepOne')}</li>
+    <li>{t('duplicates.confirmCheck')}</li>
+    {#if chosen.permanent}
+      <li class="warn"><strong>{t('duplicates.confirmPermanent')}</strong></li>
+    {:else}
+      <li>{t('duplicates.confirmRecycle')}</li>
+    {/if}
+  </ul>
   {#snippet actions()}
     <button onclick={() => (confirming = false)}>{t('actions.cancel')}</button>
-    <button class="primary" class:danger={chosen.permanent} onclick={() => remove(false)}>{t('duplicates.deleteNow')}</button>
+    <button class={chosen.permanent ? 'primary danger' : 'signal'} onclick={() => remove(false)}>{t('duplicates.deleteNow')}</button>
   {/snippet}
 </Dialog>
 
@@ -332,218 +372,253 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-    max-width: 1100px;
   }
-  .page-head {
+  .value.signal {
+    color: var(--signal-strong);
+  }
+  .refresh-cell {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
+    align-items: center;
+    justify-content: flex-end;
   }
-  .page-head h1 {
-    font-size: 24px;
-  }
-  .page-head p {
-    margin: 2px 0 0;
-  }
-  .page-head button,
-  .rule-actions button,
-  .bar .primary {
+  .refresh-cell button {
     display: inline-flex;
     align-items: center;
     gap: 6px;
   }
-  .pending,
-  .result {
+  .note-line {
     display: flex;
     align-items: center;
     gap: 10px;
-    border-radius: var(--radius);
-    padding: 8px 8px 8px 14px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
   }
-  .pending {
-    background: var(--surface-2);
-    border: 1px solid var(--border);
+  .note-line.done {
+    background: var(--ok-soft);
   }
-  .result {
-    background: var(--accent-soft);
-    border: 1px solid var(--accent);
-  }
-  .pending span,
-  .result span {
+  .note-line span {
     flex: 1;
   }
-  .filters {
+  .body {
     display: flex;
+    gap: 14px;
     flex-wrap: wrap;
-    gap: 10px 14px;
-    align-items: flex-end;
+    align-items: flex-start;
   }
-  .filters label {
+  .side {
+    flex: 1 1 280px;
+    max-width: 330px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 14px;
+  }
+  .box {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .box h2 {
+    font-size: 15px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     margin: 0;
-    font-size: 12.5px;
-    min-width: 150px;
   }
-  .filters label.grow {
-    flex: 1;
-    min-width: 200px;
-  }
-  .rules {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 10px 16px;
-  }
-  .rules summary {
+  .field-label {
+    font-size: 11.5px;
     font-weight: 600;
-    cursor: pointer;
+    color: var(--text-2);
   }
-  .hint {
-    margin: 6px 0;
-    font-size: 13px;
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .chips button[aria-pressed='true'] {
+    background: var(--accent);
+    color: var(--accent-text);
   }
   .rules ol {
     margin: 0;
-    padding-left: 22px;
-    display: grid;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
     gap: 6px;
   }
   .rules li {
     display: flex;
+    align-items: flex-start;
     gap: 8px;
-    align-items: center;
+    padding: 8px;
+    background: var(--surface-2);
+    border-radius: 9px;
   }
-  .rules li select:first-child {
-    width: auto;
-    min-width: 280px;
+  .rules .n {
+    font-size: 11px;
+    color: var(--text-3);
+    padding-top: 8px;
   }
-  .rules li input,
-  .rules li select + select {
-    width: auto;
-    min-width: 180px;
+  .rule-fields {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .rule-fields select {
+    background: var(--surface);
   }
   .rule-actions {
     display: flex;
     gap: 8px;
-    margin-top: 8px;
   }
-  .summary {
+  .rule-actions button {
+    flex: 1;
+  }
+  .hint {
     margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-3);
   }
-  .group {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 12px 16px;
+  .list {
+    flex: 999 1 560px;
+    min-width: 0;
     display: flex;
     flex-direction: column;
+    gap: 12px;
+  }
+  .list-head {
+    display: flex;
+    justify-content: space-between;
     gap: 8px;
-    box-shadow: var(--shadow);
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .group {
+    padding: 14px 16px;
   }
   .group header {
     display: flex;
-    justify-content: space-between;
-    gap: 16px;
-  }
-  .g-title {
-    min-width: 0;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding-bottom: 8px;
   }
   .group h2 {
     font-size: 15px;
+    min-width: 0;
+    max-width: 50%;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
   }
-  .g-title p {
-    margin: 2px 0 0;
-    font-size: 12.5px;
+  .group header .mono {
+    font-size: 12px;
   }
   .g-total {
-    white-space: nowrap;
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .g-total b {
+    color: var(--signal-strong);
+  }
+  .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex: none;
   }
   .copies {
     list-style: none;
     margin: 0;
     padding: 0;
-    border-top: 1px solid var(--border);
   }
   .copies li {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 100px 34px;
+    grid-template-columns: minmax(0, 1fr) 86px 96px 32px;
     align-items: center;
     gap: 10px;
-    padding: 4px 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .copies li.offline .where {
-    opacity: 0.7;
+    padding: 6px 0;
+    border-top: 1px solid var(--line);
   }
   .copies label {
-    display: flex;
+    display: grid;
+    grid-template-columns: 20px 170px minmax(0, 1fr);
     align-items: center;
     gap: 10px;
-    min-width: 0;
     margin: 0;
-    color: var(--text);
-    font-size: 14px;
-  }
-  .where {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-  .disk {
-    font-weight: 600;
     font-size: 13px;
-  }
-  .badge {
-    margin-left: 8px;
     font-weight: 400;
-    font-size: 11.5px;
-    padding: 1px 7px;
-    border-radius: 999px;
-    background: var(--surface-2);
+    color: var(--text);
+  }
+  .copies li.offline label {
     color: var(--text-3);
   }
-  .path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 13px;
-    color: var(--text-2);
-  }
-  .when {
-    font-size: 12px;
-    text-align: right;
-  }
-  .note {
-    margin: 0;
-    color: var(--warn);
-    font-size: 13px;
-  }
-  .warn {
-    color: var(--danger);
-  }
-  .bar {
-    position: sticky;
-    bottom: 0;
+  .disk {
     display: flex;
     align-items: center;
-    gap: 10px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    box-shadow: var(--shadow);
+    gap: 7px;
+    min-width: 0;
   }
-  .spacer {
-    flex: 1;
+  .disk .sticker {
+    width: 10px;
+    height: 10px;
   }
-  .empty {
-    padding: 40px 0;
-    text-align: center;
+  .disk-name,
+  .path {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .path {
+    font-size: 11.5px;
+  }
+  .when {
+    font-size: 11.5px;
+    text-align: right;
+  }
+  .chip {
+    justify-self: end;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+  .chip.keep {
+    border: 1.5px solid var(--text);
+  }
+  .chip.drop {
+    background: var(--signal-soft);
+    color: var(--signal-strong);
+  }
+  .chip.drawer {
+    background: var(--chip);
+    color: var(--text-2);
+  }
+  .group-note {
+    margin: 8px 0 0;
+    font-size: 12.5px;
+    color: var(--warn);
+  }
+  .confirm {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    line-height: 1.4;
+  }
+  .confirm .warn {
+    color: var(--signal-strong);
   }
 </style>

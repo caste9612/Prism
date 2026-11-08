@@ -1,32 +1,37 @@
 import { expect, test, type Page } from '@playwright/test';
+import { backToCatalog, diskTab, openCatalog, openDisk, openWhole } from './nav';
 
-// The space screen with the simulated backend (src/lib/mock-space.ts): a deterministic tree per
-// sample disk. "Windows" is connected; "Backup Foto" is indexed but not connected.
+// The Space tab of a disk with the simulated backend (src/lib/mock-space.ts): a deterministic
+// tree per sample disk. "Windows" is connected; "Backup Foto" is indexed but not connected.
 
 async function openSpace(page: Page, disk: string) {
-  await page.goto('/');
-  await page.getByRole('article', { name: disk }).getByRole('button', { name: 'Space' }).click();
-  await expect(page.getByRole('heading', { name: disk, level: 1 })).toBeVisible();
+  await openCatalog(page);
+  await openDisk(page, disk);
+  await expect(page.getByRole('navigation', { name: 'Functions of the disk' }).getByRole('button', { name: 'Space' })).toHaveAttribute('aria-current', 'page');
 }
 
-const list = (page: Page) => page.getByLabel('Folder content, largest first');
+const list = (page: Page) => page.getByRole('table', { name: 'Folder content, largest first' });
+const rows = (page: Page) => list(page).locator('tbody tr');
 
 test('F08-AC1/AC2: treemap with the folder content, drill-down and breadcrumb', async ({ page }) => {
   await openSpace(page, 'Windows');
   await expect(page.getByRole('figure', { name: /Space map of Windows/ })).toBeVisible();
-  const rows = list(page).getByRole('listitem');
-  await expect(rows.first()).toBeVisible();
-  // Largest first.
-  const sizes = await list(page).locator('.num').allTextContents();
-  expect(sizes.length).toBeGreaterThan(3);
+  await expect(rows(page).first()).toBeVisible();
+  // Largest first, with size, share and files.
+  expect(await rows(page).count()).toBeGreaterThan(3);
+  await expect(list(page).getByRole('columnheader', { name: '%' })).toBeVisible();
 
-  // Open a folder from the list, then go back with the breadcrumb.
+  // Open a folder from the list, then go back with the path.
   await list(page).getByRole('button', { name: 'Foto', exact: true }).click();
   const crumbs = page.getByRole('navigation', { name: 'Folder path' });
   await expect(crumbs.getByText('Foto', { exact: true })).toHaveAttribute('aria-current', 'location');
   await expect(list(page).getByRole('button', { name: /^20\d\d$/ }).first()).toBeVisible();
   await page.screenshot({ path: 'test-results/space-folder.png' });
   await crumbs.getByRole('button', { name: 'Windows' }).click();
+  await expect(list(page).getByRole('button', { name: 'Foto', exact: true })).toBeVisible();
+  // The parent folder button goes up one level.
+  await list(page).getByRole('button', { name: 'Foto', exact: true }).click();
+  await page.getByRole('button', { name: 'Parent folder' }).click();
   await expect(list(page).getByRole('button', { name: 'Foto', exact: true })).toBeVisible();
 
   // Hovering the map shows what is under the pointer.
@@ -38,23 +43,24 @@ test('F08-AC1/AC2: treemap with the folder content, drill-down and breadcrumb', 
 
 test('F08-AC2: largest files of the disk', async ({ page }) => {
   await openSpace(page, 'Windows');
-  await page.getByRole('tab', { name: 'Largest files' }).click();
-  const table = page.getByRole('table');
+  await page.getByRole('button', { name: 'Largest files' }).click();
+  const table = page.getByRole('table', { name: 'Largest files' });
   await expect(table.getByRole('row').nth(1)).toBeVisible();
   // pagefile.sys (4 GB) is not the largest: disk images are generated larger.
-  const first = await table.getByRole('row').nth(1).getByRole('cell').first().textContent();
-  expect(first).toMatch(/GB/);
+  const size = await table.getByRole('row').nth(1).getByRole('cell').nth(1).textContent();
+  expect(size).toMatch(/GB/);
 });
 
 test('F08-AC3: statistics by type, for the disk and for the whole catalog', async ({ page }) => {
   await openSpace(page, 'Windows');
-  await page.getByRole('tab', { name: 'File types' }).click();
+  await diskTab(page, 'File types');
   await expect(page.getByRole('heading', { name: 'By category' })).toBeVisible();
   await expect(page.getByText('Videos', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'By size' })).toBeVisible();
   const before = await page.getByText(/files, .* (GB|TB)$/).first().textContent();
-  await page.getByRole('radio', { name: 'Whole catalog' }).click();
-  await expect(page.getByRole('radio', { name: 'Whole catalog' })).toHaveAttribute('aria-checked', 'true');
+  await backToCatalog(page);
+  await openWhole(page, 'Catalogued');
+  await expect(page.getByRole('heading', { name: 'By category' })).toBeVisible();
   await expect(page.getByText(/files, .* (GB|TB)$/).first()).not.toHaveText(before!);
   await page.screenshot({ path: 'test-results/space-types.png', fullPage: true });
 });
@@ -62,9 +68,9 @@ test('F08-AC3: statistics by type, for the disk and for the whole catalog', asyn
 test('F08-AC4: a disk that is not connected can be analysed, not opened', async ({ page }) => {
   await openSpace(page, 'Backup Foto');
   await expect(page.getByText(/disk not connected/)).toBeVisible();
-  await expect(list(page).getByRole('listitem').first()).toBeVisible();
+  await expect(rows(page).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /^Open: / })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Disks' }).first().click();
+  await backToCatalog(page);
   await expect(page.getByRole('heading', { name: 'Disks', level: 1 })).toBeVisible();
 });
 

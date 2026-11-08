@@ -9,7 +9,7 @@
   import type { SideInput } from '../lib/bindings/SideInput';
   import type { VerifySummaryView } from '../lib/bindings/VerifySummaryView';
   import type { VolumeView } from '../lib/bindings/VolumeView';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { backend, errorMessage } from '../lib/api';
   import { STATUSES, copyJob, coverage } from '../lib/backup';
   import { volumeName } from '../lib/catalog';
@@ -20,7 +20,16 @@
   import ResultTree from './ResultTree.svelte';
   import SidePicker from './SidePicker.svelte';
 
-  let { volumes, onerror }: { volumes: VolumeView[]; onerror: (message: string) => void } = $props();
+  let {
+    volumes,
+    onerror,
+    scope = null,
+  }: {
+    volumes: VolumeView[];
+    onerror: (message: string) => void;
+    /** The disk of the screen (ADR-0019): proposed as the folder to protect. */
+    scope?: number | null;
+  } = $props();
 
   const lang = $derived(language());
   const catalogued = $derived(volumes.filter((v) => v.lastIndexedAt !== null));
@@ -34,7 +43,7 @@
   let tab = $state<'verify' | 'compare'>('verify');
 
   // F13: check.
-  let source = $state<SideInput>({ volumeId: 0, folder: '' });
+  let source = $state<SideInput>({ volumeId: untrack(() => scope ?? 0), folder: '' });
   let destinations = $state<SideInput[]>([]);
   let checked = $state<{ summary: VerifySummaryView; source: SideInput; destinations: SideInput[] } | null>(null);
   // After a copy the check runs again by itself, once the destination catalog is refreshed.
@@ -59,9 +68,11 @@
   let copyOutcome = $state<CopyResultView | null>(null);
 
   onMount(() => {
-    source = { volumeId: firstId(), folder: '' };
+    // On the tab of a disk, that disk is the one to protect (ADR-0019).
+    const own = scope !== null && catalogued.some((v) => v.id === scope) ? scope : null;
+    source = { volumeId: own ?? firstId(), folder: '' };
     destinations = [{ volumeId: firstId([source.volumeId]), folder: '' }];
-    sideA = { volumeId: firstId(), folder: '' };
+    sideA = { volumeId: own ?? firstId(), folder: '' };
     sideB = { volumeId: firstId([sideA.volumeId]), folder: '' };
     let off: (() => void) | undefined;
     void backend.onJobsChanged((list) => (jobs = list)).then((f) => (off = f));
@@ -157,16 +168,9 @@
 </script>
 
 <section class="backup">
-  <header class="page-head">
-    <div>
-      <h1>{t('backup.title')}</h1>
-      <p class="muted">{t('backup.subtitle')}</p>
-    </div>
-  </header>
-
-  <div class="tabs" role="tablist">
-    <button role="tab" aria-selected={tab === 'verify'} class:active={tab === 'verify'} onclick={() => (tab = 'verify')}>{t('backup.tabVerify')}</button>
-    <button role="tab" aria-selected={tab === 'compare'} class:active={tab === 'compare'} onclick={() => (tab = 'compare')}>{t('backup.tabCompare')}</button>
+  <div class="pills tabs" role="tablist" aria-label={t('backup.title')}>
+    <button role="tab" aria-selected={tab === 'verify'} onclick={() => (tab = 'verify')}>{t('backup.tabVerify')}</button>
+    <button role="tab" aria-selected={tab === 'compare'} onclick={() => (tab = 'compare')}>{t('backup.tabCompare')}</button>
   </div>
 
   {#if catalogued.length < 2}
@@ -201,27 +205,37 @@
     {#if checked}
       {@const c = coverage(checked.summary)}
       {@const s = checked.summary}
-      <div class="summary" role="status" aria-label={t('backup.resultOf', { name: nameOf(checked.source) })}>
-        <p>
-          <strong>{t('backup.total', { files: formatCount(s.total.files, lang), size: formatBytes(s.total.bytes, lang) })}</strong>
-        </p>
-        <ul class="facts">
-          <li>{t('backup.byContent', { files: formatCount(s.byContent.files, lang), percent: c.content })}</li>
-          <li>{t('backup.byMetadata', { files: formatCount(s.byMetadata.files, lang), percent: c.metadata })}</li>
-          <li class:warn={!c.complete} class:good={c.complete}>
-            {c.complete ? t('backup.allCopied') : t('backup.missing', { files: formatCount(s.missing.files, lang), size: formatBytes(s.missing.bytes, lang) })}
-          </li>
-        </ul>
-        {#if s.byMetadata.files > 0}
-          <p class="muted hint">{t('backup.metadataHint')}</p>
-        {/if}
-        {#if !c.complete}
-          <div class="actions">
-            <span class="spacer"></span>
-            <button class="primary" onclick={openCopy} disabled={running !== null}>
-              <Icon name="copy" size={15} /> {t('backup.copyMissing')}
-            </button>
+      {@const covered = s.total.files > 0 ? Math.floor(((s.byContent.files + s.byMetadata.files) / s.total.files) * 1000) / 10 : 100}
+      <div class="result-row">
+        <div class="summary" role="status" aria-label={t('backup.resultOf', { name: nameOf(checked.source) })}>
+          <div class="headline">
+            <span class="big">{covered.toLocaleString(lang)}%</span>
+            <span class="of">{t('backup.coveredOf', { name: nameOf(checked.source) })}</span>
           </div>
+          <div class="cover-bar" aria-hidden="true">
+            <span class="content" style:width="{s.total.files > 0 ? (s.byContent.files / s.total.files) * 100 : 0}%"></span>
+            <span class="meta" style:width="{s.total.files > 0 ? (s.byMetadata.files / s.total.files) * 100 : 0}%"></span>
+            <span class="missing" style:width="{s.total.files > 0 ? (s.missing.files / s.total.files) * 100 : 0}%"></span>
+          </div>
+          <p class="mono muted">{t('backup.total', { files: formatCount(s.total.files, lang), size: formatBytes(s.total.bytes, lang) })}</p>
+          <ul class="facts">
+            <li><span class="key content"></span>{t('backup.byContent', { files: formatCount(s.byContent.files, lang), percent: c.content })}</li>
+            <li><span class="key meta"></span>{t('backup.byMetadata', { files: formatCount(s.byMetadata.files, lang), percent: c.metadata })}</li>
+            <li class:warn={!c.complete} class:good={c.complete}>
+              <span class="key missing"></span>{c.complete ? t('backup.allCopied') : t('backup.missing', { files: formatCount(s.missing.files, lang), size: formatBytes(s.missing.bytes, lang) })}
+            </li>
+          </ul>
+          {#if s.byMetadata.files > 0}
+            <p class="muted hint">{t('backup.metadataHint')}</p>
+          {/if}
+        </div>
+        {#if !c.complete}
+          <aside class="copy-box">
+            <h2>{t('backup.copyMissing')}</h2>
+            <div class="copy-big">{formatCount(s.missing.files, lang)} <small>{t('backup.filesWord')} · {formatBytes(s.missing.bytes, lang)}</small></div>
+            <p>{t('backup.copyBoxHint')}</p>
+            <button class="signal" onclick={openCopy} disabled={running !== null}>{t('backup.copyMissing')}…</button>
+          </aside>
         {/if}
       </div>
 
@@ -348,40 +362,18 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-    max-width: 1100px;
-  }
-  .page-head h1 {
-    font-size: 24px;
-  }
-  .page-head p {
-    margin: 2px 0 0;
   }
   .tabs {
-    display: flex;
-    gap: 4px;
-    border-bottom: 1px solid var(--border);
-  }
-  .tabs button {
-    border: 0;
-    border-bottom: 2px solid transparent;
-    border-radius: 0;
-    background: none;
-    padding: 8px 14px;
-    color: var(--text-2);
-  }
-  .tabs button.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-    font-weight: 600;
+    align-self: flex-start;
   }
   .panel,
   .summary,
   .outcome,
   .progress {
     background: var(--surface);
-    border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 14px 16px;
+    box-shadow: var(--shadow);
+    padding: 16px 18px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -414,7 +406,7 @@
     flex: 1;
   }
   .mode-label {
-    font-size: 13px;
+    font-size: 12.5px;
     color: var(--text-2);
   }
   .radio {
@@ -423,26 +415,114 @@
     gap: 6px;
     margin: 0;
     color: var(--text);
-    font-size: 14px;
+    font-size: 13px;
+    font-weight: 400;
   }
-  .radio input {
-    width: auto;
+  .result-row {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  .summary {
+    flex: 999 1 520px;
+    min-width: 0;
   }
   .summary p {
     margin: 0;
   }
+  .headline {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .big {
+    font-family: var(--font-display);
+    font-size: 46px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .of {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .cover-bar {
+    display: flex;
+    height: 12px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--track);
+  }
+  .cover-bar .content,
+  .key.content {
+    background: var(--ok);
+  }
+  .cover-bar .meta,
+  .key.meta {
+    background: var(--cat-images);
+  }
+  .cover-bar .missing,
+  .key.missing {
+    background: var(--signal);
+  }
   .facts {
     margin: 0;
-    padding-left: 18px;
+    padding: 0;
+    list-style: none;
     display: grid;
-    gap: 2px;
+    gap: 4px;
+  }
+  .facts li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .key {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex: none;
+  }
+  .copy-box {
+    flex: 1 1 280px;
+    max-width: 380px;
+    background: var(--block);
+    color: var(--block-text);
+    border-radius: var(--radius);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .copy-box h2 {
+    font-size: 17px;
+  }
+  .copy-big {
+    font-family: var(--font-display);
+    font-size: 26px;
+    font-weight: 600;
+  }
+  .copy-big small {
+    font-size: 14px;
+    color: var(--block-text-2);
+  }
+  .copy-box p {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--block-text-2);
+  }
+  .copy-box button {
+    margin-top: auto;
   }
   .hint {
-    font-size: 13px;
+    font-size: 12.5px;
     margin: 0;
   }
   .warn {
-    color: var(--warn);
+    color: var(--signal-strong);
   }
   .good {
     color: var(--ok);
@@ -455,13 +535,13 @@
     flex: 1;
     height: 6px;
     border-radius: 3px;
-    background: var(--surface-2);
+    background: var(--track);
     overflow: hidden;
   }
   .progress .bar span {
     display: block;
     height: 100%;
-    background: var(--accent);
+    background: var(--signal);
   }
   .outcome p {
     margin: 0;
@@ -469,15 +549,15 @@
   .failures {
     margin: 0;
     padding-left: 18px;
-    font-size: 13px;
+    font-size: 12.5px;
   }
   .failures .path {
-    font-family: var(--mono, monospace);
+    font-family: var(--font-mono);
   }
   .statuses {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
   }
   .status-filter {
     display: inline-flex;
@@ -485,14 +565,14 @@
     gap: 8px;
     margin: 0;
     padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     background: var(--surface);
     color: var(--text);
-    font-size: 13.5px;
+    font-size: 13px;
+    font-weight: 400;
   }
-  .status-filter input {
-    width: auto;
+  .status-filter strong {
+    font-family: var(--font-mono);
   }
   .conflict {
     border: 0;
@@ -503,7 +583,7 @@
     gap: 4px;
   }
   .conflict legend {
-    font-size: 13px;
+    font-size: 12.5px;
     margin-bottom: 4px;
   }
   .preview {

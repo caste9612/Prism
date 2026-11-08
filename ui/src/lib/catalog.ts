@@ -68,11 +68,89 @@ export function primaryAction(v: VolumeView): 'index' | 'update' | null {
   return v.status === 'indexed' ? 'update' : 'index';
 }
 
-/** Colours offered for the volume labels (F03-AC1). */
-export const LABEL_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#0ea5e9', '#6366f1', '#d946ef', '#64748b'];
+/** Colours offered for the volume labels (F03-AC1, ADR-0019), with their names (i18n keys). */
+export const LABEL_COLORS: { key: string; color: string }[] = [
+  { key: 'ink', color: '#111418' },
+  { key: 'blue', color: '#2a78d6' },
+  { key: 'green', color: '#1f8f4e' },
+  { key: 'yellow', color: '#e5b000' },
+  { key: 'orange', color: '#e8622c' },
+  { key: 'pink', color: '#d1588a' },
+  { key: 'purple', color: '#6250d6' },
+  { key: 'grey', color: '#9aa0a8' },
+];
+
+/** Colours given to the disks without one of their own, so each card is told apart. */
+const AUTO_COLORS = ['#2a78d6', '#1f8f4e', '#e5b000', '#e8622c', '#d1588a', '#6250d6'];
+
+/** The colour of the disk's sticker: the user's, or a stable one from its id. */
+export function stickerColor(v: Pick<VolumeView, 'id' | 'color'>): string {
+  if (v.color !== null && v.color.trim() !== '') return v.color;
+  return AUTO_COLORS[Math.abs(v.id) % AUTO_COLORS.length] ?? '#9aa0a8';
+}
 
 /** Percentage of analysed files, rounded down: 100 only when every file is done (F06-AC5). */
 export function hashPercent(h: { total: number; hashed: number }): number {
   if (h.total <= 0) return 100;
   return Math.min(100, Math.floor((h.hashed / h.total) * 100));
+}
+
+/** The filters of the catalog (ADR-0019): connected local disks, network, in the drawer. */
+export type DiskFilter = 'all' | 'online' | 'network' | 'offline';
+export type DiskSort = 'location' | 'name' | 'used';
+
+function group(v: VolumeView): 'online' | 'network' | 'offline' {
+  if (!v.online) return 'offline';
+  return v.kind === 'network' ? 'network' : 'online';
+}
+
+/** How many disks each filter shows (ignored disks are never shown, F02-AC4). */
+export function filterCounts(volumes: VolumeView[]): Record<DiskFilter, number> {
+  const shown = volumes.filter((v) => v.status !== 'ignored');
+  return {
+    all: shown.length,
+    online: shown.filter((v) => group(v) === 'online').length,
+    network: shown.filter((v) => group(v) === 'network').length,
+    offline: shown.filter((v) => group(v) === 'offline').length,
+  };
+}
+
+/**
+ * The cards of the catalog for a filter and an order: connected disks first, then network,
+ * then the ones in the drawer; within each group by the chosen order.
+ */
+export function catalogCards(volumes: VolumeView[], filter: DiskFilter, sort: DiskSort): VolumeView[] {
+  const name = (v: VolumeView) => volumeName(v);
+  const cmpName = (a: VolumeView, b: VolumeView) =>
+    name(a).localeCompare(name(b), undefined, { sensitivity: 'base', numeric: true });
+  const usedOf = (v: VolumeView) =>
+    v.capacity !== null && v.freeSpace !== null ? v.capacity - v.freeSpace : v.indexedSize;
+  const cmp = (a: VolumeView, b: VolumeView): number => {
+    if (sort === 'used') return usedOf(b) - usedOf(a) || cmpName(a, b);
+    if (sort === 'location') {
+      const la = a.location?.trim() || '￿';
+      const lb = b.location?.trim() || '￿';
+      return la.localeCompare(lb, undefined, { sensitivity: 'base' }) || cmpName(a, b);
+    }
+    return cmpName(a, b);
+  };
+  const order = { online: 0, network: 1, offline: 2 };
+  return volumes
+    .filter((v) => v.status !== 'ignored' && (filter === 'all' || group(v) === filter))
+    .sort((a, b) => order[group(a)] - order[group(b)] || cmp(a, b));
+}
+
+/** Physical locations already used by other disks, for the suggestions of the labels dialog. */
+export function knownLocations(volumes: VolumeView[]): string[] {
+  const seen = new Map<string, string>();
+  for (const v of volumes) {
+    const l = v.location?.trim();
+    if (l && !seen.has(l.toLowerCase())) seen.set(l.toLowerCase(), l);
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
+
+/** The search text limited to one disk (F01-AC4): `disk:"Name" `, ready to type after it. */
+export function diskQuery(v: Pick<VolumeView, 'name'>): string {
+  return `disk:"${v.name.replace(/"/g, '')}" `;
 }

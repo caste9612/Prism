@@ -1,13 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openCatalog, openWhole } from './nav';
 
 // The similar images screen with the simulated backend (src/lib/mock-similar.ts): a RAW photo
 // with an exported JPEG and a copy on the disconnected backup (differences 3 and 1), a logo and
 // its small copy (5), a scanned receipt and a JPEG of it (9).
 
 async function openSimilar(page: Page) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Similar', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Similar', level: 1 })).toBeVisible();
+  await openCatalog(page);
+  await openWhole(page, 'Similar');
+  await expect(page.getByRole('tab', { name: 'Images' })).toHaveAttribute('aria-selected', 'true');
 }
 
 test('F11-AC1/AC3: groups with previews side by side, resolution, size and disk', async ({ page }) => {
@@ -24,6 +25,9 @@ test('F11-AC1/AC3: groups with previews side by side, resolution, size and disk'
   await expect(photo.getByRole('img', { name: 'mare-2041.jpg' })).toBeVisible();
   await expect(photo).toContainText('Disk not connected: no preview');
   await expect(page.getByText('The content analysis still has 3,210 images to read')).toBeVisible();
+  // Nothing is deleted from this screen.
+  await expect(page.getByText('Nothing is deleted from here')).toBeVisible();
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/similar.png', fullPage: true });
 });
 

@@ -6,8 +6,9 @@
   import type { SearchResultView } from '../lib/bindings/SearchResultView';
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { backend, errorMessage } from '../lib/api';
-  import { volumeName } from '../lib/catalog';
+  import { stickerColor, volumeName } from '../lib/catalog';
   import { ago, formatBytes, formatCount } from '../lib/format';
+  import { onMount, untrack } from 'svelte';
   import { language, t } from '../lib/i18n.svelte';
   import { getFilter, setFilter, splitAt, utcOffsetMinutes } from '../lib/search';
   import Icon from './Icon.svelte';
@@ -17,16 +18,19 @@
     onerror,
     compact = false,
     onopened,
+    initial = '',
   }: {
     volumes: VolumeView[];
     onerror: (message: string) => void;
     /** The separate search window (F07-AC1): smaller, hides after opening a result. */
     compact?: boolean;
     onopened?: () => void;
+    /** What was typed in the box of the top bar before this screen opened (ADR-0019). */
+    initial?: string;
   } = $props();
 
   const lang = $derived(language());
-  let text = $state('');
+  let text = $state(untrack(() => initial));
   let result = $state<SearchResultView | null>(null);
   let selected = $state(0);
   let copied = $state<number | null>(null);
@@ -61,6 +65,14 @@
     }
     timer = setTimeout(() => void run(next), 120);
   }
+
+  // Opened from the box of the top bar: search what was typed there and keep typing here.
+  onMount(() => {
+    if (compact) return;
+    if (text.trim() !== '') changed(text);
+    input?.focus();
+    input?.setSelectionRange(text.length, text.length);
+  });
 
   function setControl(key: string, value: string) {
     changed(setFilter(text, key, value === '' ? null : value));
@@ -115,6 +127,10 @@
   };
   const errorParts = $derived(result?.error ? splitAt(text, result.error.start, result.error.end) : null);
   const disks = $derived(volumes.filter((v) => v.lastIndexedAt !== null && v.status !== 'ignored'));
+  const stickerOf = (id: number) => {
+    const v = volumes.find((x) => x.id === id);
+    return v ? stickerColor(v) : undefined;
+  };
 </script>
 
 <section class="search" class:compact>
@@ -200,10 +216,12 @@
             <span class="name">{h.name}</span>
             <span class="folder muted" title={h.fullPath}>{h.folder || '\\'}</span>
           </div>
-          <div class="disk">
-            <span>{h.disk}</span>
+          <div class="disk" style:--sticker={stickerOf(h.volumeId)}>
+            <span class="who"><span class="sticker" class:ring={!h.online}></span>{h.disk}</span>
             {#if !h.online}
               <span class="off">{h.location ? t('search.offlineAt', { location: h.location }) : t('search.offline')}</span>
+            {:else if h.location}
+              <span class="at">{h.location}</span>
             {/if}
           </div>
           <span class="num">{h.isDir ? '' : formatBytes(h.size, lang)}</span>
@@ -237,28 +255,29 @@
   .search {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     height: 100%;
     min-height: 0;
   }
   .box {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 4px 12px;
-    color: var(--text-2);
+    border: 2px solid var(--text);
+    border-radius: 14px;
+    padding: 0 16px;
+    height: 50px;
   }
   .box:focus-within {
-    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--signal-soft);
   }
   .box input {
     border: 0;
-    padding: 9px 0;
-    font-size: 16px;
+    padding: 0;
     background: transparent;
+    font-family: var(--font-mono);
+    font-size: 16px;
   }
   .box input:focus-visible {
     outline: none;
@@ -270,53 +289,57 @@
   }
   .controls select {
     width: auto;
-    padding: 4px 8px;
+    min-height: 30px;
     font-size: 12.5px;
+    background: var(--surface);
   }
   .error {
-    border: 1px solid var(--danger);
     background: var(--danger-soft);
     border-radius: var(--radius-sm);
-    padding: 8px 12px;
+    padding: 10px 14px;
   }
   .error p {
-    margin: 0 0 4px;
+    margin: 0 0 6px;
   }
   .error code {
-    white-space: pre;
+    font-family: var(--font-mono);
   }
   .error mark {
-    background: var(--danger);
-    color: #ffffff;
+    background: var(--signal);
+    color: var(--signal-text);
     border-radius: 3px;
     padding: 0 2px;
   }
   .status {
     margin: 0;
-    font-size: 12.5px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
   }
   .hits {
     list-style: none;
     margin: 0;
     padding: 0;
-    overflow: auto;
-    flex: 1;
-    min-height: 0;
     background: var(--surface);
-    border: 1px solid var(--border);
     border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: auto;
+    min-height: 0;
+    flex: 1;
   }
   .hits li {
     display: grid;
-    grid-template-columns: 10px minmax(0, 1fr) minmax(90px, 0.35fr) 72px 90px auto;
+    grid-template-columns: 10px minmax(0, 1.6fr) minmax(0, 1fr) 84px 96px auto;
     align-items: center;
-    gap: 10px;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    padding: 9px 16px;
+    border-top: 1px solid var(--line);
     cursor: default;
   }
+  .hits li:first-child {
+    border-top: 0;
+  }
   .hits li.selected {
-    background: var(--accent-soft);
+    background: var(--signal-soft);
   }
   .hits li.offline .name {
     color: var(--text-2);
@@ -333,61 +356,89 @@
   }
   .name,
   .folder {
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .name {
     font-weight: 600;
   }
   .folder {
-    font-size: 12px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
   }
   .disk {
     display: flex;
     flex-direction: column;
-    font-size: 12px;
     min-width: 0;
-  }
-  .disk span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .off {
-    color: var(--warn);
-  }
-  .num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
     font-size: 12.5px;
   }
-  .when {
+  .disk span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .who {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .who .sticker {
+    width: 10px;
+    height: 10px;
+  }
+  .at {
+    font-size: 11.5px;
+    color: var(--text-3);
+    margin-left: 17px;
+  }
+  .off {
+    font-size: 11.5px;
+    color: var(--signal-strong);
+    margin-left: 17px;
+  }
+  .num {
+    font-family: var(--font-mono);
     font-size: 12px;
     text-align: right;
+    white-space: nowrap;
+  }
+  .when {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    text-align: right;
+    white-space: nowrap;
   }
   .acts {
     display: flex;
     gap: 2px;
   }
   button.tiny {
-    padding: 3px;
+    width: 26px;
+    height: 26px;
+  }
+  .help {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 16px 18px;
   }
   .help code {
-    background: var(--surface-2);
-    border-radius: 4px;
+    font-family: var(--font-mono);
+    background: var(--chip);
+    border-radius: 5px;
     padding: 1px 5px;
   }
   .help ul {
+    margin: 8px 0;
     padding-left: 18px;
     line-height: 1.9;
   }
   .empty {
+    padding: 20px;
     text-align: center;
-    padding: 24px 0;
   }
   .compact .hits li {
-    grid-template-columns: 10px minmax(0, 1fr) minmax(80px, 0.3fr) 64px auto;
+    grid-template-columns: 10px minmax(0, 1.6fr) minmax(0, 1fr) 76px auto;
   }
   .compact .when {
     display: none;

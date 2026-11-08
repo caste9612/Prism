@@ -347,6 +347,15 @@ fn duplicates_are_grouped_selected_and_deleted_safely() {
     assert_eq!(after.total_groups, 0);
     let log = app.store.read(|c| store::actions_log(c, 10)).unwrap();
     assert_eq!(log.len(), 1);
+    // The same record for the "last actions" panel of the catalog.
+    let recent = app.recent_actions(5).unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].volume_id, Some(log[0].volume.unwrap().0));
+    assert_eq!(
+        (recent[0].size, recent[0].outcome.as_str()),
+        (300 * 1024, "done")
+    );
+    assert_eq!(recent[0].path, log[0].path);
 }
 
 // D31: the periodic journal update does not reserve the disk, so the content analysis does

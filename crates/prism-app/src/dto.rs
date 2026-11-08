@@ -214,3 +214,35 @@ impl From<prism_core::store::StoreError> for ApiError {
         }
     }
 }
+
+/// A file operation of the actions log (F16-AC6), for the "last actions" panel of the catalog.
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ActionView {
+    /// Milliseconds since 1970.
+    #[ts(type = "number")]
+    pub at: i64,
+    /// `recycle` or `delete`.
+    pub action: String,
+    #[ts(type = "number | null")]
+    pub volume_id: Option<i64>,
+    pub path: String,
+    #[ts(type = "number")]
+    pub size: u64,
+    /// `done`, `skipped_changed`, `skipped_missing` or `failed`.
+    pub outcome: String,
+}
+
+impl From<prism_core::store::ActionRecord> for ActionView {
+    fn from(r: prism_core::store::ActionRecord) -> Self {
+        Self {
+            at: r.at,
+            action: r.action,
+            volume_id: r.volume.map(|v| v.0),
+            path: r.path,
+            size: r.size,
+            outcome: r.outcome,
+        }
+    }
+}

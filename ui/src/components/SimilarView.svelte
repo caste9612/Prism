@@ -5,20 +5,29 @@
   import type { SimilarFileView } from '../lib/bindings/SimilarFileView';
   import type { SimilarView } from '../lib/bindings/SimilarView';
   import type { VolumeView } from '../lib/bindings/VolumeView';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { backend, errorMessage } from '../lib/api';
-  import { volumeName } from '../lib/catalog';
+  import { stickerColor, volumeName } from '../lib/catalog';
   import { formatBytes, formatCount } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
 
-  let { volumes, onerror }: { volumes: VolumeView[]; onerror: (message: string) => void } = $props();
+  let {
+    volumes,
+    onerror,
+    scope = null,
+  }: {
+    volumes: VolumeView[];
+    onerror: (message: string) => void;
+    /** The disk of the screen (ADR-0019): groups with a copy on it; every disk when null. */
+    scope?: number | null;
+  } = $props();
 
   const lang = $derived(language());
   const PAGE = 30;
   let kind = $state<'images' | 'videos'>('images');
   let distance = $state(6);
-  let volumeId = $state<number | null>(null);
+  let volumeId = $state<number | null>(untrack(() => scope));
   let view = $state<SimilarView | null>(null);
   let loading = $state(false);
   let shown = $state(PAGE);
@@ -90,22 +99,13 @@
 </script>
 
 <section class="similar">
-  <header class="page-head">
-    <div>
-      <h1>{t('similar.title')}</h1>
-      <p class="muted">{t('similar.subtitle')}</p>
+  <div class="card controls">
+    <div class="pills inset" role="tablist" aria-label={t('similar.title')}>
+      <button role="tab" aria-selected={kind === 'images'} onclick={() => choose('images')}>{t('similar.tabImages')}</button>
+      <button role="tab" aria-selected={kind === 'videos'} onclick={() => choose('videos')}>{t('similar.tabVideos')}</button>
     </div>
-    <button onclick={load} disabled={loading}><Icon name="refresh" size={15} /> {t('similar.refresh')}</button>
-  </header>
-
-  <div class="tabs" role="tablist">
-    <button role="tab" aria-selected={kind === 'images'} class:active={kind === 'images'} onclick={() => choose('images')}>{t('similar.tabImages')}</button>
-    <button role="tab" aria-selected={kind === 'videos'} class:active={kind === 'videos'} onclick={() => choose('videos')}>{t('similar.tabVideos')}</button>
-  </div>
-
-  <div class="controls">
     <label class="threshold">
-      <span>{t('similar.threshold', { value: distance })}</span>
+      <span>{t('similar.thresholdLabel')}</span>
       <input
         type="range"
         min="0"
@@ -118,62 +118,81 @@
           void load();
         }}
       />
-      <span class="ends muted"><span>{t('similar.strict')}</span><span>{t('similar.loose')}</span></span>
+      <span class="mono">{distance} / 64</span>
     </label>
-    <label class="disk">
-      <span>{t('similar.disk')}</span>
-      <select
-        value={volumeId === null ? '' : String(volumeId)}
-        onchange={(e) => {
-          volumeId = e.currentTarget.value ? Number(e.currentTarget.value) : null;
-          void load();
-        }}
-      >
-        <option value="">{t('similar.anyDisk')}</option>
-        {#each catalogued as v (v.id)}
-          <option value={String(v.id)}>{volumeName(v)}</option>
-        {/each}
-      </select>
-    </label>
+    <span class="muted hint">{t('similar.thresholdHint')}</span>
+    {#if scope === null}
+      <label class="disk">
+        <span class="sr-only">{t('similar.disk')}</span>
+        <select
+          aria-label={t('similar.disk')}
+          value={volumeId === null ? '' : String(volumeId)}
+          onchange={(e) => {
+            volumeId = e.currentTarget.value ? Number(e.currentTarget.value) : null;
+            void load();
+          }}
+        >
+          <option value="">{t('similar.anyDisk')}</option>
+          {#each catalogued as v (v.id)}
+            <option value={String(v.id)}>{volumeName(v)}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
+    <button class="icon refresh" onclick={load} disabled={loading} title={t('similar.refresh')} aria-label={t('similar.refresh')}><Icon name="refresh" size={15} /></button>
   </div>
+
+  <p class="list-head">
+    <span>{t('similar.noDelete')}</span>
+    {#if view && view.groups.length > 0}
+      <span class="mono muted">{t(kind === 'images' ? 'similar.summary' : 'similar.summaryVideos', { count: formatCount(view.totalGroups, lang) })}</span>
+    {/if}
+  </p>
 
   {#if view && view.pending > 0}
     <p class="pending" role="status">{t(kind === 'images' ? 'similar.pending' : 'similar.pendingVideos', { count: formatCount(view.pending, lang) })}</p>
   {/if}
 
   {#if view === null}
-    <p class="muted">{loading ? t('similar.loading') : ''}</p>
+    <p class="empty card">{loading ? t('similar.loading') : ''}</p>
   {:else if view.groups.length === 0}
-    <p class="empty muted">{t('similar.nothing')}</p>
+    <p class="empty card">{t('similar.nothing')}</p>
   {:else}
-    <p class="summary"><strong>{t(kind === 'images' ? 'similar.summary' : 'similar.summaryVideos', { count: formatCount(view.totalGroups, lang) })}</strong></p>
     {#each view.groups.slice(0, shown) as g (g.key)}
-      <article class="group" aria-label={name(g.files[0]!)}>
-        <h2>{t(kind === 'images' ? 'similar.images' : 'similar.videos', { count: formatCount(g.files.length, lang) })}</h2>
+      {@const maxDiff = Math.max(...g.files.map((f) => f.distance))}
+      <article class="group card" aria-label={name(g.files[0]!)}>
+        <header>
+          <h2>{t(kind === 'images' ? 'similar.images' : 'similar.videos', { count: formatCount(g.files.length, lang) })}</h2>
+          <span class="mono muted">{t('similar.groupDiff', { value: maxDiff })}</span>
+        </header>
         <ul class="tiles">
           {#each g.files as f (f.entryId)}
+            {@const vol = volumes.find((v) => v.id === f.volumeId)}
             <li class="tile" class:offline={!f.online}>
               <div class="thumb" use:lazyThumb={f}>
                 {#if thumbs[f.entryId]}
                   <img src={thumbs[f.entryId]} alt={name(f)} />
+                {:else if !f.online}
+                  <span class="placeholder">{t('similar.noPreview')}</span>
                 {:else}
-                  <span class="placeholder muted">{f.online ? '' : t('similar.noPreview')}</span>
+                  <span class="placeholder" aria-hidden="true"></span>
+                {/if}
+                {#if f.online}
+                  <button class="reveal icon" title={t('similar.open')} aria-label={t('similar.open')} onclick={() => reveal(f)}>
+                    <Icon name="open" size={14} />
+                  </button>
                 {/if}
               </div>
               <div class="info">
                 <strong class="name" title={f.fullPath}>{name(f)}</strong>
-                <span class="muted">{details(f)}</span>
-                <span class="where">
+                <span class="mono details">{details(f)}</span>
+                <span class="where" style:--sticker={vol ? stickerColor(vol) : undefined}>
+                  <span class="sticker" class:ring={!f.online}></span>
                   {f.location ? `${f.disk} · ${f.location}` : f.disk}
                   {#if !f.online}<span class="badge">{t('similar.offline')}</span>{/if}
                 </span>
-                <span class="muted folder" title={f.path}>{folder(f)}</span>
+                <span class="mono folder" title={f.path}>{folder(f)}</span>
               </div>
-              {#if f.online}
-                <button class="ghost icon" title={t('similar.open')} aria-label={t('similar.open')} onclick={() => reveal(f)}>
-                  <Icon name="open" size={15} />
-                </button>
-              {/if}
             </li>
           {/each}
         </ul>
@@ -189,166 +208,163 @@
 </section>
 
 <style>
-  .tabs {
-    display: flex;
-    gap: 4px;
-    border-bottom: 1px solid var(--border);
-  }
-  .tabs button {
-    border: 0;
-    border-bottom: 2px solid transparent;
-    border-radius: 0;
-    background: none;
-    padding: 8px 14px;
-    color: var(--text-2);
-  }
-  .tabs button.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-    font-weight: 600;
-  }
   .similar {
     display: flex;
     flex-direction: column;
     gap: 14px;
-    max-width: 1100px;
-  }
-  .page-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-  }
-  .page-head h1 {
-    font-size: 24px;
-  }
-  .page-head p {
-    margin: 2px 0 0;
-  }
-  .page-head button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
   }
   .controls {
     display: flex;
+    align-items: center;
+    gap: 18px;
     flex-wrap: wrap;
-    gap: 14px 24px;
-    align-items: flex-end;
-  }
-  .controls label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin: 0;
-    font-size: 12.5px;
+    padding: 12px 16px;
   }
   .threshold {
-    min-width: 260px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
   }
   .threshold input {
-    padding: 0;
+    width: 180px;
   }
-  .ends {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11.5px;
+  .threshold .mono {
+    font-weight: 400;
+  }
+  .hint {
+    font-size: 12px;
   }
   .disk {
-    min-width: 200px;
+    margin: 0 0 0 auto;
+  }
+  .disk select {
+    width: auto;
+  }
+  .refresh {
+    width: 32px;
+    height: 32px;
+  }
+  .list-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-2);
   }
   .pending {
     margin: 0;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 8px 14px;
-  }
-  .summary {
-    margin: 0;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
   }
   .group {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 12px 16px;
-    box-shadow: var(--shadow);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .group header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
   }
   .group h2 {
-    font-size: 14px;
-    margin-bottom: 10px;
+    font-size: 16px;
+  }
+  .group header .mono {
+    font-size: 12px;
   }
   .tiles {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 12px;
   }
   .tile {
-    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     min-width: 0;
   }
-  .tile .icon {
+  .thumb {
+    position: relative;
+    height: 140px;
+    border-radius: 10px;
+    background: var(--chip);
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+  }
+  .offline .thumb {
+    background: transparent;
+    border: 1.5px dashed var(--border);
+  }
+  .thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .placeholder {
+    padding: 12px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .reveal {
     position: absolute;
     top: 6px;
     right: 6px;
+    width: 28px;
+    height: 28px;
     background: var(--surface);
-  }
-  .thumb {
-    height: 150px;
-    border-radius: 8px;
-    background: var(--surface-2);
-    display: grid;
-    place-items: center;
-    overflow: hidden;
-  }
-  .thumb img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-  }
-  .tile.offline .thumb {
-    opacity: 0.7;
-  }
-  .placeholder {
-    font-size: 12px;
-    padding: 0 8px;
-    text-align: center;
+    opacity: 0.9;
   }
   .info {
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    font-size: 12.5px;
+    gap: 3px;
     min-width: 0;
   }
   .name,
   .folder {
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
   }
-  .name {
-    font-size: 13.5px;
+  .details {
+    font-size: 11.5px;
+    color: var(--text-2);
+  }
+  .where {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .where .sticker {
+    width: 9px;
+    height: 9px;
   }
   .badge {
-    margin-left: 6px;
-    font-size: 11px;
+    font-size: 10.5px;
     padding: 1px 6px;
-    border-radius: 999px;
-    background: var(--surface-2);
+    border-radius: 5px;
+    background: var(--chip);
+  }
+  .folder {
+    font-size: 11px;
     color: var(--text-3);
   }
   .more {
     align-self: center;
-  }
-  .empty {
-    padding: 40px 0;
-    text-align: center;
   }
 </style>

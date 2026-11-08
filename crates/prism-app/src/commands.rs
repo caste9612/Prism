@@ -178,6 +178,16 @@ pub async fn type_stats(
     blocking(move || s.type_stats(volume_id.map(VolumeId))).await
 }
 
+/// The most recent file operations of the actions log (F16-AC6).
+#[tauri::command]
+pub async fn recent_actions(
+    state: State<'_, Arc<AppState>>,
+    limit: usize,
+) -> R<Vec<crate::dto::ActionView>> {
+    let s = Arc::clone(&state);
+    blocking(move || s.recent_actions(limit)).await
+}
+
 /// Opens a file or folder of the catalog with the user's normal rights (ADR-0003).
 #[tauri::command]
 pub fn open_entry(state: State<'_, Arc<AppState>>, volume_id: i64, entry_id: i64) -> R<()> {

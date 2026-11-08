@@ -1,12 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openCatalog } from './nav';
 
 // Search with the simulated backend (src/lib/mock-search.ts) over the simulated trees of the
 // sample disks: "Backup Foto" is indexed but not connected, in "cassetto 2".
 
+/** Typing in the box of the top bar opens the search screen, which keeps what was typed. */
 async function openSearch(page: Page) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  return page.getByRole('textbox', { name: 'Search all disks' });
+  await openCatalog(page);
+  await page.getByRole('searchbox', { name: 'Search every disk' }).fill('f');
+  const box = page.getByRole('textbox', { name: 'Search all disks' });
+  await expect(box).toBeFocused();
+  await expect(box).toHaveValue('f');
+  return box;
 }
 
 const results = (page: Page) => page.getByRole('listbox', { name: 'Results' }).getByRole('option');
@@ -64,6 +69,7 @@ test('F07-AC1: the separate search window shows the search alone', async ({ page
   const box = page.getByRole('textbox', { name: 'Search all disks' });
   await expect(box).toBeVisible();
   await expect(page.getByRole('navigation')).toHaveCount(0);
+  await expect(page.getByRole('searchbox')).toHaveCount(0);
   await box.fill('foto-0');
   await expect(results(page).first()).toBeVisible();
   await box.press('Escape');

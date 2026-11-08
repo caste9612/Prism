@@ -14,7 +14,16 @@
   import Dialog from './Dialog.svelte';
   import Icon from './Icon.svelte';
 
-  let { volumes, onerror }: { volumes: VolumeView[]; onerror: (message: string) => void } = $props();
+  let {
+    volumes,
+    onerror,
+    scope = null,
+  }: {
+    volumes: VolumeView[];
+    onerror: (message: string) => void;
+    /** The disk of the screen (ADR-0019): its proposals only; every disk when null. */
+    scope?: number | null;
+  } = $props();
 
   const lang = $derived(language());
   let view = $state<CleanupView | null>(null);
@@ -44,7 +53,10 @@
     void scan();
   });
 
-  const groups = $derived(view ? orderGroups(view.groups) : []);
+  const groups = $derived(
+    view ? orderGroups(view.groups).filter((g) => scope === null || g.volumeId === scope) : [],
+  );
+  const bins = $derived(view ? view.recycleBins.filter((b) => scope === null || b.volumeId === scope) : []);
   const nameOf = (id: number) => {
     const v = volumes.find((x) => x.id === id);
     return v ? volumeName(v) : `#${id}`;
@@ -107,11 +119,8 @@
 </script>
 
 <section class="cleanup">
-  <header class="page-head">
-    <div>
-      <h1>{t('cleanup.title')}</h1>
-      <p class="muted">{t('cleanup.subtitle')}</p>
-    </div>
+  <header class="intro">
+    <p>{t('cleanup.never')}</p>
     <button onclick={scan} disabled={loading || busy}><Icon name="refresh" size={15} /> {t('cleanup.rescan')}</button>
   </header>
 
@@ -123,9 +132,9 @@
   {/if}
 
   {#if view === null}
-    <p class="muted">{loading ? t('cleanup.scanning') : ''}</p>
+    <p class="empty card">{loading ? t('cleanup.scanning') : ''}</p>
   {:else if groups.length === 0}
-    <p class="empty muted">{t('cleanup.nothing')}</p>
+    <p class="empty card">{scope === null ? t('cleanup.nothing') : t('cleanup.nothingHere')}</p>
   {:else}
     {#each groups as g (groupKey(g))}
       {@const s = sel(g)}
@@ -133,7 +142,7 @@
       <article class="group" class:blocked={g.blockedBy !== null} aria-label={`${title(g)} · ${nameOf(g.volumeId)}`}>
         <header>
           <div class="g-title">
-            <h2>{title(g)} <span class="muted vol">· {nameOf(g.volumeId)}</span></h2>
+            <h2>{title(g)}{#if scope === null}{' '}<span class="muted vol">· {nameOf(g.volumeId)}</span>{/if}</h2>
             <p class="muted why">{t(`cleanup.why.${g.category}`)}</p>
           </div>
           <div class="g-total">
@@ -170,8 +179,7 @@
             <button class="ghost small" onclick={() => setAll(g, s.size < g.items.length)}>
               {s.size < g.items.length ? t('cleanup.selectAll') : t('cleanup.selectNone')}
             </button>
-            <button class="primary" class:danger={g.permanent} disabled={s.size === 0 || busy} onclick={() => ask(g)}>
-              <Icon name="trash" size={15} />
+            <button class={g.permanent ? 'primary danger' : 'signal'} disabled={s.size === 0 || busy} onclick={() => ask(g)}>
               {g.permanent
                 ? t('cleanup.deletePermanently', { size: formatBytes(selectedBytes(g, s), lang) })
                 : t('cleanup.recycle', { size: formatBytes(selectedBytes(g, s), lang) })}
@@ -182,10 +190,10 @@
     {/each}
   {/if}
 
-  {#if view && view.recycleBins.length > 0}
+  {#if bins.length > 0}
     <aside class="bins" aria-label={t('cleanup.binsTitle')}>
       <h2>{t('cleanup.binsTitle')}</h2>
-      {#each view.recycleBins as b (b.volumeId)}
+      {#each bins as b (b.volumeId)}
         <p>{t('cleanup.bin', { name: nameOf(b.volumeId), count: formatCount(b.items, lang), size: formatBytes(b.bytes, lang) })}</p>
       {/each}
       <p class="muted">{t('cleanup.binHint')}</p>
@@ -209,7 +217,7 @@
   {/if}
   {#snippet actions()}
     <button onclick={() => (confirming = null)}>{t('actions.cancel')}</button>
-    <button class="primary" class:danger={confirming?.group.permanent} onclick={confirmDelete}>
+    <button class={confirming?.group.permanent ? 'primary danger' : 'signal'} onclick={confirmDelete}>
       {confirming?.group.permanent ? t('cleanup.deleteNow') : t('cleanup.recycleNow')}
     </button>
   {/snippet}
@@ -219,66 +227,68 @@
   .cleanup {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    max-width: 1100px;
+    gap: 12px;
   }
-  .page-head {
+  .intro {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
+    align-items: center;
     gap: 16px;
   }
-  .page-head h1 {
-    font-size: 24px;
+  .intro p {
+    flex: 1;
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--text-2);
   }
-  .page-head p {
-    margin: 2px 0 0;
-  }
-  .page-head button {
+  .intro button {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    background: var(--surface);
   }
   .result {
     display: flex;
     align-items: center;
-    gap: 10px;
-    background: var(--accent-soft);
-    border: 1px solid var(--accent);
-    border-radius: var(--radius);
-    padding: 8px 8px 8px 14px;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--ok-soft);
+    border-radius: var(--radius-sm);
   }
   .result span {
     flex: 1;
   }
   .group {
     background: var(--surface);
-    border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 14px 16px;
+    box-shadow: var(--shadow);
+    padding: 14px 18px;
     display: flex;
     flex-direction: column;
     gap: 10px;
-    box-shadow: var(--shadow);
   }
   .group.blocked {
     opacity: 0.85;
   }
   .group header {
     display: flex;
-    justify-content: space-between;
+    align-items: flex-start;
     gap: 16px;
+  }
+  .g-title {
+    flex: 1;
+    min-width: 0;
   }
   .group h2 {
     font-size: 16px;
   }
   .vol {
+    font-family: var(--font);
+    font-size: 13px;
     font-weight: 400;
   }
   .why {
-    margin: 3px 0 0;
-    font-size: 13px;
-    max-width: 680px;
+    margin: 2px 0 0;
+    font-size: 12.5px;
   }
   .g-total {
     display: flex;
@@ -287,45 +297,51 @@
     white-space: nowrap;
   }
   .g-total strong {
-    font-size: 18px;
+    font-family: var(--font-display);
+    font-size: 20px;
+  }
+  .g-total span {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
   }
   .note {
     margin: 0;
-    color: var(--warn);
+    color: var(--signal-strong);
+    font-size: 12.5px;
   }
   .items {
     list-style: none;
     margin: 0;
     padding: 0;
-    border-top: 1px solid var(--border);
   }
   .items li {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 90px 110px;
+    grid-template-columns: minmax(0, 1fr) auto 110px;
     align-items: center;
     gap: 10px;
-    padding: 4px 0;
-    border-bottom: 1px solid var(--border);
+    padding: 6px 0;
+    border-top: 1px solid var(--line);
   }
   .items label {
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-width: 0;
+    gap: 10px;
     margin: 0;
+    min-width: 0;
     color: var(--text);
-    font-size: 14px;
+    font-weight: 400;
   }
   .path {
-    flex: 1;
-    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .num {
+    font-family: var(--font-mono);
+    font-size: 12px;
     text-align: right;
-    font-variant-numeric: tabular-nums;
   }
   .when {
     font-size: 12px;
@@ -343,28 +359,22 @@
   .small-text {
     font-size: 12px;
   }
-  .g-actions .primary {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
   .warn {
-    color: var(--danger);
+    color: var(--signal-strong);
   }
   .bins {
-    border: 1px dashed var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 18px;
+    background: var(--surface);
     border-radius: var(--radius);
-    padding: 12px 16px;
   }
   .bins h2 {
     font-size: 15px;
-    margin-bottom: 6px;
   }
   .bins p {
-    margin: 2px 0;
-  }
-  .empty {
-    padding: 40px 0;
-    text-align: center;
+    margin: 0;
+    font-size: 12.5px;
   }
 </style>

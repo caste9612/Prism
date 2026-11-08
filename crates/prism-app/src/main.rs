@@ -249,6 +249,7 @@ fn main() {
             commands::space_folder,
             commands::largest_files,
             commands::type_stats,
+            commands::recent_actions,
             commands::open_entry,
             commands::search,
             commands::hide_search,

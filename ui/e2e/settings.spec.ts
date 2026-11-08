@@ -1,16 +1,15 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { backToCatalog, openCatalog, openSettings } from './nav';
 
-// Diagnostics (F20-AC2) and reset of the catalog (F21-AC4) in the settings, with the simulated
-// backend.
+// Diagnostics (F20-AC2), reset of the catalog (F21-AC4) and updates (F22-AC3) in the settings,
+// with the simulated backend.
 
-async function openSettings(page: Page) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
-}
+test.beforeEach(async ({ page }) => {
+  await openCatalog(page);
+  await openSettings(page);
+});
 
 test('F20-AC2: the diagnostic package shows its content before it is saved', async ({ page }) => {
-  await openSettings(page);
   await expect(page.getByRole('button', { name: 'Open the log folder' })).toBeVisible();
   await page.getByRole('button', { name: 'Export a diagnostic package…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Diagnostic package' });
@@ -24,7 +23,6 @@ test('F20-AC2: the diagnostic package shows its content before it is saved', asy
 });
 
 test('F21-AC4: the catalog is reset only after an explicit confirmation', async ({ page }) => {
-  await openSettings(page);
   await page.getByRole('button', { name: 'Reset the catalog…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Reset the catalog?' });
   await expect(dialog).toContainText('No file on your disks is touched.');
@@ -33,12 +31,11 @@ test('F21-AC4: the catalog is reset only after an explicit confirmation', async 
   await dialog.getByRole('checkbox').check();
   await reset.click();
   await expect(page.getByRole('alert')).toContainText('Catalog reset: 5 disks removed.');
-  await page.getByRole('button', { name: 'Disks', exact: true }).click();
+  await backToCatalog(page);
   await expect(page.getByText('No disks yet.')).toBeVisible();
 });
 
 test('F22-AC3: a downloaded update is installed only after the user confirms', async ({ page }) => {
-  await openSettings(page);
   await expect(page.getByText('Prism 1.0.1 is ready to install.')).toBeVisible();
   await expect(page.getByText('Fixes for the backup check.')).toBeVisible();
   await page.getByRole('button', { name: 'Install and restart…' }).click();
@@ -49,4 +46,11 @@ test('F22-AC3: a downloaded update is installed only after the user confirms', a
   await page.getByRole('button', { name: 'Install and restart…' }).click();
   await page.getByRole('dialog', { name: 'Install Prism 1.0.1?' }).getByRole('button', { name: 'Install and restart' }).click();
   await expect(page.getByText('Prism is up to date.')).toBeVisible();
+});
+
+test('the sections of the settings are listed beside them', async ({ page }) => {
+  const sections = page.getByRole('navigation', { name: 'Sections' });
+  await expect(sections.getByRole('link', { name: 'Content analysis' })).toBeVisible();
+  await sections.getByRole('link', { name: 'Diagnostics' }).click();
+  await expect(page.getByRole('button', { name: 'Open the log folder' })).toBeInViewport();
 });

@@ -2,6 +2,7 @@
 // (ADR-0014). Outside Tauri (browser development, tests) a simulated backend is used.
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import type { ActionView } from './bindings/ActionView';
 import type { AmbiguousView } from './bindings/AmbiguousView';
 import type { ApiError } from './bindings/ApiError';
 import type { AppInfo } from './bindings/AppInfo';
@@ -49,6 +50,8 @@ export interface Backend {
   spaceFolder(volumeId: number, folderId: number | null): Promise<SpaceFolderView>;
   largestFiles(volumeId: number, folderId: number | null, limit: number): Promise<LargeFileView[]>;
   typeStats(volumeId: number | null): Promise<TypeStatsView>;
+  /** The most recent records of the actions log, newest first (F16-AC6). */
+  recentActions(limit: number): Promise<ActionView[]>;
   openEntry(volumeId: number, entryId: number): Promise<void>;
   search(text: string, utcOffsetMin: number): Promise<SearchResultView>;
   hideSearch(): Promise<void>;
@@ -119,6 +122,7 @@ const tauriBackend: Backend = {
   spaceFolder: (volumeId, folderId) => invoke('space_folder', { volumeId, folderId }),
   largestFiles: (volumeId, folderId, limit) => invoke('largest_files', { volumeId, folderId, limit }),
   typeStats: (volumeId) => invoke('type_stats', { volumeId }),
+  recentActions: (limit) => invoke('recent_actions', { limit }),
   openEntry: (volumeId, entryId) => invoke('open_entry', { volumeId, entryId }),
   search: (text, utcOffsetMin) => invoke('search', { text, utcOffsetMin }),
   hideSearch: () => invoke('hide_search'),

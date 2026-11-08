@@ -110,12 +110,31 @@
       onerror(errorMessage(e));
     }
   }
+  const sections = $derived([
+    'general',
+    'hashing',
+    'ignored',
+    ...(updates ? ['updates'] : []),
+    'diagnostics',
+    'catalog',
+    ...(info ? ['about'] : []),
+  ]);
+  function jump(e: MouseEvent, k: string) {
+    e.preventDefault();
+    document.getElementById(`settings-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 </script>
 
 <section class="settings">
-  <h1>{t('settings.title')}</h1>
+  <h1 class="sr-only">{t('settings.title')}</h1>
+  <nav class="sections" aria-label={t('settings.sections')}>
+    {#each sections as k (k)}
+      <a href={`#settings-${k}`} onclick={(e) => jump(e, k)}>{t(`settings.section.${k}`)}</a>
+    {/each}
+  </nav>
+  <div class="content">
 
-  <div class="group">
+  <div class="group" id="settings-general">
     <h2>{t('settings.general')}</h2>
     <div class="row">
       <label for="set-language">{t('settings.language')}</label>
@@ -135,7 +154,7 @@
       </select>
     </div>
     <div class="row check">
-      <input id="set-autostart" type="checkbox" checked={settings.autostart} onchange={(e) => update({ autostart: e.currentTarget.checked })} />
+      <input id="set-autostart" class="switch" type="checkbox" checked={settings.autostart} onchange={(e) => update({ autostart: e.currentTarget.checked })} />
       <div>
         <label for="set-autostart">{t('settings.autostart')}</label>
         <p class="muted hint">{t('settings.autostartHint')}</p>
@@ -158,16 +177,17 @@
     </div>
   </div>
 
-  <div class="group">
+  <div class="group" id="settings-hashing">
     <h2>{t('settings.hashing')}</h2>
     <p class="muted hint">{t('settings.hashingHint')}</p>
     <div class="row check">
-      <input id="set-hash-paused" type="checkbox" checked={settings.hashingPaused} onchange={(e) => update({ hashingPaused: e.currentTarget.checked })} />
+      <input id="set-hash-paused" class="switch" type="checkbox" checked={settings.hashingPaused} onchange={(e) => update({ hashingPaused: e.currentTarget.checked })} />
       <label for="set-hash-paused">{t('settings.hashingPaused')}</label>
     </div>
     <div class="row check">
       <input
         id="set-hash-battery"
+        class="switch"
         type="checkbox"
         checked={settings.pauseHashingOnBattery}
         onchange={(e) => update({ pauseHashingOnBattery: e.currentTarget.checked })}
@@ -196,7 +216,7 @@
     {/if}
   </div>
 
-  <div class="group">
+  <div class="group" id="settings-ignored">
     <h2>{t('settings.ignored')}</h2>
     {#if ignored.length === 0}
       <p class="muted">{t('settings.ignoredEmpty')}</p>
@@ -213,7 +233,7 @@
   </div>
 
   {#if updates}
-    <div class="group">
+    <div class="group" id="settings-updates">
       <h2>{t('updates.title')}</h2>
       {#if !updates.enabled}
         <p class="muted hint">{t('updates.notConfigured')}</p>
@@ -245,7 +265,7 @@
     </div>
   {/if}
 
-  <div class="group">
+  <div class="group" id="settings-diagnostics">
     <h2>{t('settings.diagnostics')}</h2>
     <p class="muted hint">{t('settings.diagnosticsHint')}</p>
     <div class="buttons">
@@ -257,7 +277,7 @@
     {/if}
   </div>
 
-  <div class="group">
+  <div class="group" id="settings-catalog">
     <h2>{t('settings.catalog')}</h2>
     <p class="muted hint">{t('settings.resetHint')}</p>
     <div class="buttons">
@@ -266,13 +286,14 @@
   </div>
 
   {#if info}
-    <div class="group">
+    <div class="group" id="settings-about">
       <h2>{t('settings.about')}</h2>
       <p>{t('settings.version', { version: info.version })}</p>
       <p class="muted">{info.elevated ? t('settings.elevated') : t('settings.notElevated')}</p>
       <p class="muted path">{t('settings.dataDir', { dir: info.dataDir })}</p>
     </div>
   {/if}
+  </div>
 </section>
 
 <Dialog open={diagnostics !== null} title={t('settings.packageTitle')} onclose={() => (diagnostics = null)}>
@@ -372,71 +393,131 @@
     font-size: 14px;
   }
   .settings {
-    max-width: 640px;
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .sections {
+    flex: 1 1 180px;
+    max-width: 220px;
+    position: sticky;
+    top: 0;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 2px;
   }
-  h1 {
-    font-size: 24px;
+  .sections a {
+    padding: 9px 12px;
+    border-radius: 9px;
+    text-decoration: none;
+    color: var(--text);
+  }
+  .sections a:hover {
+    background: var(--surface);
+  }
+  .content {
+    flex: 999 1 560px;
+    max-width: 820px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
   }
   .group {
     background: var(--surface);
-    border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 16px 18px;
-    display: grid;
+    box-shadow: var(--shadow);
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
     gap: 12px;
-  }
-  h2 {
-    font-size: 15px;
-  }
-  .row {
-    display: grid;
-    grid-template-columns: 180px 1fr;
-    align-items: center;
-    gap: 12px;
-  }
-  .row label {
-    margin: 0;
-    color: var(--text);
-    font-size: 14px;
-  }
-  .row.check {
-    grid-template-columns: auto 1fr;
-    align-items: start;
-  }
-  .row.check input {
-    width: 18px;
-    height: 18px;
-    margin-top: 2px;
-  }
-  .warn {
-    margin: 4px 0 0;
-    color: var(--warn);
-    font-size: 13px;
-  }
-  .hint {
-    margin: 2px 0 0;
-    font-size: 12.5px;
+    scroll-margin-top: 12px;
   }
   .group p {
     margin: 0;
   }
-  .path {
-    word-break: break-all;
+  h2 {
+    font-size: 18px;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    align-items: start;
+    gap: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .row label {
+    margin: 0;
+    padding-top: 7px;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .row select {
+    width: auto;
+    min-width: 220px;
+  }
+  .row.check {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .row.check > :first-child {
+    order: 2;
+  }
+  .row.check label {
+    padding-top: 2px;
+  }
+  .switch {
+    appearance: none;
+    width: 46px;
+    height: 26px;
+    border-radius: 13px;
+    background: var(--border);
+    position: relative;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .switch::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #ffffff;
+    transition: transform 0.15s;
+  }
+  .switch:checked {
+    background: var(--accent);
+  }
+  .switch:checked::before {
+    transform: translateX(20px);
+    background: var(--accent-text);
+  }
+  .warn {
+    color: var(--signal-strong);
+  }
+  .hint {
     font-size: 12.5px;
+    margin: 2px 0 0;
+  }
+  .path {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    word-break: break-all;
   }
   .ignored {
     list-style: none;
     margin: 0;
     padding: 0;
-    display: grid;
-    gap: 8px;
   }
   .ignored li {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
   }
 </style>

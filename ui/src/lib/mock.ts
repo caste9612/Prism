@@ -1,6 +1,7 @@
 // A simulated backend with sample disks, used when the interface runs outside Tauri (browser
 // development, tests, screenshots). It behaves like the real one: indexing jobs progress and
 // emit events, labels and settings are kept in memory.
+import type { ActionView } from './bindings/ActionView';
 import type { AmbiguousView } from './bindings/AmbiguousView';
 import type { AppInfo } from './bindings/AppInfo';
 import type { UpdateView } from './bindings/UpdateView';
@@ -68,6 +69,21 @@ export function mockBackend(): Backend {
     hashingExcluded: [],
   };
   const deletedCopies = new Set<number>();
+  // The actions log (F16-AC6): yesterday 14 duplicates went to the Recycle Bin from Data, and
+  // two days ago the cleanup emptied a folder of temporary files on Windows.
+  const MB = 1_000_000;
+  let actions: ActionView[] = [
+    ...Array.from({ length: 14 }, (_, i): ActionView => ({ at: Date.now() - DAY - i * 1_000, action: 'recycle', volumeId: 2, path: `D:\\Foto\\copia\\IMG_${2041 + i}.jpg`, size: 86 * MB, outcome: 'done' })),
+    { at: Date.now() - DAY - 15_000, action: 'recycle', volumeId: 2, path: 'D:\\Foto\\copia\\IMG_2100.jpg', size: 8 * MB, outcome: 'skipped_changed' },
+    ...Array.from({ length: 3 }, (_, i): ActionView => ({ at: Date.now() - 2 * DAY - i * 1_000, action: 'recycle', volumeId: 1, path: `C:\\Windows\\Temp\\tmp${i}.log`, size: 340 * MB, outcome: 'done' })),
+  ];
+  const logActions = (volumeId: number | null, permanent: boolean, r: { done: number; skipped: number; failed: number; freed: number }) => {
+    const at = Date.now();
+    const each = r.done > 0 ? Math.floor(r.freed / r.done) : 0;
+    const add = (n: number, outcome: string, size: number): ActionView[] =>
+      Array.from({ length: n }, () => ({ at, action: permanent ? 'delete' : 'recycle', volumeId, path: '(simulated)', size, outcome }));
+    actions = [...add(r.done, 'done', each), ...add(r.skipped, 'skipped_changed', 0), ...add(r.failed, 'failed', 0), ...actions];
+  };
   // A newer version already downloaded, waiting for the user's confirmation (F22-AC3).
   let update: UpdateView = {
     enabled: true,
@@ -178,6 +194,7 @@ export function mockBackend(): Backend {
     },
     spaceFolder: async (volumeId, folderId) => mockSpaceFolder(find(volumeId).id, folderId),
     largestFiles: async (volumeId, folderId, limit) => mockLargestFiles(find(volumeId).id, folderId, limit),
+    recentActions: async (limit) => actions.slice(0, limit),
     typeStats: async (volumeId) =>
       mockTypeStats(volumeId === null ? volumes.filter((v) => v.lastIndexedAt !== null).map((v) => v.id) : [find(volumeId).id]),
     openEntry: async (volumeId, entryId) => {
@@ -191,12 +208,14 @@ export function mockBackend(): Backend {
     deleteEntries: async (volumeId, entryIds, _emptyFolders, permanent) => {
       if (!find(volumeId).online) throw { code: 'volume_offline', message: String(volumeId) };
       const result = mockDeleteEntries(volumeId, entryIds, permanent);
+      logActions(volumeId, permanent, result);
       emitVolumes();
       return result;
     },
     duplicateGroups: async (filter, rules) => mockDuplicates(volumes, filter, rules, deletedCopies),
     deleteDuplicates: async (ids, allowOfflineOnly, permanent) => {
       const result = mockDeleteDuplicates(volumes, ids, allowOfflineOnly, permanent, deletedCopies);
+      logActions(null, permanent, result);
       emitVolumes();
       return result;
     },

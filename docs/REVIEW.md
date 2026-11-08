@@ -14,8 +14,9 @@ gli aggiornamenti reali e i dischi fisici restano da provare (§2). Le decisioni
 te sono in §1 (D1–D50), i limiti noti in §3. Restano le cose che solo tu puoi fare (§2), in
 quest'ordine:
 
-1. **Provare l'app** di sviluppo seguendo §4 (avvio e checklist T3–T9): è il momento per
-   cambiare una decisione di §1 o segnalare quello che non va (U4, U5).
+1. **Provare l'app** di sviluppo seguendo §4 (avvio, checklist T11 della nuova interfaccia,
+   poi T3–T9): è il momento per cambiare una decisione di §1 o segnalare quello che non va
+   (U4, U5). La nuova interfaccia (T11, D51, D52) è stata disegnata con te il 2026-11-08.
 2. **Aggiornamenti e firma**: creare la coppia di chiavi degli aggiornamenti e scegliere dove
    pubblicare le versioni (U7); scegliere il certificato di firma del codice (U1). Entrambi si
    configurano senza toccare il codice.
@@ -150,6 +151,44 @@ cargo run -p prism-app --features custom-protocol
 - Da T6 l'app legge in sottofondo, a priorità minima, il contenuto dei file dei dischi locali
   collegati e indicizzati (solo lettura: serve a riconoscere i duplicati). Si sospende dal
   menu del tray o da *Impostazioni*, dove si possono anche escludere singoli dischi.
+
+### Dove sono le cose nella nuova interfaccia (T11)
+
+Le checklist T3–T9 sono state scritte per l'interfaccia precedente, con il menu laterale. Con
+l'interfaccia di T11 (ADR-0019) gli stessi controlli si trovano così:
+
+| Le checklist dicono | Ora |
+|---|---|
+| icona *Spazio* sulla scheda di un disco | clic sul **nome** del disco: si apre la sua schermata sulla scheda *Spazio* |
+| *Duplicati*, *Simili*, *Backup* nel menu laterale | blocco nero **Tutto il catalogo** in cima al catalogo, oppure la scheda con lo stesso nome dentro un disco (limitata a quel disco) |
+| *Tipi di file* per tutto il catalogo | **Catalogati →** nel blocco Tutto il catalogo; per un disco, la scheda *Tipi di file* |
+| *Pulizia* nel menu laterale | scheda *Pulizia* dentro ogni disco |
+| *Cerca* nel menu laterale | la casella in alto (scrivendo si apre la ricerca) o Ctrl+Space; dentro un disco, *Cerca in questo disco…* dal menu "⋯" |
+| *Impostazioni* nel menu laterale | l'ingranaggio in alto a destra |
+| *Nome e posizione*, *Ignora sempre*, *Rimuovi dal catalogo*, *Apri in Esplora risorse*, *Aggiorna* sulla scheda | il menu **"⋯"** della scheda (o i pulsanti in cima alla schermata del disco) |
+| riquadro o pannello "Nuovo disco" / "N nuovi dischi trovati" | il pulsante arancione **"N nuovi dischi"** in alto: un riquadro con *Indicizza*, *Indicizza tutti*, *Non ora* e il menu "⋯" di ogni disco |
+| la salute sulla scheda apre una finestra | la salute sulla scheda apre la scheda *Salute* del disco |
+| "Collegati" / "Non collegati" | i filtri *Tutti*, *Collegati*, *Rete*, *Nel cassetto* sopra le schede |
+
+### Checklist T11 (nuova interfaccia)
+
+1. Confronto con i disegni approvati (tela di claude.ai, pagina "Versione B+C" e "Altre
+   schermate"): catalogo, disco, ricerca, duplicati, simili, backup, pulizia, salute,
+   impostazioni, menu e conferme. Tema chiaro e scuro (*Impostazioni → Tema*).
+2. Catalogo: blocco "Tutto il catalogo" con i totali e i collegamenti; filtri con i conteggi;
+   *Ordina* per posizione, nome o spazio usato; *Schede* / *Elenco* (la scelta resta al
+   riavvio); le barre delle schede si colorano per tipo di file dopo qualche secondo per disco.
+3. *Attività in corso* (indicizzazioni, copie, analisi del contenuto) e *Ultime azioni* (dal
+   registro delle azioni: una riga per operazione, F16-AC6); barra di stato in fondo.
+4. Disco nuovo: il pulsante arancione in alto apre il riquadro; *Indicizza* fa partire
+   l'indicizzazione e la scheda mostra l'avanzamento (F02-AC1, F01-AC3).
+5. Schermata del disco: colore, posizione, numeri (usato, libero, file, salute, contenuto,
+   aggiornato) e le schede; *Cerca in questo disco…* dal menu "⋯" apre la ricerca con
+   `disk:"nome"` (F01-AC4).
+6. *Nome, posizione e colore*: le posizioni già usate sono suggerite; otto colori più
+   "automatico"; il colore è il bollino della scheda.
+7. Icona nuova (prisma a strati) nella barra delle applicazioni, nell'area di notifica e nella
+   finestra; nella build di release anche nell'installer e nel menu Start.
 
 ### Checklist T3 (catalogo, disco nuovo, etichette, impostazioni, tray)
 
