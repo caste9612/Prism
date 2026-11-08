@@ -8,8 +8,10 @@
 - **Stato**: **Prism 2.0.0 pubblicato** il 2026-11-08 (release `v2.0.0` su GitHub, aggiornamenti
   automatici attivi) e **installato sul PC dell'utente**; chiave degli aggiornamenti copiata
   nella sua cartella delle credenziali. Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: le richieste dell'utente. Prima di avviare l'app di sviluppo va chiusa
-  quella installata (CLAUDE.md). Consigliata una copia della chiave fuori dal PC (REVIEW U7).
+- **Prossimo passo**: le richieste dell'utente; tipo dei dischi e RAID del NAS ZimaOS (D65, D66)
+  sono su `develop`, da provare nell'app (U8) e da pubblicare con la prossima versione. Prima di
+  avviare l'app di sviluppo va chiusa quella installata (CLAUDE.md). Consigliata una copia della
+  chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
 - **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); prova su un PC
   pulito (U3).
@@ -18,6 +20,24 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-08 — Tipo dei dischi e RAID del NAS
+
+- Richiesta dell'utente: il tipo dei dischi e i RAID (sul suo NAS ZimaOS, due RAID 1 di dischi
+  di due tipi). Prima un giro di sola lettura sul NAS con il login dato dall'utente per vedere
+  cosa ZimaOS dice: RAID con livello, stato, attività e dischi; dischi con modello, tipo,
+  collegamento, temperatura, ore e salute (un HGST senza SMART leggibile). Nessuna API
+  documentata: si usano le chiamate del pannello web.
+- Scelta dell'utente: "Dischi PC + NAS ZimaOS". **D65**: SSD/HDD e giri dei dischi del PC
+  (schema 11). **D66**: login del NAS nelle impostazioni, salvato nel Gestore credenziali di
+  Windows; RAID sulle schede e nell'intestazione del NAS, dischi nella scheda *Salute*,
+  notifica quando un RAID o un disco peggiora; lettura oraria. F17-AC5/AC6 nella SPEC.
+- `reqwest` (già nel progetto per gli aggiornamenti) va in panico senza un fornitore
+  crittografico: per l'HTTP in chiaro del NAS basta un client minimo su `TcpStream`, provato sul
+  NAS vero.
+- Non provato nell'app vera: il Prism installato è aperto ed elevato (istanza unica), quindi
+  l'app di sviluppo non parte (U8). Coperto da test unitari, test dell'app con un NAS finto,
+  e2e con il backend simulato e la lettura del NAS vero.
 
 ### 2026-11-08 — Preparazione del rilascio 2.0.0
 

@@ -34,6 +34,12 @@ pub struct VolumeView {
     pub disk_model: Option<String>,
     /// How its disk is connected: `nvme`, `sata`, `usb`, `virtual`…
     pub bus: Option<String>,
+    /// What its physical disk is (REVIEW D65): `ssd` or `hdd`, when known…
+    pub media: Option<String>,
+    /// …and how fast a hard disk spins, when it says it.
+    pub rpm: Option<u32>,
+    /// For a share of a NAS the user logged in to: the array it is on (REVIEW D66).
+    pub raid: Option<crate::nas_state::RaidView>,
     /// For a network share: its server as written in the path (`192.168.1.65`)…
     pub server: Option<String>,
     /// …and the name learned for it (`ZimaOS.local`), if any (REVIEW D59).
@@ -134,6 +140,11 @@ pub struct NativeTexts {
     pub health_title: String,
     #[serde(default)]
     pub health_body: String,
+    /// Notification of a new problem of a NAS (REVIEW D66), with `{name}`.
+    #[serde(default)]
+    pub nas_title: String,
+    #[serde(default)]
+    pub nas_body: String,
 }
 
 /// User labels of a volume (F03).

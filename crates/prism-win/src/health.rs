@@ -16,7 +16,7 @@ use windows_sys::Win32::System::Ioctl::{
     IOCTL_STORAGE_QUERY_PROPERTY, NVMeDataTypeLogPage, ProtocolTypeNvme, READ_ATTRIBUTES,
     READ_THRESHOLDS, RETURN_SMART_STATUS, SMART_CMD, SMART_CYL_HI, SMART_CYL_LOW,
     SMART_RCV_DRIVE_DATA, SMART_SEND_DRIVE_COMMAND, StorageDeviceProperty,
-    StorageDeviceProtocolSpecificProperty,
+    StorageDeviceProtocolSpecificProperty, StorageDeviceSeekPenaltyProperty,
 };
 
 use crate::volumes::{Handle, ioctl};
@@ -56,12 +56,43 @@ impl Bus {
     }
 }
 
-/// Model, serial number and bus of a disk.
+/// What kind of disk it is (REVIEW D65).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Media {
+    Ssd,
+    /// A hard disk, with its rotation speed when the disk says it (ATA IDENTIFY, read only with
+    /// the rights the SMART commands need).
+    Hdd(Option<u32>),
+    Unknown,
+}
+
+impl Media {
+    /// `ssd`, `hdd`, or `None` when not known.
+    #[must_use]
+    pub fn as_str(self) -> Option<&'static str> {
+        match self {
+            Self::Ssd => Some("ssd"),
+            Self::Hdd(_) => Some("hdd"),
+            Self::Unknown => None,
+        }
+    }
+
+    #[must_use]
+    pub fn rpm(self) -> Option<u32> {
+        match self {
+            Self::Hdd(rpm) => rpm,
+            _ => None,
+        }
+    }
+}
+
+/// Model, serial number, bus and kind of a disk.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiskIdentity {
     pub model: String,
     pub serial: String,
     pub bus: Bus,
+    pub media: Media,
 }
 
 impl DiskIdentity {
@@ -113,22 +144,71 @@ fn parse_descriptor(desc: &[u8]) -> Option<DiskIdentity> {
     } else {
         format!("{vendor} {product}")
     };
+    let bus = Bus::from_code(u32_at(28)?);
     Some(DiskIdentity {
         model,
         serial: ascii_at(desc, u32_at(24)?),
-        bus: Bus::from_code(u32_at(28)?),
+        bus,
+        // NVMe disks are always solid state; the others say it in their own descriptor.
+        media: if bus == Bus::Nvme {
+            Media::Ssd
+        } else {
+            Media::Unknown
+        },
     })
 }
 
-fn identity(h: &Handle) -> Option<DiskIdentity> {
-    // STORAGE_PROPERTY_QUERY: PropertyId, QueryType (standard), AdditionalParameters.
+/// STORAGE_PROPERTY_QUERY for a standard query of `property`.
+fn property_query(property: u32) -> Vec<u8> {
+    // PropertyId, QueryType (standard), AdditionalParameters.
     let mut query = Vec::with_capacity(12);
-    query.extend_from_slice(&(StorageDeviceProperty as u32).to_le_bytes());
+    query.extend_from_slice(&property.to_le_bytes());
     query.extend_from_slice(&0u32.to_le_bytes());
     query.extend_from_slice(&[0u8; 4]);
+    query
+}
+
+/// Whether reading at random places is slow (a spinning disk): DEVICE_SEEK_PENALTY_DESCRIPTOR,
+/// Version, Size, then IncursSeekPenalty. USB bridges often do not answer.
+fn seek_penalty(h: &Handle) -> Option<bool> {
+    let mut out = vec![0u64; 2];
+    let n = ioctl(
+        h,
+        IOCTL_STORAGE_QUERY_PROPERTY,
+        &property_query(StorageDeviceSeekPenaltyProperty as u32),
+        &mut out,
+    )?;
+    bytes_of(&out, n).get(8).map(|b| *b != 0)
+}
+
+fn identity(h: &Handle) -> Option<DiskIdentity> {
     let mut out = vec![0u64; 128];
-    let n = ioctl(h, IOCTL_STORAGE_QUERY_PROPERTY, &query, &mut out)?;
-    parse_descriptor(&bytes_of(&out, n))
+    let n = ioctl(
+        h,
+        IOCTL_STORAGE_QUERY_PROPERTY,
+        &property_query(StorageDeviceProperty as u32),
+        &mut out,
+    )?;
+    let mut id = parse_descriptor(&bytes_of(&out, n))?;
+    if id.media == Media::Unknown {
+        id.media = match seek_penalty(h) {
+            Some(true) => Media::Hdd(None),
+            Some(false) => Media::Ssd,
+            None => Media::Unknown,
+        };
+    }
+    Some(id)
+}
+
+/// The rotation speed in ATA IDENTIFY data (word 217): `Some(None)` for a solid-state disk,
+/// `Some(Some(rpm))` for a hard disk that says it, `None` when not reported.
+fn rotation(identify: &[u8]) -> Option<Option<u32>> {
+    let word = u16::from_le_bytes(identify.get(434..436)?.try_into().ok()?);
+    match word {
+        1 => Some(None),
+        0x0401..=0xFFFE => Some(Some(u32::from(word))),
+        _ => None,
+    }
 }
 
 /// The NVMe health information log page (512 bytes).
@@ -165,8 +245,9 @@ fn nvme_log(h: &Handle) -> Option<Vec<u8>> {
     Some(bytes.get(start..start + length.min(LOG as usize))?.to_vec())
 }
 
-/// SENDCMDINPARAMS for a SMART command (32 bytes without the data buffer).
-fn smart_command(number: u32, feature: u32) -> Vec<u8> {
+/// SENDCMDINPARAMS for an ATA command that reads one 512-byte page (32 bytes without the data
+/// buffer).
+fn ata_command(number: u32, feature: u32, cylinder: (u8, u8), command: u8) -> Vec<u8> {
     let mut p = Vec::with_capacity(32);
     p.extend_from_slice(&512u32.to_le_bytes()); // cBufferSize
     // IDEREGS: features, sector count, sector number, cyl low, cyl high, drive/head, command.
@@ -174,10 +255,10 @@ fn smart_command(number: u32, feature: u32) -> Vec<u8> {
         feature as u8,
         1,
         1,
-        SMART_CYL_LOW as u8,
-        SMART_CYL_HI as u8,
+        cylinder.0,
+        cylinder.1,
         0xA0 | (((number & 1) as u8) << 4),
-        SMART_CMD as u8,
+        command,
         0,
     ]);
     p.push(number as u8); // bDriveNumber
@@ -185,18 +266,31 @@ fn smart_command(number: u32, feature: u32) -> Vec<u8> {
     p
 }
 
-/// A SMART data page (attributes or thresholds) of an ATA disk.
-fn ata_page(h: &Handle, number: u32, feature: u32) -> Option<Vec<u8>> {
+/// SENDCMDINPARAMS for a SMART command.
+fn smart_command(number: u32, feature: u32) -> Vec<u8> {
+    ata_command(
+        number,
+        feature,
+        (SMART_CYL_LOW as u8, SMART_CYL_HI as u8),
+        SMART_CMD as u8,
+    )
+}
+
+/// IDENTIFY DEVICE (ECh): the identity page of an ATA disk.
+const ATA_IDENTIFY: u8 = 0xEC;
+
+/// A 512-byte page read with an ATA command (SMART attributes or thresholds, IDENTIFY).
+fn ata_page_with(h: &Handle, command: &[u8]) -> Option<Vec<u8>> {
     // SENDCMDOUTPARAMS: cBufferSize (4), DRIVERSTATUS (12), then the 512-byte page.
     let mut out = vec![0u64; (16 + 512) / 8];
-    let n = ioctl(
-        h,
-        SMART_RCV_DRIVE_DATA,
-        &smart_command(number, feature),
-        &mut out,
-    )?;
+    let n = ioctl(h, SMART_RCV_DRIVE_DATA, command, &mut out)?;
     let bytes = bytes_of(&out, n);
     (bytes.len() >= 16 + 512 && bytes[4] == 0).then(|| bytes[16..16 + 512].to_vec())
+}
+
+/// A SMART data page (attributes or thresholds) of an ATA disk.
+fn ata_page(h: &Handle, number: u32, feature: u32) -> Option<Vec<u8>> {
+    ata_page_with(h, &smart_command(number, feature))
 }
 
 /// Whether the disk reports a SMART threshold exceeded (RETURN STATUS).
@@ -220,7 +314,7 @@ fn ata_failing(h: &Handle, number: u32) -> bool {
 pub fn read_disk(number: u32) -> Option<DiskHealth> {
     let path = format!(r"\\.\PhysicalDrive{number}");
     let any = Handle::open(&path, 0, 0)?;
-    let identity = identity(&any)?;
+    let mut identity = identity(&any)?;
     let reading = match identity.bus {
         Bus::Nvme => nvme_log(&any)
             .or_else(|| Handle::open(&path, GENERIC_READ, 0).and_then(|h| nvme_log(&h)))
@@ -230,16 +324,23 @@ pub fn read_disk(number: u32) -> Option<DiskHealth> {
         Bus::Virtual => Err("virtual"),
         _ => match Handle::open(&path, GENERIC_READ | GENERIC_WRITE, 0) {
             None => Err("no_access"),
-            Some(h) => match (
-                ata_page(&h, number, READ_ATTRIBUTES),
-                ata_page(&h, number, READ_THRESHOLDS),
-            ) {
-                (Some(values), Some(limits)) => Ok(health::ata_reading(
-                    &health::ata_attributes(&values, &limits),
-                    ata_failing(&h, number),
-                )),
-                _ => Err("not_supported"),
-            },
+            Some(h) => {
+                // The rotation speed, when the disk says it (and whether it spins at all).
+                let identify = ata_command(number, 0, (0, 0), ATA_IDENTIFY);
+                if let Some(rpm) = ata_page_with(&h, &identify).and_then(|p| rotation(&p)) {
+                    identity.media = rpm.map_or(Media::Ssd, |r| Media::Hdd(Some(r)));
+                }
+                match (
+                    ata_page(&h, number, READ_ATTRIBUTES),
+                    ata_page(&h, number, READ_THRESHOLDS),
+                ) {
+                    (Some(values), Some(limits)) => Ok(health::ata_reading(
+                        &health::ata_attributes(&values, &limits),
+                        ata_failing(&h, number),
+                    )),
+                    _ => Err("not_supported"),
+                }
+            }
         },
     };
     Some(DiskHealth {
@@ -268,6 +369,13 @@ mod tests {
         assert_eq!(id.serial, "S3R1AL");
         assert_eq!(id.bus, Bus::Nvme);
         assert_eq!(id.key(), "ACME FastDisk 1TB|S3R1AL");
+        assert_eq!(id.media, Media::Ssd, "NVMe");
+        desc[28..32].copy_from_slice(&11u32.to_le_bytes());
+        assert_eq!(
+            parse_descriptor(&desc).unwrap().media,
+            Media::Unknown,
+            "SATA: asked apart"
+        );
 
         let cmd = smart_command(1, READ_ATTRIBUTES);
         assert_eq!(cmd.len(), 32);
@@ -276,6 +384,26 @@ mod tests {
             (0xD0, 0x4F, 0xC2, 0xB0, 1)
         );
         assert_eq!(cmd[9], 0xB0, "drive/head register of drive 1");
+        let identify = ata_command(0, 0, (0, 0), ATA_IDENTIFY);
+        assert_eq!(
+            (identify[4], identify[7], identify[8], identify[10]),
+            (0, 0, 0, 0xEC)
+        );
+    }
+
+    // REVIEW D65: word 217 of IDENTIFY says whether the disk spins, and how fast.
+    #[test]
+    fn rotation_speed_of_ata_disks() {
+        let mut page = vec![0u8; 512];
+        assert_eq!(rotation(&page), None, "not reported");
+        page[434..436].copy_from_slice(&1u16.to_le_bytes());
+        assert_eq!(rotation(&page), Some(None), "solid state");
+        page[434..436].copy_from_slice(&5400u16.to_le_bytes());
+        assert_eq!(rotation(&page), Some(Some(5400)));
+        assert_eq!(Media::Hdd(Some(5400)).rpm(), Some(5400));
+        assert_eq!(Media::Hdd(None).as_str(), Some("hdd"));
+        assert_eq!(Media::Unknown.as_str(), None);
+        assert_eq!(rotation(&page[..100]), None, "short page");
     }
 
     // F17-AC1/AC4: every disk of this machine gives a reading or says why it cannot (read
@@ -291,6 +419,14 @@ mod tests {
                     assert!(r.status.is_some());
                 }
                 println!("disk {n}: {:?} {:?}", d.identity, d.reading);
+                // The descriptor of the seek penalty is read the same way for every disk: an
+                // NVMe disk answers that it has none.
+                let any = Handle::open(&format!(r"\\.\PhysicalDrive{n}"), 0, 0).unwrap();
+                let penalty = seek_penalty(&any);
+                println!("disk {n}: seek penalty {penalty:?}");
+                if d.identity.bus == Bus::Nvme {
+                    assert_ne!(penalty, Some(true));
+                }
             }
         }
         assert!(seen > 0, "at least the system disk");

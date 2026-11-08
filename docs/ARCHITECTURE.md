@@ -57,14 +57,14 @@ Archivio SQLite in modalità WAL, nella cartella dati dell'app. Lo schema è ver
 migrazioni SQL incorporate (`crates/prism-core/src/store/migrations/`) e `PRAGMA user_version`;
 una migrazione già pubblicata non si modifica, se ne aggiunge una nuova.
 
-**Schema in uso (versione 10)** — testo completo in `0001_initial.sql`,
+**Schema in uso (versione 11)** — testo completo in `0001_initial.sql`,
 `0002_volume_bus.sql` (aggiunge `bus_type`), `0003_entries_volume_index.sql` (indice sul solo
 volume al posto di `(volume_id, file_ref)`, ADR-0017) e `0004_actions_log.sql` (registro delle
 azioni, T4), `0005_content_hashes.sql` (hash del contenuto, T6), `0006_image_prints.sql`
 (impronte delle immagini, T8), `0007_video_prints.sql` (impronte dei video, T8),
 `0008_disk_health.sql` (salute dei dischi, T9), `0009_share_servers.sql` (nomi dei server
-delle condivisioni di rete, REVIEW D59) e `0010_volume_disk.sql` (disco fisico di ogni volume,
-REVIEW D64):
+delle condivisioni di rete, REVIEW D59), `0010_volume_disk.sql` (disco fisico di ogni volume,
+REVIEW D64) e `0011_disk_media.sql` (SSD o disco rigido, REVIEW D65):
 
 ```sql
 volumes (
@@ -129,7 +129,15 @@ disk_health (disk_key,                 -- "modello|numero di serie" del disco fi
 
 share_servers (address PRIMARY KEY,      -- il server come scritto nei percorsi UNC (un IP)
                name, seen_at) STRICT     -- il suo nome ("ZimaOS.local"); v9 (REVIEW D59)
+
+disk_media (disk_key PRIMARY KEY,        -- "modello|numero di serie", come disk_health
+            media,                       -- ssd | hdd
+            rpm) STRICT                  -- giri al minuto dei dischi rigidi, se dichiarati; v11
 ```
+
+Nella tabella `settings`, oltre al documento delle impostazioni, `nas_problems:<server>` tiene i
+problemi di un NAS già notificati (REVIEW D66). Il login dei NAS **non** sta nel catalogo: è nel
+Gestore credenziali di Windows (§9).
 
 Le chiavi esterne sono attive sulla connessione di scrittura; `entries` non usa cascate (una
 sottostruttura si elimina con una CTE ricorsiva, senza limiti di profondità).
@@ -697,6 +705,12 @@ Prism gira elevato, quindi la superficie d'attacco della webview va ridotta al m
   desktop), per non lanciare programmi dell'utente come amministratore.
 - Il trascinamento da Esplora risorse verso Prism è bloccato da Windows (UIPI): è una
   conseguenza accettata dell'esecuzione elevata.
+- NAS ZimaOS (REVIEW D66): Prism si collega solo ai server delle cartelle di rete del catalogo,
+  sulla porta 80 del pannello web (HTTP in chiaro sulla rete di casa, come il pannello stesso),
+  con il login dato dall'utente; dopo il login solo richieste `GET`. Il login si conserva con
+  `CredWriteW` nel Gestore credenziali di Windows (cifrato per l'utente, visibile e cancellabile
+  in *Credenziali di Windows* come `Prism/ZimaOS/<server>`; le build di sviluppo usano
+  `PrismDev/ZimaOS/`), mai nel catalogo né nei log; l'interfaccia riceve solo il nome utente.
 
 ## 8.1 Installazione (T10, F22)
 
@@ -733,8 +747,9 @@ Lo schema è lo stesso di Orbit (D57). La chiave pubblica e l'indirizzo del mani
 `https://github.com/caste9612/Prism/releases/latest/download/latest.json`, cioè il
 `latest.json` dell'ultima release di GitHub (una release senza `latest.json`, in bozza o
 pre-release, è invisibile alle copie installate). Controllano solo le build di release: quella
-di sviluppo non si collega mai e le impostazioni lo dicono. È l'unica connessione in uscita di
-Prism (NF6).
+di sviluppo non si collega mai e le impostazioni lo dicono. È l'unica connessione verso
+Internet di Prism (NF6); in rete locale parla solo con i NAS di cui l'utente ha dato il login
+(§8, REVIEW D66).
 
 **La chiave privata** (minisign, protetta da password) sta in `~\.tauri\prism-updater.key`,
 fuori dal repository, accanto a quelle di Orbit e Zenith; la crea una volta
@@ -781,6 +796,22 @@ già, e crea la release `v<versione>` sul commit compilato, con le note di
   legge ogni ora i dischi dei volumi locali collegati, salva una lettura in `disk_health` quando
   cambia qualcosa (non la temperatura) o una volta al giorno, tiene 400 giorni e mostra una
   notifica quando un disco peggiora o è critico la prima volta che lo si vede.
+- Tipo dei dischi (F17-AC5, REVIEW D65): NVMe è sempre SSD; per gli altri
+  `StorageDeviceSeekPenaltyProperty` dice se il disco gira (si legge senza diritti particolari,
+  spesso non risponde dietro un adattatore USB) e, dove i comandi SMART ATA passano, la parola 217
+  di IDENTIFY DEVICE dà la velocità di rotazione. Il risultato si salva in `disk_media`; una
+  velocità letta una volta resta anche quando una lettura successiva non può chiederla.
+- NAS ZimaOS (F17-AC6, REVIEW D66): `zimaos.rs` fa il login (`POST /v1/users/login`) e legge
+  `GET /v2/local_storage/raid` e `/v2/local_storage/disk`, le stesse chiamate del pannello web
+  (non documentate: ogni campo è facoltativo e una risposta diversa è `unsupported`, mai un
+  problema dei dischi), con un client HTTP/1.1 minimo su `TcpStream` (niente dipendenze nuove:
+  `reqwest` dell'aggiornamento non ha un fornitore crittografico configurato). Una cartella
+  corrisponde al volume del NAS con lo stesso nome; la condivisione di sistema `ZimaOS-HD` alla
+  partizione `/DATA`. Un disco senza temperatura né ore è "SMART non disponibile"; un membro di
+  un RAID assente dall'elenco dei dischi è "mancante". `nas_state.rs` rilegge ogni NAS con un
+  login ogni ora (ogni 5 minuti se l'ultima lettura è fallita, tenendo l'ultima buona) in un
+  thread `prism-nas`; i problemi (RAID non ok, disco non in salute, guasto o mancante) sono
+  chiavi stabili, e quelle nuove rispetto alla lettura precedente danno una notifica.
 - Pacchetto diagnostico (`prism-core::diagnostics`, `prism-app/src/diagnostics_state.rs`):
   `system.txt` (versione, Windows, diritti, contatori del catalogo, impostazioni, dischi, job in
   corso) e i log, in uno ZIP senza compressione scritto da Prism stesso (nessuna libreria in

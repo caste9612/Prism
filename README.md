@@ -43,7 +43,7 @@ backups really have a copy, and keep an eye on the health of your disks.
    build the catalog.
 2. **Disconnected disks are first-class** — everything that can work from the catalog works
    without the disk.
-3. **Private** — no telemetry, no account; the only connection is the update check.
+3. **Private** — no telemetry, no account; the only connection to the Internet is the update check.
 
 ---
 
@@ -75,7 +75,8 @@ Download the latest version from the [releases page](https://github.com/caste961
   to see can be ignored. Disks are recognised by their identity, not their letter, so a disk
   that comes back as `F:` instead of `E:` is still the same disk.
 - **Grouped as they are**: the partitions of one physical disk sit together under its model,
-  connection and health; the folders of one NAS under its name and address.
+  kind (SSD, or hard disk with its speed), connection and health; the folders of one NAS under
+  its name and address.
 - **Name, location and colour** for each disk — "Photos 2019, drawer 2" — shown on its card and
   in every search result.
 - **Network folders** of a NAS or another PC, with or without a drive letter. If the router gives
@@ -133,6 +134,11 @@ Download the latest version from the [releases page](https://github.com/caste961
 
 - SMART data of SATA and NVMe disks: status, temperature, hours, wear, replaced sectors, errors,
   with a history and a notification when a disk gets worse.
+- **RAID of a ZimaOS NAS**: give Prism the login of the NAS in the settings and every shared
+  folder shows the RAID it is on (level and state), with the disks of the RAID — type,
+  temperature, hours, state — in its *Health* tab; read every hour, with a notification when the
+  RAID or one of its disks gets worse. The login stays encrypted in the Windows Credential
+  Manager, and Prism only reads from the NAS.
 
 **Windows**
 - Notification area icon with the analysis pause and *Quit*; closing the window keeps Prism
@@ -214,7 +220,7 @@ design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the decisions in
 
 ## Privacy
 
-- No telemetry. The only connection Prism makes is the update check.
+- No telemetry. The only connection to the Internet is the update check. On your network Prism talks only to the NAS you give it the login of, and only reads.
 - The catalog stays on your PC, in `%LOCALAPPDATA%\com.prism.catalog`; the logs, kept for 14 days,
   are in its `logs` folder.
 - A diagnostic package is created only when you ask for it (*Settings › Diagnostics*); you see
@@ -229,6 +235,7 @@ design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the decisions in
 - A NAS folder that shows the NAS's other folders inside it (some NAS systems have one) is
   counted twice; index the data folders instead.
 - Disks connected by USB often do not pass their health data to Windows.
+- RAID and NAS disks are read only from **ZimaOS** (through the same calls as its web panel, which are not documented); other NAS systems show their folders but not their RAID. The rotation speed of a hard disk shows only where Windows passes its SMART commands (not behind most USB adapters).
 
 ## Uninstall
 

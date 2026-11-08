@@ -2,6 +2,7 @@
 import type { HashesView } from "./HashesView";
 import type { HealthBadgeView } from "./HealthBadgeView";
 import type { JobView } from "./JobView";
+import type { RaidView } from "./RaidView";
 
 /**
  * A volume of the catalog as shown on the catalog screen (F01).
@@ -37,6 +38,18 @@ diskModel: string | null,
  * How its disk is connected: `nvme`, `sata`, `usb`, `virtual`…
  */
 bus: string | null, 
+/**
+ * What its physical disk is (REVIEW D65): `ssd` or `hdd`, when known…
+ */
+media: string | null, 
+/**
+ * …and how fast a hard disk spins, when it says it.
+ */
+rpm: number | null, 
+/**
+ * For a share of a NAS the user logged in to: the array it is on (REVIEW D66).
+ */
+raid: RaidView | null, 
 /**
  * For a network share: its server as written in the path (`192.168.1.65`)…
  */

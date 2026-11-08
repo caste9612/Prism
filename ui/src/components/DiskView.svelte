@@ -4,7 +4,7 @@
   import type { Settings } from '../lib/bindings/Settings';
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { backend, errorMessage } from '../lib/api';
-  import { diskQuery, driveLetter, hashPercent, primaryAction, stickerColor, volumeName, whereLabel } from '../lib/catalog';
+  import { diskQuery, driveLetter, hashPercent, mediaLabel, primaryAction, raidLabel, raidTone, stickerColor, volumeName, whereLabel } from '../lib/catalog';
   import Icon from './Icon.svelte';
   import { ago, formatBytes, formatCount, usedFraction } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
@@ -14,6 +14,7 @@
   import DuplicatesView from './DuplicatesView.svelte';
   import HealthView from './HealthView.svelte';
   import Menu from './Menu.svelte';
+  import NasHealthView from './NasHealthView.svelte';
   import ShareAddressDialog from './ShareAddressDialog.svelte';
   import SimilarView from './SimilarView.svelte';
   import SpaceView from './SpaceView.svelte';
@@ -59,6 +60,7 @@
     [
       whereLabel(volume),
       volume.kind === 'network' ? null : volume.diskModel,
+      mediaLabel(volume),
       volume.fsType,
       volume.online ? null : t(volume.kind === 'network' ? 'card.unreachable' : 'card.inDrawer'),
     ]
@@ -140,8 +142,13 @@
     </div>
     <div>
       <div class="caption">{t('disk.health')}</div>
-      <div class="value health {volume.health?.status ?? ''}">{volume.health ? t(`health.word.${volume.health.status}`) : '—'}</div>
-      <div class="detail">{volume.health?.temperature != null ? `${volume.health.temperature} °C` : ''}</div>
+      {#if volume.raid}
+        <div class="value health {raidTone(volume.raid.state)}">{t(`raid.word.${volume.raid.state}`)}</div>
+        <div class="detail">{raidLabel(volume.raid)}</div>
+      {:else}
+        <div class="value health {volume.health?.status ?? ''}">{volume.health ? t(`health.word.${volume.health.status}`) : '—'}</div>
+        <div class="detail">{volume.health?.temperature != null ? `${volume.health.temperature} °C` : ''}</div>
+      {/if}
     </div>
     <div>
       <div class="caption">{t('disk.content')}</div>
@@ -182,6 +189,8 @@
       <BackupView {volumes} {onerror} scope={volume.id} />
     {:else if tab === 'cleanup'}
       <CleanupView {volumes} {onerror} scope={volume.id} />
+    {:else if tab === 'health' && volume.kind === 'network'}
+      <NasHealthView {volume} {onerror} />
     {:else if tab === 'health'}
       <HealthView {volume} {onerror} />
     {:else}

@@ -29,6 +29,8 @@ impl Default for NativeTexts {
             jobs_running: "Jobs in progress: {count}".into(),
             health_title: "{name}: the disk health is getting worse".into(),
             health_body: "Open Prism to see its details and copy your files elsewhere.".into(),
+            nas_title: "{name}: the NAS reports a problem".into(),
+            nas_body: "Open Prism to see the state of the RAID and of its disks.".into(),
         }
     }
 }
@@ -64,6 +66,20 @@ impl Notices {
         Notice {
             title: texts.health_title.replace("{name}", name),
             body: texts.health_body.clone(),
+        }
+    }
+
+    /// The notification of a new problem of a NAS: an array or one of its disks (REVIEW D66).
+    pub fn nas_notice(&self, name: &str) -> Notice {
+        let defaults = NativeTexts::default();
+        let texts = self
+            .texts
+            .as_ref()
+            .filter(|t| !t.nas_title.is_empty())
+            .unwrap_or(&defaults);
+        Notice {
+            title: texts.nas_title.replace("{name}", name),
+            body: texts.nas_body.clone(),
         }
     }
 
@@ -151,6 +167,16 @@ mod tests {
             n.health_notice("Samsung SSD").title,
             "Samsung SSD: la salute del disco peggiora"
         );
+        assert_eq!(
+            n.nas_notice("Big-Storage").title,
+            "Big-Storage: il NAS segnala un problema"
+        );
+        assert!(
+            Notices::default()
+                .nas_notice("X")
+                .title
+                .ends_with("reports a problem")
+        );
     }
 
     fn italian() -> NativeTexts {
@@ -167,6 +193,8 @@ mod tests {
             jobs_running: "Attività in corso: {count}".into(),
             health_title: "{name}: la salute del disco peggiora".into(),
             health_body: "Apri Prism per i dettagli e copia i tuoi file altrove.".into(),
+            nas_title: "{name}: il NAS segnala un problema".into(),
+            nas_body: "Apri Prism per vedere lo stato del RAID e dei suoi dischi.".into(),
         }
     }
 

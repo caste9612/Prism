@@ -19,6 +19,8 @@ import type { JobView } from './bindings/JobView';
 import type { LabelsInput } from './bindings/LabelsInput';
 import type { LargeFileView } from './bindings/LargeFileView';
 import type { LocatedView } from './bindings/LocatedView';
+import type { NasHealthView } from './bindings/NasHealthView';
+import type { NasServerView } from './bindings/NasServerView';
 import type { NativeTexts } from './bindings/NativeTexts';
 import type { ReportFilterInput } from './bindings/ReportFilterInput';
 import type { ReportFolderView } from './bindings/ReportFolderView';
@@ -86,6 +88,13 @@ export interface Backend {
   resetCatalog(): Promise<number>;
   ambiguousVolumes(): Promise<AmbiguousView[]>;
   diskHealth(volumeId: number): Promise<DiskHealthView | null>;
+  /** The NAS of the catalog and whether Prism has their login (REVIEW D66). */
+  nasServers(): Promise<NasServerView[]>;
+  /** Checks the login by reading the NAS, then keeps it in the Windows Credential Manager. */
+  nasConnect(server: string, user: string, password: string): Promise<void>;
+  nasDisconnect(server: string): Promise<void>;
+  /** The array and the disks of the NAS behind a network share. */
+  nasHealth(volumeId: number): Promise<NasHealthView | null>;
   /** The catalog folder of a path on a connected disk (Explorer menu, F18). */
   locatePath(path: string): Promise<LocatedView>;
   onShellRequest(handler: (r: ShellRequest) => void): Promise<Unlisten>;
@@ -157,6 +166,10 @@ const tauriBackend: Backend = {
   resetCatalog: () => invoke('reset_catalog'),
   ambiguousVolumes: () => invoke('ambiguous_volumes'),
   diskHealth: (volumeId) => invoke('disk_health', { volumeId }),
+  nasServers: () => invoke('nas_servers'),
+  nasConnect: (server, user, password) => invoke('nas_connect', { server, user, password }),
+  nasDisconnect: (server) => invoke('nas_disconnect', { server }),
+  nasHealth: (volumeId) => invoke('nas_health', { volumeId }),
   locatePath: (path) => invoke('locate_path', { path }),
   onShellRequest: (handler) => listen<ShellRequest>('shell-request', (e) => handler(e.payload)),
   updateStatus: () => invoke('update_status'),

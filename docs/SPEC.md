@@ -291,6 +291,15 @@ Vale per ogni eliminazione avviata da Prism (duplicati, pulizia, simili).
 - **F17-AC3** Se lo stato diventa *critico* o peggiora, Prism mostra una notifica.
 - **F17-AC4** Se lo SMART non è disponibile (tipico dietro adattatori USB), Prism lo dice
   invece di mostrare dati vuoti.
+- **F17-AC5** *(2026-11-08, richiesta dell'utente)* Ogni disco fisico dice che cos'è: SSD o
+  disco rigido, con la velocità di rotazione quando il disco la dichiara; l'informazione resta
+  anche a disco scollegato (REVIEW D65).
+- **F17-AC6** *(2026-11-08, richiesta dell'utente)* Per le cartelle di un NAS ZimaOS di cui
+  l'utente ha dato il login nelle impostazioni: il RAID su cui sta la cartella (livello e stato)
+  sulla scheda e nell'intestazione del NAS, e nella scheda *Salute* i dischi del RAID con tipo,
+  temperatura, ore e stato. Il NAS si rilegge ogni ora; un RAID o un disco che peggiora dà una
+  notifica. Il login è conservato cifrato nel Gestore credenziali di Windows e Prism sul NAS
+  legge soltanto (REVIEW D66).
 
 ### F18 — Menu contestuale di Esplora risorse
 
@@ -347,7 +356,7 @@ Vale per ogni eliminazione avviata da Prism (duplicati, pulizia, simili).
 | NF3 | **Memoria**: ≤ 500 MB con 5 milioni di voci nel catalogo **[da validare]**. |
 | NF4 | **Affidabilità**: un crash o lo spegnimento durante un job non corrompono il catalogo; all'avvio successivo i job interrotti vengono ripresi o annullati in modo pulito. |
 | NF5 | **Sicurezza**: nessuna operazione su percorsi arbitrari passati dall'interfaccia; CSP restrittiva; nessun contenuto remoto nella webview (ADR-0003). |
-| NF6 | **Privacy**: nessuna telemetria nella 1.0; l'unica connessione in uscita è il controllo degli aggiornamenti. Il catalogo resta sul PC. |
+| NF6 | **Privacy**: nessuna telemetria nella 1.0; l'unica connessione verso Internet è il controllo degli aggiornamenti; in rete locale Prism parla solo con i NAS di cui l'utente ha dato il login (F17-AC6). Il catalogo resta sul PC. |
 | NF7 | **Accessibilità**: navigazione completa da tastiera, contrasto adeguato in entrambi i temi, etichette per gli screen reader. |
 | NF8 | **Testabilità**: ogni criterio di accettazione ha almeno un test automatico, oppure una voce nella checklist di verifica manuale della tappa. |
 

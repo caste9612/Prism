@@ -1,5 +1,6 @@
 // Presentation logic of the catalog screen (F01), kept out of the components to be testable.
 import type { JobView } from './bindings/JobView';
+import type { RaidView } from './bindings/RaidView';
 import type { VolumeView } from './bindings/VolumeView';
 import { t } from './i18n.svelte';
 
@@ -90,9 +91,45 @@ export function groupTitle(g: DiskGroup): string {
   }
   if (g.kind === 'disk' && first.diskModel) {
     const bus = first.bus ? t(`group.bus.${first.bus}`) : null;
-    return [first.diskModel, bus && !bus.startsWith('group.bus.') ? bus : null].filter(Boolean).join(' · ');
+    return [first.diskModel, mediaLabel(first), bus && !bus.startsWith('group.bus.') ? bus : null].filter(Boolean).join(' · ');
   }
   return t(`kind.${first.kind}`);
+}
+
+/**
+ * What the physical disk is (REVIEW D65): "SSD", "HDD 5400 rpm", "HDD"; null when not known, and
+ * for a USB stick (flash, but not what anyone calls an SSD).
+ */
+export function mediaLabel(v: Pick<VolumeView, 'media' | 'rpm' | 'kind'>): string | null {
+  if (v.kind === 'stick') return null;
+  if (v.media === 'ssd') return t('media.ssd');
+  if (v.media === 'hdd') return v.rpm ? t('media.hddRpm', { rpm: v.rpm }) : t('media.hdd');
+  return null;
+}
+
+/** The array of a NAS share in a few words (REVIEW D66): "RAID 1 · OK", "RAID 1 · rebuilding 40%". */
+export function raidLabel(r: RaidView): string {
+  const what = r.level !== null ? t('raid.level', { level: r.level }) : t('raid.single');
+  if (r.activity) {
+    const known = ['resync', 'recovery', 'reshape', 'check'].includes(r.activity) ? r.activity : 'other';
+    return `${what} · ${t(`raid.activity.${known}`)}${r.progress !== null ? ` ${r.progress}%` : ''}`;
+  }
+  return `${what} · ${t(`raid.short.${r.state}`)}`;
+}
+
+/** The colour class of a RAID state, as the health ones. */
+export function raidTone(state: string): 'good' | 'warning' | 'critical' {
+  return state === 'problem' ? 'critical' : state === 'attention' ? 'warning' : 'good';
+}
+
+/** The worst state of the arrays of some NAS shares, or null when none was read. */
+export function worstRaid(volumes: VolumeView[]): string | null {
+  const rank = (s: string) => (s === 'problem' ? 2 : s === 'attention' ? 1 : 0);
+  let worst: string | null = null;
+  for (const v of volumes) {
+    if (v.raid && (worst === null || rank(v.raid.state) > rank(worst))) worst = v.raid.state;
+  }
+  return worst;
 }
 
 /** The drive letter of a mount, "X:", or null for a network path or a folder. */

@@ -5,6 +5,7 @@
   import type { DiskHealthView } from '../lib/bindings/DiskHealthView';
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { backend, errorMessage } from '../lib/api';
+  import { mediaLabel } from '../lib/catalog';
   import { formatCount } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
 
@@ -80,7 +81,7 @@
       </div>
       <div class="what">
         <div class="state {health.badge.status}">{t(`health.word.${health.badge.status}`)}</div>
-        <div class="muted">{[health.model, health.bus.toUpperCase(), health.serial].filter(Boolean).join(' · ')}</div>
+        <div class="muted">{[health.model, mediaLabel({ media: health.media, rpm: health.rpm, kind: volume.kind }), health.bus.toUpperCase(), health.serial].filter(Boolean).join(' · ')}</div>
         {#if health.badge.unavailable}<p>{t(`health.unavailable.${health.badge.unavailable}`)}</p>{/if}
         {#each health.reasons as r (r)}
           <p class="reason">{t(`health.reason.${r}`)}</p>

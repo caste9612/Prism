@@ -91,7 +91,8 @@
       "mmc": "MMC card",
       "spaces": "Storage Spaces",
       "iscsi": "iSCSI"
-    }
+    },
+    "raid": "RAID {state}"
   },
   "status": {
     "new": "New",
@@ -219,7 +220,8 @@
       "updates": "Updates",
       "diagnostics": "Diagnostics",
       "catalog": "Catalog",
-      "about": "About Prism"
+      "about": "About Prism",
+      "nas": "NAS"
     },
     "resetDone_one": "Catalog reset: 1 disk removed."
   },
@@ -261,7 +263,12 @@
     "not_in_catalog": "That folder is not on a disk of the catalog that is connected now.",
     "updates_not_configured": "This copy of Prism does not check for updates.",
     "no_update": "There is no update to install.",
-    "update_failed": "The update could not be installed."
+    "update_failed": "The update could not be installed.",
+    "nas_unknown_server": "No shared folder of the catalog is on this NAS.",
+    "nas_login_failed": "Wrong user or password.",
+    "nas_unreachable": "The NAS does not answer.",
+    "nas_unsupported": "This NAS does not answer like ZimaOS.",
+    "nas_credentials": "Windows could not save or remove the login."
   },
   "tray": {
     "open": "Open Prism",
@@ -277,7 +284,9 @@
     "newDisksTitle": "{count} new disks found",
     "newDiskBody": "Open Prism to index it or to ignore it.",
     "healthTitle": "{name}: the disk health is getting worse",
-    "healthBody": "Open Prism to see the details and copy your files elsewhere."
+    "healthBody": "Open Prism to see the details and copy your files elsewhere.",
+    "nasTitle": "{name}: the NAS reports a problem",
+    "nasBody": "Open Prism to see the state of the RAID and of its disks."
   },
   "space": {
     "title": "Space",
@@ -841,5 +850,82 @@
     "hashingPaused": "content analysis paused",
     "dev": "development build",
     "online_one": "1 connected · updated automatically"
+  },
+  "media": {
+    "ssd": "SSD",
+    "hdd": "HDD",
+    "hddRpm": "HDD {rpm} rpm"
+  },
+  "raid": {
+    "level": "RAID {level}",
+    "single": "Single disk",
+    "word": {
+      "ok": "Healthy",
+      "attention": "Needs attention",
+      "problem": "Problem"
+    },
+    "short": {
+      "ok": "OK",
+      "attention": "needs attention",
+      "problem": "problem"
+    },
+    "stale": "The NAS did not answer at the last reading: this is the one before.",
+    "activity": {
+      "resync": "resyncing",
+      "recovery": "rebuilding",
+      "reshape": "reshaping",
+      "check": "checking",
+      "other": "working"
+    },
+    "open": "See the RAID and its disks"
+  },
+  "nas": {
+    "title": "NAS",
+    "hint": "With the login of your ZimaOS NAS, Prism shows the RAID of each shared folder and the health of its disks, reads them every hour and notifies you when something gets worse. The login is saved encrypted in the Windows Credential Manager; Prism only reads and never changes anything on the NAS.",
+    "empty": "No shared folders of a NAS in the catalog yet.",
+    "shares": "{count} shared folders",
+    "shares_one": "1 shared folder",
+    "connected": "Connected as {user}",
+    "readAt": "read {when}",
+    "notConnected": "Not connected",
+    "summary": "{storages} volumes · {disks} disks",
+    "connect": "Connect…",
+    "disconnect": "Disconnect",
+    "user": "User",
+    "password": "Password",
+    "connectNow": "Connect",
+    "connecting": "Connecting…",
+    "connectTitle": "Connect to {server}",
+    "connectIntro": "The user and password of ZimaOS, the same of its web panel. Prism checks them by reading the NAS once.",
+    "error": {
+      "unreachable": "The NAS does not answer.",
+      "login_failed": "Wrong user or password.",
+      "unsupported": "This NAS does not answer like ZimaOS."
+    },
+    "healthIntro": "With the login of the NAS (ZimaOS), Prism shows the RAID of this shared folder and the health of its disks.",
+    "openSettings": "Open the settings",
+    "noStorage": "The NAS has no volume called like this shared folder.",
+    "notRead": "The NAS has not been read yet.",
+    "size": "Size",
+    "used": "Used",
+    "disks": "Disks",
+    "disksTitle": "Disks of {name}",
+    "model": "Disk",
+    "kind": "Type",
+    "temperature": "Temperature",
+    "hours": "Hours on",
+    "state": "State",
+    "diskState": {
+      "ok": "OK",
+      "unhealthy": "Not healthy",
+      "faulty": "Faulty",
+      "missing": "Missing"
+    },
+    "system": "system disk",
+    "noSmart": "SMART not available",
+    "noSmartNote": "— the NAS cannot read the SMART data of this disk (common with some laptop disks and USB enclosures).",
+    "status": "The array reports: {status}",
+    "readOnly": "Read from the NAS every hour, read only.",
+    "notify": "If the array or one of its disks gets worse, Prism notifies you."
   }
 }

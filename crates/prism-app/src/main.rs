@@ -13,6 +13,7 @@ mod hash_jobs;
 mod health_state;
 mod identity;
 mod monitor;
+mod nas_state;
 mod netnames;
 mod netprobe;
 mod notices;
@@ -29,6 +30,7 @@ mod state_tests;
 mod tray;
 mod updates;
 mod watchers;
+mod zimaos;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -119,6 +121,17 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         thumbnails: similar_views::Thumbnails::default(),
         identities: identity::Identities::default(),
         health: health_state::HealthState::default(),
+        // REVIEW D66: development builds keep their NAS logins apart (TESTING S4).
+        nas: nas_state::NasState::new(
+            Arc::new(nas_state::WindowsLogins {
+                prefix: if cfg!(debug_assertions) {
+                    "PrismDev/ZimaOS/"
+                } else {
+                    "Prism/ZimaOS/"
+                },
+            }),
+            Arc::new(zimaos::fetch),
+        ),
         app_id,
         store,
         engine: JobEngine::start(4),
@@ -284,6 +297,10 @@ fn main() {
             commands::reset_catalog,
             commands::ambiguous_volumes,
             commands::disk_health,
+            commands::nas_servers,
+            commands::nas_connect,
+            commands::nas_disconnect,
+            commands::nas_health,
             commands::locate_path,
             commands::update_status,
             commands::check_updates,

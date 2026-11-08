@@ -490,3 +490,36 @@ fn interactive_writes_are_not_queued_behind_bulk_batches() {
     assert!(seen_pending.load(std::sync::atomic::Ordering::SeqCst));
     assert_eq!(store.read(|c| entry_count(c, v)).unwrap(), 15_001);
 }
+
+// REVIEW D65: the kind of a physical disk is kept, and read again changes it.
+#[test]
+fn disk_media_roundtrip() {
+    let (_dir, store) = temp_store();
+    let hdd = DiskMedia {
+        media: "hdd".into(),
+        rpm: Some(5400),
+    };
+    store
+        .write(move |w| set_disk_media(w, "WDC WD20EZRZ|W1", &hdd))
+        .unwrap();
+    let ssd = DiskMedia {
+        media: "ssd".into(),
+        rpm: None,
+    };
+    store
+        .write(move |w| set_disk_media(w, "WDC WD20EZRZ|W1", &ssd))
+        .unwrap();
+    let known = store.read(disk_media).unwrap();
+    assert_eq!(known.len(), 1);
+    assert_eq!(known["WDC WD20EZRZ|W1"].media, "ssd");
+    assert_eq!(known["WDC WD20EZRZ|W1"].rpm, None);
+    let wrong = DiskMedia {
+        media: "tape".into(),
+        rpm: None,
+    };
+    assert!(
+        store
+            .write(move |w| set_disk_media(w, "x|y", &wrong))
+            .is_err()
+    );
+}

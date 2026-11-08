@@ -141,7 +141,7 @@ test('F02-AC3: a disk that looks like two catalog disks waits for the user to sa
 });
 
 test('D63/D64: disks grouped by physical disk and by server; network folders with their icon', async ({ page }) => {
-  const disk = page.getByRole('region', { name: 'WDC WD20EZRZ-00Z5HB0 · SATA' });
+  const disk = page.getByRole('region', { name: 'WDC WD20EZRZ-00Z5HB0 · HDD 5400 rpm · SATA' });
   await expect(disk).toContainText('2 partitions');
   // The health of the disk, once in the heading.
   await expect(disk).toContainText('health needs attention 38 °C');
@@ -149,11 +149,11 @@ test('D63/D64: disks grouped by physical disk and by server; network folders wit
   await expect(disk.getByRole('article', { name: 'Windows' })).toBeVisible();
   await expect(disk.getByRole('article', { name: 'Data' })).toBeVisible();
   const nas = page.getByRole('region', { name: 'NAS DISKSTATION · 192.168.1.20' });
-  await expect(nas).toContainText('1 folder');
+  await expect(nas).toContainText('1 folder · RAID OK');
   const share = nas.getByRole('article', { name: 'NAS Media' });
   await expect(share).toContainText('NAS · DISKSTATION');
   await expect(share.locator('.letter.net')).toContainText('Y:');
-  await expect(page.getByRole('region', { name: 'WD Elements 25A2 · USB' }).getByRole('article', { name: 'Backup Foto' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'WD Elements 25A2 · HDD · USB' }).getByRole('article', { name: 'Backup Foto' })).toBeVisible();
   // The same groups in the list.
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const list = page.locator('table.data');
@@ -216,4 +216,23 @@ test('F17-AC1/AC2: the health of a disk with its values and history', async ({ p
   await expect(page.getByText('31,204')).toBeVisible();
   await expect(page.getByRole('table').getByRole('row')).toHaveCount(3);
   await page.screenshot({ path: 'test-results/health.png', fullPage: true });
+});
+
+test('D66: a NAS share shows the RAID it is on and the disks of the RAID', async ({ page }) => {
+  await card(page, 'NAS Media').getByRole('button', { name: 'RAID 1 · OK' }).click();
+  await expect(page.getByRole('heading', { name: 'NAS Media', level: 1 })).toBeVisible();
+  const raid = page.getByRole('region', { name: 'Media' });
+  await expect(raid).toContainText('Healthy');
+  await expect(raid).toContainText('Media · RAID 1 · BTRFS · 192.168.1.20');
+  await expect(raid).toContainText('Read from the NAS every hour, read only.');
+  const disks = page.getByRole('table');
+  await expect(disks.getByRole('row')).toHaveCount(3);
+  await expect(disks).toContainText('WDC WD40EFRX-68N32N0');
+  await expect(disks).toContainText('HDD · SATA');
+  await expect(disks).toContainText('34 °C');
+  await expect(disks).toContainText('21,480');
+  // The disk of a PC says what it is.
+  await backToCatalog(page);
+  await openDisk(page, 'Windows');
+  await expect(page.getByText('Internal disk · WDC WD20EZRZ-00Z5HB0 · HDD 5400 rpm · NTFS')).toBeVisible();
 });

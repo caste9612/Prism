@@ -13,4 +13,8 @@ jobsIdle: string, jobsRunning: string,
 /**
  * Notification of a disk whose health gets worse (F17-AC3), with `{name}`.
  */
-healthTitle: string, healthBody: string, };
+healthTitle: string, healthBody: string, 
+/**
+ * Notification of a new problem of a NAS (REVIEW D66), with `{name}`.
+ */
+nasTitle: string, nasBody: string, };

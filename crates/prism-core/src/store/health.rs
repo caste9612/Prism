@@ -156,3 +156,48 @@ pub fn set_volume_disk(
         .execute(params![volume.0, key])?;
     Ok(())
 }
+
+/// What kind of disk a physical disk is (REVIEW D65).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiskMedia {
+    /// `ssd` or `hdd`.
+    pub media: String,
+    /// Rotation speed of a hard disk, when it says it.
+    pub rpm: Option<u32>,
+}
+
+/// The kind of the physical disks for which it is known, by "model|serial".
+///
+/// # Errors
+/// SQLite errors.
+pub fn disk_media(conn: &Connection) -> Result<HashMap<String, DiskMedia>, StoreError> {
+    let mut stmt = conn.prepare_cached("SELECT disk_key, media, rpm FROM disk_media")?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get(0)?,
+            DiskMedia {
+                media: r.get(1)?,
+                rpm: r.get(2)?,
+            },
+        ))
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Records the kind of a physical disk, read while it is connected.
+///
+/// # Errors
+/// SQLite errors (also for a `media` other than `ssd` and `hdd`).
+pub fn set_disk_media(
+    wtx: &mut WriteTx<'_>,
+    key: &str,
+    media: &DiskMedia,
+) -> Result<(), StoreError> {
+    wtx.conn()
+        .prepare_cached(
+            "INSERT INTO disk_media (disk_key, media, rpm) VALUES (?1, ?2, ?3) \
+             ON CONFLICT (disk_key) DO UPDATE SET media = excluded.media, rpm = excluded.rpm",
+        )?
+        .execute(params![key, media.media, media.rpm])?;
+    Ok(())
+}

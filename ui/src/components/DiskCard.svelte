@@ -3,7 +3,7 @@
   // used space split by file category, a few numbers, and what is happening to it now.
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { barParts, categories } from '../lib/categories.svelte';
-  import { diskQuery, driveLetter, hashPercent, offlineState, primaryAction, stickerColor, volumeName, whereLabel } from '../lib/catalog';
+  import { diskQuery, driveLetter, hashPercent, offlineState, primaryAction, raidLabel, raidTone, stickerColor, volumeName, whereLabel } from '../lib/catalog';
   import Icon from './Icon.svelte';
   import { nav } from '../lib/nav.svelte';
   import { ago, formatBytes, formatCount, usedFraction } from '../lib/format';
@@ -127,7 +127,12 @@
     <dd>{indexed ? formatCount(volume.fileCount, lang) : '—'}</dd>
     <dt>{t('card.health')}</dt>
     <dd>
-      {#if volume.health && volume.health.status !== 'unavailable'}
+      {#if volume.raid}
+        <!-- REVIEW D66: a share of a NAS with a login shows the array it is on. -->
+        <button class="health {raidTone(volume.raid.state)}" onclick={() => onhealth(volume)} title={volume.raid.stale ? t('raid.stale') : t('raid.open')}>
+          {raidLabel(volume.raid)}
+        </button>
+      {:else if volume.health && volume.health.status !== 'unavailable'}
         {@const h = volume.health}
         <button class="health {h.status}" onclick={() => onhealth(volume)} title={t('health.open')}>
           {t(`health.word.${h.status}`)}{#if h.temperature !== null}{' '}{h.temperature} °C{/if}

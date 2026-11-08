@@ -20,6 +20,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0008_disk_health.sql"),
     include_str!("migrations/0009_share_servers.sql"),
     include_str!("migrations/0010_volume_disk.sql"),
+    include_str!("migrations/0011_disk_media.sql"),
 ];
 
 /// Schema version produced by this build.

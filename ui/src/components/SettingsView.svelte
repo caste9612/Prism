@@ -10,6 +10,7 @@
   import { backend, errorMessage } from '../lib/api';
   import { formatBytes, formatCount } from '../lib/format';
   import Dialog from './Dialog.svelte';
+  import NasSettings from './NasSettings.svelte';
   import { language, languages, t } from '../lib/i18n.svelte';
   import { volumeName } from '../lib/catalog';
 
@@ -113,6 +114,7 @@
   const sections = $derived([
     'general',
     'hashing',
+    'nas',
     'ignored',
     ...(updates ? ['updates'] : []),
     'diagnostics',
@@ -214,6 +216,11 @@
         {/each}
       </fieldset>
     {/if}
+  </div>
+
+  <div class="group" id="settings-nas">
+    <h2>{t('nas.title')}</h2>
+    <NasSettings {volumes} {onerror} />
   </div>
 
   <div class="group" id="settings-ignored">

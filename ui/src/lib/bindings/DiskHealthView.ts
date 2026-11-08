@@ -5,7 +5,7 @@ import type { HealthPointView } from "./HealthPointView";
 /**
  * The health of the disk of a volume, with its history (F17-AC1/AC2).
  */
-export type DiskHealthView = { model: string, serial: string, bus: string, badge: HealthBadgeView, powerOnHours: number | null, wear: number | null, reallocated: number | null, pending: number | null, mediaErrors: number | null, availableSpare: number | null, 
+export type DiskHealthView = { model: string, serial: string, bus: string, media: string | null, rpm: number | null, badge: HealthBadgeView, powerOnHours: number | null, wear: number | null, reallocated: number | null, pending: number | null, mediaErrors: number | null, availableSpare: number | null, 
 /**
  * Why the status is not good (codes translated by the interface).
  */

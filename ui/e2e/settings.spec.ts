@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { backToCatalog, openCatalog, openSettings } from './nav';
+import { backToCatalog, card, diskTab, openCatalog, openDisk, openSettings } from './nav';
 
 // Diagnostics (F20-AC2), reset of the catalog (F21-AC4) and updates (F22-AC3) in the settings,
 // with the simulated backend.
@@ -53,4 +53,40 @@ test('the sections of the settings are listed beside them', async ({ page }) => 
   await expect(sections.getByRole('link', { name: 'Content analysis' })).toBeVisible();
   await sections.getByRole('link', { name: 'Diagnostics' }).click();
   await expect(page.getByRole('button', { name: 'Open the log folder' })).toBeInViewport();
+});
+
+test('D66: a NAS is connected with its login, checked first, and disconnected', async ({ page }) => {
+  const nas = page.locator('#settings-nas');
+  await expect(nas).toContainText('saved encrypted in the Windows Credential Manager');
+  const row = nas.getByRole('listitem').filter({ hasText: 'DISKSTATION · 192.168.1.20' });
+  await expect(row).toContainText('1 shared folder · Connected as admin');
+  await expect(row).toContainText('Healthy · 2 volumes · 4 disks');
+  await row.getByRole('button', { name: 'Disconnect' }).click();
+  await expect(row).toContainText('Not connected');
+
+  // Without the login the share has no RAID, and its health tab says how to give it.
+  await backToCatalog(page);
+  await expect(card(page, 'NAS Media').getByRole('button', { name: /RAID/ })).toHaveCount(0);
+  await openDisk(page, 'NAS Media', 'Health');
+  await expect(page.getByText('shows the RAID of this shared folder')).toBeVisible();
+  await page.getByRole('button', { name: 'Open the settings' }).click();
+
+  await page.locator('#settings-nas').getByRole('button', { name: 'Connect…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Connect to DISKSTATION · 192.168.1.20' });
+  const connect = dialog.getByRole('button', { name: 'Connect', exact: true });
+  await expect(connect).toBeDisabled();
+  await dialog.getByLabel('User').fill('admin');
+  await dialog.getByLabel('Password').fill('wrong');
+  await connect.click();
+  await expect(dialog.getByRole('alert')).toHaveText('Wrong user or password.');
+  await expect(dialog.getByLabel('Password')).toHaveValue('');
+  await dialog.getByLabel('Password').fill('right');
+  await connect.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('#settings-nas')).toContainText('Connected as admin');
+  await backToCatalog(page);
+  await expect(card(page, 'NAS Media').getByRole('button', { name: 'RAID 1 · OK' })).toBeVisible();
+  await openDisk(page, 'NAS Media');
+  await diskTab(page, 'Health');
+  await expect(page.getByRole('region', { name: 'Media' })).toContainText('Healthy');
 });

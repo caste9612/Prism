@@ -12,9 +12,13 @@ import {
   groupTitle,
   knownLocations,
   LABEL_COLORS,
+  mediaLabel,
   offlineState,
+  raidLabel,
+  raidTone,
   stickerColor,
   whereLabel,
+  worstRaid,
 } from './catalog';
 import { sampleVolumes } from './mock';
 import { setLanguage, t } from './i18n.svelte';
@@ -52,12 +56,38 @@ describe('cards grouped by physical disk and by server (D64)', () => {
       ['server', ['NAS Media']],
       ['disk', ['Backup Foto']],
     ]);
-    expect(groupTitle(groups[0]!)).toBe('WDC WD20EZRZ-00Z5HB0 · SATA');
+    expect(groupTitle(groups[0]!)).toBe('WDC WD20EZRZ-00Z5HB0 · HDD 5400 rpm · SATA');
+    expect(groupTitle(groups[1]!)).toBe('Kingston DataTraveler 3.0 · USB');
     expect(groupTitle(groups[2]!)).toBe('NAS DISKSTATION · 192.168.1.20');
+    expect(groupTitle(groups[3]!)).toBe('WD Elements 25A2 · HDD · USB');
     // A disk whose physical disk is not known yet stands alone, under its kind.
     const lone = diskGroups([{ ...sampleVolumes(0)[0]!, group: null, diskModel: null }]);
     expect(lone.map((g) => g.kind)).toEqual(['single']);
     expect(groupTitle(lone[0]!)).toBe('Internal disk');
+  });
+});
+
+describe('kind of disk and RAID of a NAS (D65, D66)', () => {
+  it('SSD, hard disk with its speed, nothing for a stick or when not known', () => {
+    setLanguage('it');
+    expect(mediaLabel({ media: 'hdd', rpm: 7200, kind: 'internal' })).toBe('HDD 7200 giri');
+    expect(mediaLabel({ media: 'hdd', rpm: null, kind: 'external' })).toBe('HDD');
+    expect(mediaLabel({ media: 'ssd', rpm: null, kind: 'internal' })).toBe('SSD');
+    expect(mediaLabel({ media: 'ssd', rpm: null, kind: 'stick' })).toBeNull();
+    expect(mediaLabel({ media: null, rpm: null, kind: 'internal' })).toBeNull();
+    setLanguage('en');
+  });
+
+  it('the array in a few words, and the worst of a NAS', () => {
+    setLanguage('en');
+    const raid = { storage: 'Big-Storage', level: 1, state: 'ok', activity: null, progress: null, disks: 2, stale: false };
+    expect(raidLabel(raid)).toBe('RAID 1 · OK');
+    expect(raidLabel({ ...raid, state: 'attention', activity: 'recovery', progress: 40 })).toBe('RAID 1 · rebuilding 40%');
+    expect(raidLabel({ ...raid, level: null, state: 'problem' })).toBe('Single disk · problem');
+    expect(raidTone('attention')).toBe('warning');
+    const nas = sampleVolumes(0)[3]!;
+    expect(worstRaid([nas, { ...nas, raid: { ...raid, state: 'problem' } }])).toBe('problem');
+    expect(worstRaid([{ ...nas, raid: null }])).toBeNull();
   });
 });
 

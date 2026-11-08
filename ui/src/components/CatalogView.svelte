@@ -26,6 +26,7 @@
     stickerColor,
     volumeName,
     whereLabel,
+    worstRaid,
     type DiskFilter,
     type DiskGroup,
     type DiskSort,
@@ -94,6 +95,9 @@
           (h.temperature !== null ? ` ${h.temperature} °C` : ''),
       );
     }
+    // REVIEW D66: the shares of a NAS with a login say how its arrays are.
+    const raid = g.kind === 'server' ? worstRaid(g.volumes) : null;
+    if (raid) parts.push(t('group.raid', { state: t(`raid.short.${raid}`) }));
     return parts.join(' · ');
   }
   const shown = $derived(volumes.filter((v) => v.status !== 'ignored'));

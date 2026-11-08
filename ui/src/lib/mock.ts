@@ -37,6 +37,9 @@ function volume(v: Partial<VolumeView> & Pick<VolumeView, 'id' | 'name' | 'kind'
     group: null,
     diskModel: null,
     bus: null,
+    media: null,
+    rpm: null,
+    raid: null,
     server: null,
     serverName: null,
     online: true,
@@ -57,16 +60,28 @@ function volume(v: Partial<VolumeView> & Pick<VolumeView, 'id' | 'name' | 'kind'
 
 export function sampleVolumes(now = Date.now()): VolumeView[] {
   return [
-    volume({ id: 1, name: 'Windows', group: 'disk:WDC WD20EZRZ-00Z5HB0|WD-WCC6Y1234567', diskModel: 'WDC WD20EZRZ-00Z5HB0', bus: 'sata', osLabel: 'Windows', kind: 'internal', mount: 'C:\\', capacity: 439 * GB, freeSpace: 184 * GB, indexedSize: 210 * GB, fileCount: 951_644, folderCount: 307_861, lastIndexedAt: now - 3 * 60_000, lastSeenAt: now, hashes: { total: 900_000, hashed: 412_000, running: true, waiting: null, skipped: 0 }, health: { status: 'warning', unavailable: null, temperature: 38 } }),
-    volume({ id: 2, name: 'Data', group: 'disk:WDC WD20EZRZ-00Z5HB0|WD-WCC6Y1234567', diskModel: 'WDC WD20EZRZ-00Z5HB0', bus: 'sata', osLabel: 'Data', kind: 'internal', mount: 'D:\\', capacity: 977 * GB, freeSpace: 329 * GB, indexedSize: 612 * GB, fileCount: 544_808, folderCount: 76_107, lastIndexedAt: now - 2 * 3_600_000, lastSeenAt: now, hashes: { total: 500_000, hashed: 500_000, running: false, waiting: null, skipped: 0 }, health: { status: 'warning', unavailable: null, temperature: 38 } }),
-    volume({ id: 3, name: 'Backup Foto', group: 'disk:WD Elements 25A2|WX12', diskModel: 'WD Elements 25A2', bus: 'usb', userName: 'Backup Foto', location: 'cassetto 2', color: '#f59e0b', kind: 'external', mount: 'G:\\', online: false, capacity: 2000 * GB, freeSpace: 700 * GB, indexedSize: 1240 * GB, fileCount: 182_340, folderCount: 9_811, lastIndexedAt: now - 12 * DAY, lastSeenAt: now - 12 * DAY }),
-    volume({ id: 4, name: 'NAS Media', group: 'net:192.168.1.20', server: '192.168.1.20', serverName: 'DISKSTATION', userName: 'NAS Media', kind: 'network', fsType: null, mount: 'Y:\\', path: '\\\\192.168.1.20\\Media', indexedSize: 634 * GB, fileCount: 187_683, folderCount: 12_400, lastIndexedAt: now - DAY, lastSeenAt: now }),
-    volume({ id: 5, name: 'KINGSTON', group: 'disk:Kingston DataTraveler 3.0|K1', diskModel: 'Kingston DataTraveler 3.0', bus: 'usb', osLabel: 'KINGSTON', kind: 'stick', fsType: 'exFAT', mount: 'H:\\', status: 'new', capacity: 64 * GB, freeSpace: 51 * GB, lastSeenAt: now }),
+    volume({ id: 1, name: 'Windows', group: 'disk:WDC WD20EZRZ-00Z5HB0|WD-WCC6Y1234567', diskModel: 'WDC WD20EZRZ-00Z5HB0', bus: 'sata', media: 'hdd', rpm: 5400, osLabel: 'Windows', kind: 'internal', mount: 'C:\\', capacity: 439 * GB, freeSpace: 184 * GB, indexedSize: 210 * GB, fileCount: 951_644, folderCount: 307_861, lastIndexedAt: now - 3 * 60_000, lastSeenAt: now, hashes: { total: 900_000, hashed: 412_000, running: true, waiting: null, skipped: 0 }, health: { status: 'warning', unavailable: null, temperature: 38 } }),
+    volume({ id: 2, name: 'Data', group: 'disk:WDC WD20EZRZ-00Z5HB0|WD-WCC6Y1234567', diskModel: 'WDC WD20EZRZ-00Z5HB0', bus: 'sata', media: 'hdd', rpm: 5400, osLabel: 'Data', kind: 'internal', mount: 'D:\\', capacity: 977 * GB, freeSpace: 329 * GB, indexedSize: 612 * GB, fileCount: 544_808, folderCount: 76_107, lastIndexedAt: now - 2 * 3_600_000, lastSeenAt: now, hashes: { total: 500_000, hashed: 500_000, running: false, waiting: null, skipped: 0 }, health: { status: 'warning', unavailable: null, temperature: 38 } }),
+    volume({ id: 3, name: 'Backup Foto', group: 'disk:WD Elements 25A2|WX12', diskModel: 'WD Elements 25A2', bus: 'usb', media: 'hdd', userName: 'Backup Foto', location: 'cassetto 2', color: '#f59e0b', kind: 'external', mount: 'G:\\', online: false, capacity: 2000 * GB, freeSpace: 700 * GB, indexedSize: 1240 * GB, fileCount: 182_340, folderCount: 9_811, lastIndexedAt: now - 12 * DAY, lastSeenAt: now - 12 * DAY }),
+    volume({ id: 4, name: 'NAS Media', group: 'net:192.168.1.20', server: '192.168.1.20', serverName: 'DISKSTATION', raid: { storage: 'Media', level: 1, state: 'ok', activity: null, progress: null, disks: 2, stale: false }, userName: 'NAS Media', kind: 'network', fsType: null, mount: 'Y:\\', path: '\\\\192.168.1.20\\Media', indexedSize: 634 * GB, fileCount: 187_683, folderCount: 12_400, lastIndexedAt: now - DAY, lastSeenAt: now }),
+    volume({ id: 5, name: 'KINGSTON', group: 'disk:Kingston DataTraveler 3.0|K1', diskModel: 'Kingston DataTraveler 3.0', bus: 'usb', media: 'ssd', osLabel: 'KINGSTON', kind: 'stick', fsType: 'exFAT', mount: 'H:\\', status: 'new', capacity: 64 * GB, freeSpace: 51 * GB, lastSeenAt: now }),
   ];
 }
 
+/** The simulated NAS (REVIEW D66): a RAID 1 of two hard disks behind "Media". Models and serial numbers are invented. */
+const NAS = {
+  server: '192.168.1.20',
+  raid: { storage: 'Media', level: 1, state: 'ok', activity: null, progress: null, disks: 2, stale: false },
+  storage: { name: 'Media', level: 1, status: 'ok', state: 'ok', activity: null, progress: null, fs: 'BTRFS', size: 4000 * GB, used: 2310 * GB },
+  disks: [
+    { model: 'WDC WD40EFRX-68N32N0', serial: 'WD-WCC7K0000001', kind: 'hdd', interface: 'sata', size: 4000 * GB, temperature: 34, powerOnHours: 21_480, healthy: true, faulty: false, missing: false, system: false },
+    { model: 'ST4000VN008-2DR166', serial: 'ZDH0000002', kind: 'hdd', interface: 'sata', size: 4000 * GB, temperature: 36, powerOnHours: 9_812, healthy: true, faulty: false, missing: false, system: false },
+  ],
+};
+
 export function mockBackend(): Backend {
   let volumes = sampleVolumes();
+  let nas = { connected: true, user: 'admin', readAt: Date.now() - 20 * 60_000 };
   let settings: Settings = {
     language: 'system',
     theme: 'system',
@@ -335,6 +350,8 @@ export function mockBackend(): Backend {
         model: 'WDC WD20EZRZ-00Z5HB0',
         serial: 'WD-WCC6Y1234567',
         bus: 'sata',
+        media: 'hdd',
+        rpm: 5400,
         badge: v.health,
         powerOnHours: 31_204,
         wear: null,
@@ -347,6 +364,37 @@ export function mockBackend(): Backend {
           { at: Date.now() - day, status: 'warning', temperature: 38, reallocated: 8, pending: 0, mediaErrors: null, wear: null },
           { at: Date.now() - 30 * day, status: 'good', temperature: 36, reallocated: 0, pending: 0, mediaErrors: null, wear: null },
         ],
+      };
+    },
+    // REVIEW D66: the NAS starts with its login; the password "wrong" is refused.
+    nasServers: async () => {
+      const shares = volumes.filter((v) => v.kind === 'network' && v.server === NAS.server);
+      return [{ server: NAS.server, name: 'DISKSTATION', shares: shares.length, connected: nas.connected, user: nas.connected ? nas.user : null, readAt: nas.connected ? nas.readAt : null, error: null, state: nas.connected ? 'ok' : null, storages: nas.connected ? 2 : 0, disks: nas.connected ? 4 : 0 }];
+    },
+    nasConnect: async (server, user, password) => {
+      if (server !== NAS.server) throw { code: 'nas_unknown_server', message: server };
+      if (password === 'wrong') throw { code: 'nas_login_failed', message: server };
+      nas = { connected: true, user, readAt: Date.now() };
+      for (const v of volumes) if (v.kind === 'network' && v.server === NAS.server) v.raid = { ...NAS.raid };
+      emitVolumes();
+    },
+    nasDisconnect: async (server) => {
+      if (server !== NAS.server) return;
+      nas = { ...nas, connected: false };
+      for (const v of volumes) if (v.kind === 'network' && v.server === NAS.server) v.raid = null;
+      emitVolumes();
+    },
+    nasHealth: async (volumeId) => {
+      const v = find(volumeId);
+      if (v.kind !== 'network' || v.server === null) return null;
+      const connected = nas.connected && v.server === NAS.server;
+      return {
+        server: v.server,
+        connected,
+        readAt: connected ? nas.readAt : null,
+        error: null,
+        storage: connected ? { ...NAS.storage } : null,
+        disks: connected ? NAS.disks.map((d) => ({ ...d })) : [],
       };
     },
     resolveAmbiguous: async (key, volumeId) => {

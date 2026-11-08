@@ -26,6 +26,9 @@ pub struct DiskSnapshot {
     pub model: String,
     pub serial: String,
     pub bus: &'static str,
+    /// `ssd` or `hdd`, when known, and the speed of a hard disk (REVIEW D65).
+    pub media: Option<&'static str>,
+    pub rpm: Option<u32>,
     pub reading: Result<HealthReading, &'static str>,
 }
 
@@ -101,6 +104,8 @@ pub struct DiskHealthView {
     pub model: String,
     pub serial: String,
     pub bus: String,
+    pub media: Option<String>,
+    pub rpm: Option<u32>,
     pub badge: HealthBadgeView,
     #[ts(type = "number | null")]
     pub power_on_hours: Option<u64>,
@@ -144,6 +149,7 @@ pub fn tick(state: &AppState) -> (Vec<String>, bool) {
         .filter_map(|(id, d)| d.disks.first().map(|n| (*id, *n)))
         .collect();
     let known_disks = state.store.read(store::volume_disks).unwrap_or_default();
+    let known_media = state.store.read(store::disk_media).unwrap_or_default();
     let now = unix_millis_now();
     let mut worse = Vec::new();
     let mut changed = false;
@@ -179,6 +185,29 @@ pub fn tick(state: &AppState) -> (Vec<String>, bool) {
                 }
             }
         }
+        // REVIEW D65: SSD or hard disk. A speed read once (with the rights IDENTIFY needs) is
+        // kept when a later reading only knows that the disk spins.
+        if let Some(m) = disk.identity.media.as_str() {
+            let before = known_media.get(&key);
+            let media = store::DiskMedia {
+                media: m.to_owned(),
+                rpm: disk
+                    .identity
+                    .media
+                    .rpm()
+                    .or_else(|| before.filter(|b| b.media == m).and_then(|b| b.rpm)),
+            };
+            if before != Some(&media) {
+                let k = key.clone();
+                match state
+                    .store
+                    .write(move |w| store::set_disk_media(w, &k, &media))
+                {
+                    Ok(()) => changed = true,
+                    Err(e) => tracing::warn!(error = %e, "kind of a disk not saved"),
+                }
+            }
+        }
         // REVIEW D64: the partitions of one disk are shown together, also when it is away.
         for (volume, _) in volumes_on.iter().filter(|(_, d)| *d == n) {
             if known_disks.get(volume) != Some(&key) {
@@ -194,6 +223,8 @@ pub fn tick(state: &AppState) -> (Vec<String>, bool) {
             model: disk.identity.model,
             serial: disk.identity.serial,
             bus: disk.identity.bus.as_str(),
+            media: disk.identity.media.as_str(),
+            rpm: disk.identity.media.rpm(),
             reading: disk.reading,
         };
         let mut disks = state.health.disks();
@@ -244,12 +275,23 @@ impl AppState {
         let Some(s) = self.health_of(volume) else {
             return Ok(None);
         };
-        let history = self.store.read(|c| store::health_history(c, &s.key, 30))?;
+        let (history, saved) = self.store.read(|c| {
+            Ok((
+                store::health_history(c, &s.key, 30)?,
+                store::disk_media(c)?.remove(&s.key),
+            ))
+        })?;
         let r = s.reading.as_ref().ok();
         Ok(Some(DiskHealthView {
             model: s.model.clone(),
             serial: s.serial.clone(),
             bus: s.bus.to_owned(),
+            // As saved: it keeps a speed that this reading could not ask for.
+            media: saved
+                .as_ref()
+                .map(|m| m.media.clone())
+                .or_else(|| s.media.map(str::to_owned)),
+            rpm: s.rpm.or_else(|| saved.and_then(|m| m.rpm)),
             badge: badge(&s),
             power_on_hours: r.and_then(|r| r.power_on_hours),
             wear: r.and_then(|r| r.wear_percent),

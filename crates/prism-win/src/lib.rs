@@ -8,6 +8,7 @@
 #![allow(unsafe_code)]
 
 pub mod autostart;
+pub mod credentials;
 pub mod files;
 pub mod health;
 pub(crate) mod ioctl;

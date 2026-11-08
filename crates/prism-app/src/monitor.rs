@@ -38,6 +38,8 @@ const HEALTH_START: Duration = Duration::from_secs(10);
 const HEALTH_EVERY: Duration = Duration::from_secs(3600);
 /// How often the health thread looks for a disk plugged in or removed.
 const DISKS_CHANGED_CHECK: Duration = Duration::from_secs(5);
+/// How soon a NAS whose last reading failed is read again.
+const NAS_RETRY: Duration = Duration::from_secs(300);
 
 pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
     let (a, s) = (app.clone(), Arc::clone(state));
@@ -90,6 +92,31 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
                 {
                     std::thread::sleep(DISKS_CHANGED_CHECK);
                 }
+            }
+        });
+    // NAS (REVIEW D66): the arrays and disks of the NAS with a login, every hour; every five
+    // minutes while the last reading failed (the NAS was off, the network away).
+    let (a, s) = (app.clone(), Arc::clone(state));
+    let _ = std::thread::Builder::new()
+        .name("prism-nas".into())
+        .spawn(move || {
+            std::thread::sleep(HEALTH_START);
+            loop {
+                let (problems, changed) = s.nas_tick();
+                for name in problems {
+                    let n = s.notices().nas_notice(&name);
+                    if let Err(e) = prism_win::notify::show_toast(&s.app_id, &n.title, &n.body) {
+                        tracing::warn!(error = %e, "NAS notification not shown");
+                    }
+                }
+                if changed {
+                    let _ = a.emit("volumes-changed", ());
+                }
+                std::thread::sleep(if s.nas.any_error() {
+                    NAS_RETRY
+                } else {
+                    HEALTH_EVERY
+                });
             }
         });
     // Search indexes (ADR-0010): rebuilt from catalog events, at most every 30 s per volume.

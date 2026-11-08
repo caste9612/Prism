@@ -70,6 +70,8 @@ pub struct AppState {
     pub identities: crate::identity::Identities,
     /// Last health reading of each physical disk (F17).
     pub health: crate::health_state::HealthState,
+    /// RAID arrays and disks of the NAS the user logged in to (REVIEW D66).
+    pub nas: crate::nas_state::NasState,
 }
 
 pub fn job_view(j: &JobInfo) -> JobView {
@@ -122,7 +124,7 @@ impl AppState {
 
     /// The catalog screen: every volume with its labels, state, totals and current job.
     pub fn volume_views(&self) -> Result<Vec<VolumeView>, ApiError> {
-        let (rows, disks) = self.store.read(|c| {
+        let (rows, disks, media) = self.store.read(|c| {
             let mut out = Vec::new();
             for v in store::volumes(c)? {
                 let totals = match store::root_entry(c, v.id)? {
@@ -131,7 +133,7 @@ impl AppState {
                 };
                 out.push((v, totals));
             }
-            Ok((out, store::volume_disks(c)?))
+            Ok((out, store::volume_disks(c)?, store::disk_media(c)?))
         })?;
         let jobs = self.engine.jobs();
         let online = self.online();
@@ -162,7 +164,13 @@ impl AppState {
                 let mount = detected
                     .and_then(|d| d.info.last_mount.clone())
                     .or_else(|| v.info.last_mount.clone());
+                // REVIEW D65: SSD or hard disk, also while it is in the drawer.
+                let kind = disk_key.as_ref().and_then(|k| media.get(k));
+                let raid = self.raid_view(&v);
                 VolumeView {
+                    media: kind.map(|m| m.media.clone()),
+                    rpm: kind.and_then(|m| m.rpm),
+                    raid,
                     id: v.id.0,
                     name: v
                         .labels

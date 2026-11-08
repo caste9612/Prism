@@ -89,6 +89,8 @@
       newDiskBody: t('notify.newDiskBody'),
       healthTitle: t('notify.healthTitle'),
       healthBody: t('notify.healthBody'),
+      nasTitle: t('notify.nasTitle'),
+      nasBody: t('notify.nasBody'),
     });
   }
 

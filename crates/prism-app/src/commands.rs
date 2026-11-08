@@ -18,6 +18,7 @@ use crate::dto::{ApiError, AppInfo, JobView, LabelsInput, NativeTexts, Settings,
 use crate::duplicates_views::{DupFilterInput, DuplicatesView, RuleInput};
 use crate::health_state::DiskHealthView;
 use crate::identity::AmbiguousView;
+use crate::nas_state::{NasHealthView, NasServerView};
 use crate::search_views::SearchResultView;
 use crate::shares::SharePathView;
 use crate::shell_requests::LocatedView;
@@ -445,6 +446,52 @@ pub async fn disk_health(
 ) -> R<Option<DiskHealthView>> {
     let s = Arc::clone(&state);
     blocking(move || s.disk_health(VolumeId(volume_id))).await
+}
+
+/// The NAS of the catalog and whether Prism has their login (REVIEW D66).
+#[tauri::command]
+pub async fn nas_servers(state: State<'_, Arc<AppState>>) -> R<Vec<NasServerView>> {
+    let s = Arc::clone(&state);
+    blocking(move || s.nas_servers()).await
+}
+
+/// Reads a NAS with the login the user typed and, when it works, saves the login in the Windows
+/// Credential Manager (REVIEW D66).
+#[tauri::command]
+pub async fn nas_connect(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    server: String,
+    user: String,
+    password: String,
+) -> R<()> {
+    let s = Arc::clone(&state);
+    blocking(move || s.nas_connect(&server, &user, &password)).await?;
+    emit_volumes(&app);
+    Ok(())
+}
+
+/// Forgets the login of a NAS and what was read from it.
+#[tauri::command]
+pub async fn nas_disconnect(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    server: String,
+) -> R<()> {
+    let s = Arc::clone(&state);
+    blocking(move || s.nas_disconnect(&server)).await?;
+    emit_volumes(&app);
+    Ok(())
+}
+
+/// The array and the disks of the NAS behind a network share of the catalog.
+#[tauri::command]
+pub async fn nas_health(
+    state: State<'_, Arc<AppState>>,
+    volume_id: i64,
+) -> R<Option<NasHealthView>> {
+    let s = Arc::clone(&state);
+    blocking(move || s.nas_health(VolumeId(volume_id))).await
 }
 
 /// Connected disks Prism cannot tell apart, waiting for the user's choice (F02-AC3).

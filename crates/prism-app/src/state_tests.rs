@@ -47,6 +47,10 @@ fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
         thumbnails: crate::similar_views::Thumbnails::default(),
         identities: crate::identity::Identities::default(),
         health: crate::health_state::HealthState::default(),
+        nas: crate::nas_state::NasState::new(
+            Arc::new(crate::nas_state::MemoryLogins::default()),
+            Arc::new(|_: &str, _: &str, _: &str| Err("unreachable".to_owned())),
+        ),
     }
 }
 
@@ -1095,6 +1099,132 @@ fn volumes_are_grouped_by_physical_disk_and_by_server() {
     assert_eq!(nas.group.as_deref(), Some("net:ZIMAOS"));
     assert_eq!(nas.server.as_deref(), Some("ZimaOS"));
     assert_eq!(nas.server_name, None, "no name learned for it");
+    assert_eq!(
+        nas.raid.as_ref().map(|r| r.storage.as_str()),
+        None,
+        "no NAS login"
+    );
+
+    // REVIEW D65: SSD or hard disk, also while the disk is away.
+    let ssd = store::DiskMedia {
+        media: "ssd".into(),
+        rpm: None,
+    };
+    app.store
+        .write(move |w| store::set_disk_media(w, key, &ssd))
+        .unwrap();
+    let views = app.volume_views().unwrap();
+    let c = views.iter().find(|v| v.id == c.0).unwrap();
+    assert_eq!((c.media.as_deref(), c.rpm), (Some("ssd"), None));
+}
+
+/// A ZimaOS with one RAID 1 of two hard disks; the second one healthy or not.
+fn zimaos(second_healthy: bool) -> crate::zimaos::NasInfo {
+    use crate::zimaos::{NasDisk, NasInfo, NasStorage};
+    let disk = |serial: &str, model: &str, healthy: bool| NasDisk {
+        serial: serial.into(),
+        model: model.into(),
+        kind: "hdd".into(),
+        healthy,
+        storage: Some("Big-Storage".into()),
+        temperature: Some(30),
+        ..NasDisk::default()
+    };
+    NasInfo {
+        storages: vec![NasStorage {
+            name: "Big-Storage".into(),
+            mount: "/media/Big-Storage".into(),
+            raid_level: Some(1),
+            raid_status: Some("ok".into()),
+            activity: Some("idle".into()),
+            disks: vec!["A".into(), "B".into()],
+            ..NasStorage::default()
+        }],
+        disks: vec![
+            disk("A", "WD10EARS", true),
+            disk("B", "ST1000DM003", second_healthy),
+        ],
+    }
+}
+
+// REVIEW D66: with the login of the NAS, a share shows its array and the disks of the array;
+// a disk that stops being healthy is announced once; without the login nothing is read.
+#[test]
+fn a_nas_share_shows_its_raid_and_announces_new_problems_once() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use prism_core::model::VolumeKind;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let share = VolumeInfo {
+        kind: VolumeKind::Network,
+        unc_path: Some(r"\\192.168.1.65\Big-Storage".to_owned()),
+        ..VolumeInfo::dev_folder(r"\\192.168.1.65\Big-Storage")
+    };
+    let volume = store
+        .write(move |w| store::insert_volume(w, &share, VolumeStatus::Indexed))
+        .unwrap();
+    let healthy = Arc::new(AtomicBool::new(true));
+    let h = Arc::clone(&healthy);
+    let mut app = state(store, true, tmp.path());
+    app.nas = crate::nas_state::NasState::new(
+        Arc::new(crate::nas_state::MemoryLogins::default()),
+        Arc::new(move |_: &str, _: &str, password: &str| {
+            if password == "right" {
+                Ok(zimaos(h.load(Ordering::SeqCst)))
+            } else {
+                Err("login_failed".to_owned())
+            }
+        }),
+    );
+
+    let servers = app.nas_servers().unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(
+        (servers[0].server.as_str(), servers[0].shares),
+        ("192.168.1.65", 1)
+    );
+    assert!(!servers[0].connected);
+    let code = |r: Result<(), crate::dto::ApiError>| r.unwrap_err().code;
+    assert_eq!(
+        code(app.nas_connect("10.0.0.9", "me", "right")),
+        "nas_unknown_server"
+    );
+    assert_eq!(
+        code(app.nas_connect("192.168.1.65", "me", "wrong")),
+        "nas_login_failed"
+    );
+    assert!(!app.nas_servers().unwrap()[0].connected);
+
+    app.nas_connect("192.168.1.65", "me", "right").unwrap();
+    let raid = app.volume_views().unwrap()[0].raid.clone().unwrap();
+    assert_eq!(
+        (raid.storage.as_str(), raid.level, raid.state.as_str()),
+        ("Big-Storage", Some(1), "ok")
+    );
+    assert_eq!(raid.disks, 2);
+    let health = app.nas_health(volume).unwrap().unwrap();
+    assert!(health.connected);
+    assert_eq!(health.storage.unwrap().name, "Big-Storage");
+    assert_eq!(health.disks.len(), 2);
+    assert_eq!(app.nas_servers().unwrap()[0].state.as_deref(), Some("ok"));
+
+    assert_eq!(app.nas_tick().0, Vec::<String>::new());
+    healthy.store(false, Ordering::SeqCst);
+    let (news, changed) = app.nas_tick();
+    assert_eq!(news, ["ST1000DM003 (Big-Storage)"]);
+    assert!(changed);
+    assert_eq!(
+        app.volume_views().unwrap()[0].raid.clone().unwrap().state,
+        "attention"
+    );
+    assert!(app.nas_tick().0.is_empty(), "announced once");
+
+    app.nas_disconnect("192.168.1.65").unwrap();
+    assert!(app.volume_views().unwrap()[0].raid.is_none());
+    assert!(!app.nas_health(volume).unwrap().unwrap().connected);
+    assert!(app.nas_tick().0.is_empty());
 }
 
 // REVIEW D62: two paths to one file (here a hard link; on a NAS two shares showing one disk)
