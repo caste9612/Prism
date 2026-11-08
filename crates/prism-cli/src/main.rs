@@ -7,6 +7,7 @@
 mod bench;
 mod format;
 mod mem_bench;
+mod print_bench;
 mod replicate;
 mod search_bench;
 
@@ -122,6 +123,17 @@ enum Command {
     /// Memory of Prism at rest (NF3): opens the catalog, builds every search index as the app
     /// does at startup and reports the memory of the process.
     MemBench,
+    /// Image prints of the pictures of a folder with 1, 2, 4… threads in background mode
+    /// (REVIEW D60). Read-only.
+    PrintBench {
+        folder: PathBuf,
+        /// Pictures read at most.
+        #[arg(long, default_value_t = 300)]
+        limit: usize,
+        /// Thread counts to measure.
+        #[arg(long, value_delimiter = ',', default_value = "1,2,4")]
+        threads: Vec<usize>,
+    },
     /// Catalog size and counters.
     Stats,
     /// Check the consistency of the catalog.
@@ -210,6 +222,11 @@ fn main() -> ExitCode {
         .init();
     let result = match &cli.command {
         Command::Bench { path, walk, out } => bench::run(path, walk, out.as_deref()),
+        Command::PrintBench {
+            folder,
+            limit,
+            threads,
+        } => print_bench::run(folder, *limit, threads),
         command => match open_store(cli.db.as_deref()) {
             Ok(store) => run(&store, command),
             Err(e) => Err(e),
@@ -272,7 +289,7 @@ fn run(store: &Store, command: &Command) -> CliResult {
         Command::MemBench => mem_bench::run(store),
         Command::Stats => stats(store),
         Command::Check => check(store),
-        Command::Bench { .. } => Ok(()),
+        Command::Bench { .. } | Command::PrintBench { .. } => Ok(()),
     }
 }
 

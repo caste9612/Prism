@@ -2,11 +2,11 @@
 //! background, installed only when the user confirms; the packages are signed and the
 //! signature is verified by the Tauri updater before anything is installed.
 //!
-//! Updates need a signing key pair and a place where the releases are published: the public
-//! key and the address of the update manifest are given when the release is built
-//! (`PRISM_UPDATE_PUBKEY`, `PRISM_UPDATE_URL`). A build without them never checks (REVIEW U7).
+//! As for Orbit (ARCHITECTURE §8.1), the public key of the signatures and the address of the
+//! update manifest (`latest.json` of the latest GitHub release) are in `plugins.updater` of
+//! `tauri.conf.json`. Only release builds check: a development build never does.
 
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use prism_core::model::unix_millis_now;
@@ -17,18 +17,41 @@ use ts_rs::TS;
 
 use crate::dto::ApiError;
 
-/// Public key of the update signatures, given at build time.
-const PUBKEY: Option<&str> = option_env!("PRISM_UPDATE_PUBKEY");
-/// Address of the update manifest (`latest.json`), given at build time.
-const ENDPOINT: Option<&str> = option_env!("PRISM_UPDATE_URL");
 const FIRST_CHECK: Duration = Duration::from_secs(60);
 const EVERY: Duration = Duration::from_secs(24 * 3600);
+
+/// Public key of the update signatures and address of the update manifest, when this build
+/// checks for updates.
+static SOURCE: LazyLock<Option<Source>> = LazyLock::new(|| {
+    if cfg!(debug_assertions) {
+        return None;
+    }
+    from_config(include_str!("../tauri.conf.json"))
+});
+
+#[derive(Debug, PartialEq, Eq)]
+struct Source {
+    pubkey: String,
+    endpoint: String,
+}
 
 /// Whether a build can check for updates: both a key and an address, the address over HTTPS.
 #[must_use]
 pub fn configured(pubkey: Option<&str>, endpoint: Option<&str>) -> bool {
     pubkey.is_some_and(|k| !k.trim().is_empty())
         && endpoint.is_some_and(|u| u.trim().starts_with("https://"))
+}
+
+/// Key and address from `plugins.updater` of the Tauri configuration, if both are there.
+fn from_config(conf: &str) -> Option<Source> {
+    let conf: serde_json::Value = serde_json::from_str(conf).ok()?;
+    let updater = conf.get("plugins")?.get("updater")?;
+    let pubkey = updater.get("pubkey")?.as_str()?.trim();
+    let endpoint = updater.get("endpoints")?.get(0)?.as_str()?.trim();
+    configured(Some(pubkey), Some(endpoint)).then(|| Source {
+        pubkey: pubkey.to_owned(),
+        endpoint: endpoint.to_owned(),
+    })
 }
 
 /// What the interface shows about updates.
@@ -62,24 +85,24 @@ impl UpdateState {
 
     pub fn snapshot(&self) -> UpdateView {
         let mut v = self.view().clone();
-        v.enabled = configured(PUBKEY, ENDPOINT);
+        v.enabled = SOURCE.is_some();
         v
     }
 }
 
 /// One check: finds a newer version and downloads it in the background.
 async fn check_once(app: &AppHandle, state: &UpdateState) {
-    let (Some(pubkey), Some(endpoint)) = (PUBKEY, ENDPOINT) else {
+    let Some(source) = SOURCE.as_ref() else {
         return;
     };
     state.view().checking = true;
     let _ = app.emit("update-changed", ());
     let result: Result<Option<(Update, Vec<u8>)>, String> = async {
-        let url = endpoint.parse().map_err(|e| format!("{e}"))?;
+        let url = source.endpoint.parse().map_err(|e| format!("{e}"))?;
         let closing = app.clone();
         let updater = app
             .updater_builder()
-            .pubkey(pubkey)
+            .pubkey(&source.pubkey)
             // On Windows the updater ends the process as soon as the installer starts.
             .on_before_exit(move || crate::close_catalog(&closing))
             .endpoints(vec![url])
@@ -128,7 +151,7 @@ async fn check_once(app: &AppHandle, state: &UpdateState) {
 
 /// Checks soon after the start and then every 24 hours, when the build is configured.
 pub fn spawn(app: &AppHandle, state: Arc<UpdateState>) {
-    if !configured(PUBKEY, ENDPOINT) {
+    if SOURCE.is_none() {
         tracing::info!("automatic updates not configured in this build");
         return;
     }
@@ -149,7 +172,7 @@ async fn tokio_sleep(d: Duration) {
 
 /// Checks now, from the settings.
 pub async fn check_now(app: &AppHandle, state: &UpdateState) -> Result<(), ApiError> {
-    if !configured(PUBKEY, ENDPOINT) {
+    if SOURCE.is_none() {
         return Err(ApiError::new("updates_not_configured", ""));
     }
     check_once(app, state).await;
@@ -193,7 +216,38 @@ mod tests {
             Some("http://example.org/latest.json")
         ));
         assert!(!configured(Some("RWQ..."), None));
-        // This development build has neither.
-        assert!(!UpdateState::default().snapshot().enabled || PUBKEY.is_some());
+    }
+
+    #[test]
+    fn key_and_address_come_from_the_tauri_configuration() {
+        let conf = r#"{"plugins": {"updater": {"pubkey": " RWQ... ",
+            "endpoints": ["https://example.org/latest.json"]}}}"#;
+        assert_eq!(
+            from_config(conf),
+            Some(Source {
+                pubkey: "RWQ...".into(),
+                endpoint: "https://example.org/latest.json".into()
+            })
+        );
+        assert_eq!(
+            from_config(r#"{"plugins": {"updater": {"pubkey": "", "endpoints": []}}}"#),
+            None
+        );
+        assert_eq!(from_config("{}"), None);
+    }
+
+    #[test]
+    fn release_builds_check_the_latest_github_release() {
+        let source = from_config(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json has the public key and the address of the updates");
+        assert_eq!(
+            source.endpoint,
+            "https://github.com/caste9612/Prism/releases/latest/download/latest.json"
+        );
+        // A development build never checks.
+        assert_eq!(
+            UpdateState::default().snapshot().enabled,
+            !cfg!(debug_assertions)
+        );
     }
 }

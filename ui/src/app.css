@@ -329,6 +329,14 @@ label {
   border: 1.5px solid currentColor;
   border-radius: 5px;
 }
+/* A network share: the network icon in the box, with the letter when it is mapped (D63). */
+.letter.net {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 5px;
+  flex: none;
+}
 
 /* Segmented control (pill tabs): a row of buttons or links, the current one inked. */
 .pills {

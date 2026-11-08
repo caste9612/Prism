@@ -325,6 +325,38 @@ pub fn check_last_copies(
     Ok(Ok(()))
 }
 
+/// A copy to delete with the copies of its content that stay.
+pub type KeptCopies = (EntryId, Vec<(EntryId, VolumeId)>);
+
+/// The copies that stay of the content of each of `entries` once they are all deleted, to
+/// check on the disk that none of them is the same file under another path (REVIEW D62).
+///
+/// # Errors
+/// SQLite errors.
+pub fn kept_copies(conn: &Connection, entries: &[EntryId]) -> Result<Vec<KeptCopies>, StoreError> {
+    let doomed: HashSet<EntryId> = entries.iter().copied().collect();
+    let mut groups: HashMap<(u64, Digest), Vec<(EntryId, VolumeId)>> = HashMap::new();
+    for f in store::duplicate_files(conn, 1)? {
+        groups
+            .entry((f.size, f.full))
+            .or_default()
+            .push((f.entry, f.volume));
+    }
+    let mut out = Vec::new();
+    for members in groups.values() {
+        let kept: Vec<(EntryId, VolumeId)> = members
+            .iter()
+            .copied()
+            .filter(|(id, _)| !doomed.contains(id))
+            .collect();
+        for (id, _) in members.iter().filter(|(id, _)| doomed.contains(id)) {
+            out.push((*id, kept.clone()));
+        }
+    }
+    out.sort_by_key(|(id, _)| *id);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

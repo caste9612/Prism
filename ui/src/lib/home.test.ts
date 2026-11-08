@@ -2,19 +2,62 @@ import { describe, expect, it } from 'vitest';
 import type { ActionView } from './bindings/ActionView';
 import { BATCH_GAP_MS, batchActions } from './actions';
 import { barParts } from './categories.svelte';
-import { catalogCards, diskQuery, displayName, driveLetter, filterCounts, knownLocations, LABEL_COLORS, offlineState, stickerColor } from './catalog';
+import {
+  catalogCards,
+  diskGroups,
+  diskQuery,
+  displayName,
+  driveLetter,
+  filterCounts,
+  groupTitle,
+  knownLocations,
+  LABEL_COLORS,
+  offlineState,
+  stickerColor,
+  whereLabel,
+} from './catalog';
 import { sampleVolumes } from './mock';
 import { setLanguage, t } from './i18n.svelte';
 
 describe('network shares reached by their path', () => {
-  it('a letter only for drive letters; the share name in the name', () => {
+  it('a letter only for drive letters; the folder name as the name (D63)', () => {
     expect(driveLetter('x:\\')).toBe('X:');
     expect(driveLetter('D:')).toBe('D:');
     expect(driveLetter('\\\\192.168.1.65\\Small-Storage')).toBeNull();
     expect(driveLetter(null)).toBeNull();
-    const nas = { ...sampleVolumes(0)[3]!, userName: null, osLabel: null, mount: '\\\\192.168.1.65\\Small-Storage\\' };
-    expect(displayName(nas, 'Network drive')).toBe('Network drive (Small-Storage)');
-    expect(displayName({ ...nas, mount: 'X:\\' }, 'Network drive')).toBe('Network drive (X:)');
+    const nas = {
+      ...sampleVolumes(0)[3]!,
+      userName: null,
+      osLabel: null,
+      path: '\\\\192.168.1.65\\Small-Storage',
+      mount: '\\\\192.168.1.65\\Small-Storage\\',
+    };
+    expect(displayName(nas, 'Network drive')).toBe('Small-Storage');
+    // Mapped to a letter: still the folder name (the letter is in its box).
+    expect(displayName({ ...nas, mount: 'X:\\' }, 'Network drive')).toBe('Small-Storage');
+    setLanguage('en');
+    expect(whereLabel({ ...nas, server: '192.168.1.65', serverName: 'ZimaOS.local' })).toBe('NAS · ZimaOS.local');
+    expect(whereLabel({ ...nas, server: '192.168.1.65', serverName: null })).toBe('NAS · 192.168.1.65');
+    expect(whereLabel({ ...nas, location: 'Studio' })).toBe('Studio');
+  });
+});
+
+describe('cards grouped by physical disk and by server (D64)', () => {
+  it('partitions of one disk together, in the order of the cards; a heading for each', () => {
+    setLanguage('en');
+    const groups = diskGroups(catalogCards(sampleVolumes(0), 'all', 'name'));
+    expect(groups.map((g) => [g.kind, g.volumes.map((v) => v.name)])).toEqual([
+      ['disk', ['Data', 'Windows']],
+      ['disk', ['KINGSTON']],
+      ['server', ['NAS Big-Storage']],
+      ['disk', ['Backup Foto']],
+    ]);
+    expect(groupTitle(groups[0]!)).toBe('Samsung SSD 990 PRO 2TB · NVMe');
+    expect(groupTitle(groups[2]!)).toBe('NAS nas.local · nas');
+    // A disk whose physical disk is not known yet stands alone, under its kind.
+    const lone = diskGroups([{ ...sampleVolumes(0)[0]!, group: null, diskModel: null }]);
+    expect(lone.map((g) => g.kind)).toEqual(['single']);
+    expect(groupTitle(lone[0]!)).toBe('Internal disk');
   });
 });
 

@@ -13,10 +13,12 @@ mod hash_jobs;
 mod health_state;
 mod identity;
 mod monitor;
+mod netnames;
 mod netprobe;
 mod notices;
 mod search_views;
 mod search_window;
+mod shares;
 mod shell_requests;
 mod similar_state;
 mod similar_views;
@@ -105,6 +107,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir(app);
     let store = Store::open(&dir.join("catalog.db"))?;
     let app_id = notification_app_id(app, &dir);
+    let server_names = store
+        .read(prism_core::store::share_servers)
+        .unwrap_or_default();
     let state = Arc::new(AppState {
         notices: Mutex::new(Notices::default()),
         search: Arc::new(prism_core::search::live::LiveIndexes::default()),
@@ -124,6 +129,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         net: Arc::new(NetProbe::new(
             Arc::new(prism_win::volumes::disk_space),
             ProbeTiming::default(),
+        )),
+        names: Arc::new(netnames::ServerNames::new(
+            Arc::new(prism_win::net::host_name),
+            Arc::new(prism_win::net::ipv4_addresses),
+            server_names,
         )),
     });
     tracing::info!(elevated = state.elevated, data = %state.data_dir.display(), "Prism started");
@@ -247,6 +257,8 @@ fn main() {
             commands::cancel_job,
             commands::set_labels,
             commands::set_ignored,
+            commands::check_share_path,
+            commands::move_share,
             commands::open_volume,
             commands::space_folder,
             commands::largest_files,

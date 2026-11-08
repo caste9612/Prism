@@ -135,12 +135,15 @@ pub fn badge(s: &DiskSnapshot) -> HealthBadgeView {
 /// Reads the disks of the connected local volumes and records what changed; returns the names
 /// of the disks that got worse (for the notification) and whether any card changes.
 pub fn tick(state: &AppState) -> (Vec<String>, bool) {
-    let numbers: BTreeSet<u32> = state
+    let numbers = local_disks(state);
+    // The volumes on each disk (by their first one), to remember their physical disk.
+    let volumes_on: Vec<(VolumeId, u32)> = state
         .online()
-        .values()
-        .filter(|d| d.info.kind != VolumeKind::Network)
-        .flat_map(|d| d.disks.iter().copied())
+        .iter()
+        .filter(|(_, d)| d.info.kind != VolumeKind::Network)
+        .filter_map(|(id, d)| d.disks.first().map(|n| (*id, *n)))
         .collect();
+    let known_disks = state.store.read(store::volume_disks).unwrap_or_default();
     let now = unix_millis_now();
     let mut worse = Vec::new();
     let mut changed = false;
@@ -176,6 +179,16 @@ pub fn tick(state: &AppState) -> (Vec<String>, bool) {
                 }
             }
         }
+        // REVIEW D64: the partitions of one disk are shown together, also when it is away.
+        for (volume, _) in volumes_on.iter().filter(|(_, d)| *d == n) {
+            if known_disks.get(volume) != Some(&key) {
+                let (v, k) = (*volume, key.clone());
+                match state.store.write(move |w| store::set_volume_disk(w, v, &k)) {
+                    Ok(()) => changed = true,
+                    Err(e) => tracing::warn!(error = %e, "physical disk of a volume not saved"),
+                }
+            }
+        }
         let snapshot = DiskSnapshot {
             key,
             model: disk.identity.model,
@@ -192,6 +205,17 @@ pub fn tick(state: &AppState) -> (Vec<String>, bool) {
         .store
         .write(move |w| store::prune_health(w, now - KEEP_MS));
     (worse, changed)
+}
+
+/// The physical disks of the connected local volumes: when they change (a disk plugged in), the
+/// health is read at once instead of at the next hourly round.
+pub fn local_disks(state: &AppState) -> BTreeSet<u32> {
+    state
+        .online()
+        .values()
+        .filter(|d| d.info.kind != VolumeKind::Network)
+        .flat_map(|d| d.disks.iter().copied())
+        .collect()
 }
 
 impl AppState {

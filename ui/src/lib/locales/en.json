@@ -69,6 +69,30 @@
     "network": "Network drive",
     "folder": "Folder"
   },
+  "group": {
+    "nas": "NAS {server}",
+    "nasNamed": "NAS {name} · {address}",
+    "nasShort": "NAS · {server}",
+    "parts": "{count} partitions",
+    "parts_one": "1 partition",
+    "shares": "{count} folders",
+    "shares_one": "1 folder",
+    "health": "health {status}",
+    "bus": {
+      "nvme": "NVMe",
+      "sata": "SATA",
+      "ata": "ATA",
+      "usb": "USB",
+      "virtual": "virtual disk",
+      "scsi": "SCSI",
+      "sas": "SAS",
+      "raid": "RAID",
+      "sd": "SD card",
+      "mmc": "MMC card",
+      "spaces": "Storage Spaces",
+      "iscsi": "iSCSI"
+    }
+  },
   "status": {
     "new": "New",
     "indexing": "Indexing",
@@ -165,7 +189,7 @@
     "shortcutHint": "Opens the search window from any program.",
     "shortcutError": "The shortcut could not be registered ({value}): choose another one.",
     "hashing": "Content analysis",
-    "hashingHint": "Prism reads the files of the connected disks in the background, at the lowest priority, to recognise identical files. Network drives are not read.",
+    "hashingHint": "Prism reads the files of the connected disks in the background, at the lowest priority, to recognise identical files and similar pictures. Network drives are read one per server at a time: every file crosses the network.",
     "hashingPaused": "Pause the content analysis",
     "hashingBattery": "Pause it while the PC runs on battery",
     "hashingDisks": "Disks to analyse",
@@ -204,6 +228,11 @@
     "it": "Italiano"
   },
   "errors": {
+    "same_file": "One of the copies to delete is the same file as a copy to keep, seen through another path (two network folders of the same NAS, or a hard link): deleting it would delete the other one too. No file was touched.",
+    "share_path_invalid": "Type a network path like \\\\server\\folder.",
+    "share_in_catalog": "This path already belongs to another folder of the catalog.",
+    "share_unreachable": "The path does not answer.",
+    "volume_not_network": "Only network folders have a network address.",
     "volume_offline": "The disk is not connected.",
     "volume_not_found": "The disk is no longer in the catalog.",
     "volume_busy": "The disk is busy: wait for the current operation to end.",
@@ -607,7 +636,26 @@
     "title": "Which disk is {name}?",
     "question": "It looks like more than one disk of the catalog (for example a cloned disk). Which one is it?",
     "isThis": "It is {name}",
-    "another": "It is another disk"
+    "another": "It is another disk",
+    "shareTitle": "A network folder at a new address?",
+    "shareQuestion": "A network folder with the name of one in the catalog now answers here. It happens when the router gives the NAS another address. Is it the same?",
+    "shareIsThis": "Yes, it is {name}",
+    "shareBefore": "before at {path}",
+    "shareAnother": "It is another folder"
+  },
+  "share": {
+    "title": "Network address",
+    "intro": "In the catalog it is {path}. If the NAS changed its address, type the new one: Prism checks that it answers and that the content matches.",
+    "path": "New network path",
+    "check": "Check",
+    "hint": "For example \\\\192.168.1.57\\Photos or \\\\name-of-the-nas\\Photos.",
+    "unreachable": "This path does not answer.",
+    "answers": "It answers: {matching} of the {total} main folders and files of the catalog are here too.",
+    "answersEmpty": "It answers.",
+    "unlike": "The content is very different: is it really the same folder?",
+    "move": "Use this address",
+    "gone": "It does not answer at {path}. If the NAS changed its address, you can give the new one.",
+    "change": "Change address…"
   },
   "health": {
     "open": "Health of the disk",
@@ -695,6 +743,7 @@
     "contentDone": "content analysed",
     "updateNow": "Update now",
     "labels": "Name, location and colour…",
+    "moveShare": "Change network address…",
     "ignore": "Always ignore this disk",
     "remove": "Remove from catalog…",
     "usedUnknown": "Used space unknown",
@@ -741,7 +790,16 @@
     "items": "{count} items",
     "since": "for {time}",
     "eta": "about {time} left",
-    "waiting": "waiting for the next round · {count} files still to read"
+    "waiting": {
+      "next": "starts again shortly · {count} files still to read",
+      "next_one": "starts again shortly · 1 file still to read",
+      "paused": "paused · {count} files still to read",
+      "paused_one": "paused · 1 file still to read",
+      "busy": "starts again after the job running on the disk · {count} files still to read",
+      "busy_one": "starts again after the job running on the disk · 1 file still to read",
+      "skipped": "{count} files in use or unreadable · tried again later",
+      "skipped_one": "1 file in use or unreadable · tried again later"
+    }
   },
   "lastActions": {
     "title": "Last actions",

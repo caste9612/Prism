@@ -4,7 +4,8 @@
   import type { Settings } from '../lib/bindings/Settings';
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { backend, errorMessage } from '../lib/api';
-  import { diskQuery, driveLetter, hashPercent, primaryAction, stickerColor, volumeName } from '../lib/catalog';
+  import { diskQuery, driveLetter, hashPercent, primaryAction, stickerColor, volumeName, whereLabel } from '../lib/catalog';
+  import Icon from './Icon.svelte';
   import { ago, formatBytes, formatCount, usedFraction } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
   import { DISK_TABS, nav, type DiskTab } from '../lib/nav.svelte';
@@ -13,6 +14,7 @@
   import DuplicatesView from './DuplicatesView.svelte';
   import HealthView from './HealthView.svelte';
   import Menu from './Menu.svelte';
+  import ShareAddressDialog from './ShareAddressDialog.svelte';
   import SimilarView from './SimilarView.svelte';
   import SpaceView from './SpaceView.svelte';
   import TypesView from './TypesView.svelte';
@@ -54,7 +56,12 @@
     return a.key === 'time.justNow' ? t(a.key) : t(a.key, { count: a.count });
   };
   const subtitle = $derived(
-    [volume.location?.trim() || t(`kind.${volume.kind}`), volume.fsType, volume.online ? null : t(volume.kind === 'network' ? 'card.unreachable' : 'card.inDrawer')]
+    [
+      whereLabel(volume),
+      volume.kind === 'network' ? null : volume.diskModel,
+      volume.fsType,
+      volume.online ? null : t(volume.kind === 'network' ? 'card.unreachable' : 'card.inDrawer'),
+    ]
       .filter(Boolean)
       .join(' · '),
   );
@@ -66,9 +73,12 @@
       onerror(errorMessage(e));
     }
   }
+  /** The "Network address" dialog is open (REVIEW D59). */
+  let moving = $state(false);
   const items = $derived([
     ...(volume.lastIndexedAt !== null ? [{ label: t('card.search'), onselect: () => nav.go({ name: 'search', query: diskQuery(volume) }) }] : []),
     { label: t('card.labels'), onselect: () => onlabels(volume) },
+    ...(volume.kind === 'network' ? [{ label: t('card.moveShare'), onselect: () => (moving = true) }] : []),
     { label: t('card.ignore'), onselect: () => run(() => backend.setIgnored(volume.id, true)).then(() => nav.go({ name: 'catalog' })) },
     { label: t('card.remove'), onselect: () => onremove(volume), danger: true, separated: true },
   ]);
@@ -84,7 +94,11 @@
       </div>
       <div class="name-row">
         <h1>{name}</h1>
-        {#if letter && volume.online}<span class="letter big">{letter}</span>{/if}
+        {#if volume.kind === 'network'}
+          <span class="letter big net" title={volume.path ?? t('kind.network')}>
+            <Icon name="network" size={16} />{#if letter && volume.online}{letter}{/if}
+          </span>
+        {:else if letter && volume.online}<span class="letter big">{letter}</span>{/if}
       </div>
     </div>
     <div class="actions">
@@ -98,6 +112,13 @@
       <Menu label={t('card.actionsFor', { name })} {items} />
     </div>
   </header>
+
+  {#if volume.kind === 'network' && !volume.online && volume.path}
+    <p class="share-gone card" role="note">
+      <span>{t('share.gone', { path: volume.path })}</span>
+      <button class="small" onclick={() => (moving = true)}>{t('share.change')}</button>
+    </p>
+  {/if}
 
   <div class="stats">
     <div>
@@ -169,11 +190,30 @@
   </div>
 </section>
 
+<ShareAddressDialog volume={moving ? volume : null} onclose={() => (moving = false)} ondone={() => (moving = false)} />
+
 <style>
   .disk-screen {
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+  .share-gone {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    font-size: 13px;
+    border-left: 3px solid var(--signal);
+  }
+  .share-gone span {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .share-gone button {
+    flex: none;
   }
   .head {
     display: flex;

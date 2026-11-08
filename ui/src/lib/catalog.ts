@@ -23,14 +23,76 @@ export function newVolumePrompts(volumes: VolumeView[], dismissed: Set<number>):
 
 /**
  * Name shown for a volume. Without a user or system label the backend falls back to the mount
- * point; like Explorer, show it as "Local disk (C:)" instead of a bare "C:\".
+ * point; like Explorer, show it as "Local disk (C:)" instead of a bare "C:\". A network share is
+ * called by its folder name ("Big-Storage"): the network icon and the server say the rest
+ * (REVIEW D63).
  */
 export function displayName(v: VolumeView, kindLabel: string): string {
   const labelled = [v.userName, v.osLabel].some((n) => n !== null && n.trim() !== '');
-  if (labelled || v.mount === null) return v.name;
-  // A network share reached by its path (no letter): its share name, "Network drive (Foto)".
+  if (labelled) return v.name;
+  const share = (v.path ?? (v.kind === 'network' ? v.mount : null))?.replace(/\\+$/, '').split('\\').pop();
+  if (v.kind === 'network' && share) return share;
+  if (v.mount === null) return v.name;
   const shown = driveLetter(v.mount) ?? v.mount.replace(/\\+$/, '').split('\\').pop() ?? v.mount;
   return `${kindLabel} (${shown})`;
+}
+
+/** The server of a network share as shown: the name learned for it, or its address. */
+export function serverLabel(v: VolumeView): string | null {
+  return v.serverName ?? v.server;
+}
+
+/**
+ * What the card says above the name: the location the user wrote, or for a network share its
+ * server ("NAS · ZimaOS.local"), or the kind of disk.
+ */
+export function whereLabel(v: VolumeView): string {
+  const location = v.location?.trim();
+  if (location) return location;
+  const server = v.kind === 'network' ? serverLabel(v) : null;
+  return server ? t('group.nasShort', { server }) : t(`kind.${v.kind}`);
+}
+
+/** Cards shown together under one heading (REVIEW D64). */
+export interface DiskGroup {
+  key: string;
+  /** `disk`: partitions of one physical disk; `server`: shares of one server; `single`: a disk whose physical disk is not known yet. */
+  kind: 'disk' | 'server' | 'single';
+  volumes: VolumeView[];
+}
+
+/**
+ * The cards grouped by physical disk or by server, in the order of the cards: a group takes the
+ * place of its first card.
+ */
+export function diskGroups(cards: VolumeView[]): DiskGroup[] {
+  const groups = new Map<string, DiskGroup>();
+  for (const v of cards) {
+    const key = v.group ?? `volume:${v.id}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { key, kind: v.group?.startsWith('net:') ? 'server' : v.group ? 'disk' : 'single', volumes: [] };
+      groups.set(key, g);
+    }
+    g.volumes.push(v);
+  }
+  return [...groups.values()];
+}
+
+/** Heading of a group: the disk model and how it is connected, or the server, or the kind. */
+export function groupTitle(g: DiskGroup): string {
+  const first = g.volumes[0]!;
+  if (g.kind === 'server') {
+    const name = first.serverName;
+    return name && first.server && name.toLowerCase() !== first.server.toLowerCase()
+      ? t('group.nasNamed', { name, address: first.server })
+      : t('group.nas', { server: first.server ?? '' });
+  }
+  if (g.kind === 'disk' && first.diskModel) {
+    const bus = first.bus ? t(`group.bus.${first.bus}`) : null;
+    return [first.diskModel, bus && !bus.startsWith('group.bus.') ? bus : null].filter(Boolean).join(' · ');
+  }
+  return t(`kind.${first.kind}`);
 }
 
 /** The drive letter of a mount, "X:", or null for a network path or a folder. */

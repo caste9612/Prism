@@ -40,11 +40,44 @@ function bytes(size: number, seed: number): Buffer {
   return b;
 }
 
-/** The test folder on PRISMTEST: two identical files, an empty folder, a source and a backup. */
+/** A 24-bit BMP of `size`×`size` pixels: the same picture at every size (gradients, a dark square). */
+function picture(size: number): Buffer {
+  const row = Math.ceil((size * 3) / 4) * 4;
+  const data = row * size;
+  const b = Buffer.alloc(54 + data);
+  b.write('BM', 0, 'ascii');
+  b.writeUInt32LE(54 + data, 2);
+  b.writeUInt32LE(54, 10);
+  b.writeUInt32LE(40, 14);
+  b.writeInt32LE(size, 18);
+  b.writeInt32LE(size, 22);
+  b.writeUInt16LE(1, 26);
+  b.writeUInt16LE(24, 28);
+  b.writeUInt32LE(data, 34);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      const dark = u > 0.25 && u < 0.6 && v > 0.3 && v < 0.7;
+      const o = 54 + y * row + x * 3;
+      b[o] = dark ? 20 : Math.round((255 * (u + v)) / 2);
+      b[o + 1] = dark ? 20 : Math.round(255 * u);
+      b[o + 2] = dark ? 20 : Math.round(255 * v);
+    }
+  }
+  return b;
+}
+
+/**
+ * The test folder on PRISMTEST: two identical files, an empty folder, a source and a backup,
+ * and one picture at two sizes (similar, not identical).
+ */
 function prepareTestFolder(root: string): string {
   const dir = join(root, DIR_NAME);
   rmSync(dir, { recursive: true, force: true });
-  for (const d of ['dup\\a', 'dup\\b', 'empty', 'src', 'dst']) mkdirSync(join(dir, d), { recursive: true });
+  for (const d of ['dup\\a', 'dup\\b', 'empty', 'src', 'dst', 'pics']) mkdirSync(join(dir, d), { recursive: true });
+  writeFileSync(join(dir, 'pics\\prism-real-photo.bmp'), picture(512));
+  writeFileSync(join(dir, 'pics\\prism-real-photo-small.bmp'), picture(256));
   const content = bytes(2 * MB, 7);
   const old = new Date(Date.now() - 3 * 86_400_000);
   writeFileSync(join(dir, 'dup\\a\\prism-real-dup.bin'), content);
@@ -294,6 +327,24 @@ test('PRISMTEST: a duplicate goes to the Recycle Bin and the other copy stays', 
   // F16-AC6: in the last actions of the catalog.
   await home();
   await expect(page.getByRole('region', { name: 'Last actions' })).toContainText('PRISMTEST');
+});
+
+test('PRISMTEST: similar pictures show their previews', async () => {
+  test.skip(testRoot === null, 'the PRISMTEST test disk is not mounted');
+  await openDisk('PRISMTEST', 'Similar');
+  // The prints of the pictures follow the content hashes, in the background.
+  const group = page.getByRole('article', { name: /^prism-real-photo/ });
+  await expect(async () => {
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await expect(group).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 6 * 60_000, intervals: [10_000] });
+  const previews = group.getByRole('img');
+  await expect(previews).toHaveCount(2);
+  // Loaded and drawn, not blocked: the window allows only its own images (CSP).
+  for (const img of await previews.all()) {
+    await expect.poll(() => img.evaluate((e) => (e as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  }
+  await shot('42-prismtest-similar');
 });
 
 test('PRISMTEST: the empty folder is cleaned up into the Recycle Bin', async () => {

@@ -69,6 +69,30 @@
     "network": "Unità di rete",
     "folder": "Cartella"
   },
+  "group": {
+    "nas": "NAS {server}",
+    "nasNamed": "NAS {name} · {address}",
+    "nasShort": "NAS · {server}",
+    "parts": "{count} partizioni",
+    "parts_one": "1 partizione",
+    "shares": "{count} cartelle",
+    "shares_one": "1 cartella",
+    "health": "salute {status}",
+    "bus": {
+      "nvme": "NVMe",
+      "sata": "SATA",
+      "ata": "ATA",
+      "usb": "USB",
+      "virtual": "disco virtuale",
+      "scsi": "SCSI",
+      "sas": "SAS",
+      "raid": "RAID",
+      "sd": "scheda SD",
+      "mmc": "scheda MMC",
+      "spaces": "Spazi di archiviazione",
+      "iscsi": "iSCSI"
+    }
+  },
   "status": {
     "new": "Nuovo",
     "indexing": "In indicizzazione",
@@ -165,7 +189,7 @@
     "shortcutHint": "Apre la finestra di ricerca da qualunque programma.",
     "shortcutError": "Non è stato possibile registrare la scorciatoia ({value}): scegline un'altra.",
     "hashing": "Analisi del contenuto",
-    "hashingHint": "Prism legge in sottofondo, con la priorità più bassa, i file dei dischi collegati per riconoscere i file identici. Le unità di rete non vengono lette.",
+    "hashingHint": "Prism legge in sottofondo, con la priorità più bassa, i file dei dischi collegati per riconoscere i file identici e le immagini simili. Le unità di rete si leggono una per server alla volta: ogni file passa dalla rete.",
     "hashingPaused": "Sospendi l'analisi del contenuto",
     "hashingBattery": "Sospendila quando il PC va a batteria",
     "hashingDisks": "Dischi da analizzare",
@@ -204,6 +228,11 @@
     "it": "Italiano"
   },
   "errors": {
+    "same_file": "Una delle copie da eliminare è lo stesso file di una copia da tenere, visto da un altro percorso (due cartelle di rete dello stesso NAS, o un collegamento fisico): eliminarla cancellerebbe anche l'altra. Non è stato toccato nessun file.",
+    "share_path_invalid": "Scrivi un percorso di rete come \\\\server\\cartella.",
+    "share_in_catalog": "Questo percorso è già di un'altra cartella del catalogo.",
+    "share_unreachable": "Il percorso non risponde.",
+    "volume_not_network": "Solo le cartelle di rete hanno un indirizzo di rete.",
     "volume_offline": "Il disco non è collegato.",
     "volume_not_found": "Il disco non è più nel catalogo.",
     "volume_busy": "Il disco è occupato: attendi la fine dell'operazione in corso.",
@@ -607,7 +636,26 @@
     "title": "Quale disco è {name}?",
     "question": "Somiglia a più dischi del catalogo (per esempio un disco clonato). Quale è?",
     "isThis": "È {name}",
-    "another": "È un altro disco"
+    "another": "È un altro disco",
+    "shareTitle": "Cartella di rete a un nuovo indirizzo?",
+    "shareQuestion": "Una cartella di rete con lo stesso nome di una del catalogo ora risponde qui. Succede quando il router dà al NAS un altro indirizzo. È la stessa?",
+    "shareIsThis": "Sì, è {name}",
+    "shareBefore": "prima a {path}",
+    "shareAnother": "È un'altra cartella"
+  },
+  "share": {
+    "title": "Indirizzo di rete",
+    "intro": "Nel catalogo è {path}. Se il NAS ha cambiato indirizzo, scrivi quello nuovo: Prism controlla che risponda e che il contenuto corrisponda.",
+    "path": "Nuovo percorso di rete",
+    "check": "Controlla",
+    "hint": "Per esempio \\\\192.168.1.57\\Foto oppure \\\\nome-del-nas\\Foto.",
+    "unreachable": "Questo percorso non risponde.",
+    "answers": "Risponde: {matching} delle {total} cartelle e file principali del catalogo ci sono anche qui.",
+    "answersEmpty": "Risponde.",
+    "unlike": "Il contenuto è molto diverso: è davvero la stessa cartella?",
+    "move": "Usa questo indirizzo",
+    "gone": "Non risponde a {path}. Se il NAS ha cambiato indirizzo, puoi indicare quello nuovo.",
+    "change": "Cambia indirizzo…"
   },
   "health": {
     "open": "Salute del disco",
@@ -695,6 +743,7 @@
     "contentDone": "contenuto analizzato",
     "updateNow": "Aggiorna adesso",
     "labels": "Nome, posizione e colore…",
+    "moveShare": "Cambia indirizzo di rete…",
     "ignore": "Ignora sempre questo disco",
     "remove": "Rimuovi dal catalogo…",
     "usedUnknown": "Spazio usato sconosciuto",
@@ -741,7 +790,16 @@
     "items": "{count} elementi",
     "since": "da {time}",
     "eta": "circa {time} alla fine",
-    "waiting": "in attesa del prossimo giro · {count} file ancora da leggere"
+    "waiting": {
+      "next": "riparte tra poco · {count} file ancora da leggere",
+      "next_one": "riparte tra poco · 1 file ancora da leggere",
+      "paused": "in pausa · {count} file ancora da leggere",
+      "paused_one": "in pausa · 1 file ancora da leggere",
+      "busy": "riparte dopo l'attività in corso sul disco · {count} file ancora da leggere",
+      "busy_one": "riparte dopo l'attività in corso sul disco · 1 file ancora da leggere",
+      "skipped": "{count} file in uso o illeggibili · li riprovo più tardi",
+      "skipped_one": "1 file in uso o illeggibile · lo riprovo più tardi"
+    }
   },
   "lastActions": {
     "title": "Ultime azioni",

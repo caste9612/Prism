@@ -3,7 +3,8 @@
   // used space split by file category, a few numbers, and what is happening to it now.
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { barParts, categories } from '../lib/categories.svelte';
-  import { diskQuery, driveLetter, hashPercent, offlineState, primaryAction, stickerColor, volumeName } from '../lib/catalog';
+  import { diskQuery, driveLetter, hashPercent, offlineState, primaryAction, stickerColor, volumeName, whereLabel } from '../lib/catalog';
+  import Icon from './Icon.svelte';
   import { nav } from '../lib/nav.svelte';
   import { ago, formatBytes, formatCount, usedFraction } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
@@ -83,13 +84,18 @@
 <article class="disk" class:offline={!volume.online} aria-label={name} style:--sticker={stickerColor(volume)}>
   <div class="top">
     <span class="sticker" class:ring={!volume.online}></span>
-    <span class="caption where">{volume.location?.trim() || t(`kind.${volume.kind}`)}</span>
+    <span class="caption where">{whereLabel(volume)}</span>
     <Menu label={t('card.actionsFor', { name })} {items} />
   </div>
 
   <div class="title">
     <h3><button class="name" onclick={() => onopen(volume)}>{name}</button></h3>
-    {#if letter}<span class="letter">{letter}</span>{/if}
+    {#if volume.kind === 'network'}
+      <!-- REVIEW D63: a network share has the network icon, with its letter when it is mapped. -->
+      <span class="letter net" title={volume.path ?? t('kind.network')} aria-label={[t('kind.network'), letter].filter(Boolean).join(' ')}>
+        <Icon name="network" size={13} />{#if letter}{letter}{/if}
+      </span>
+    {:else if letter}<span class="letter">{letter}</span>{/if}
     {#if used !== null}<span class="pct">{Math.round(used * 100)}%</span>{/if}
   </div>
 

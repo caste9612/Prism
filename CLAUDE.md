@@ -66,8 +66,14 @@ sue voci in `docs/REVIEW.md`, aggiungi le tue.
 - Le operazioni distruttive passano sempre dalla `SandboxGuard` nei test e nei comandi di
   sviluppo.
 - Sui dischi reali solo letture. Dati di sviluppo in `%LOCALAPPDATA%\PrismDev\`.
-- Non modificare il vecchio worktree `D:\Progetti\Github\Prism` né i dati del vecchio Prism in
-  `%APPDATA%\com.prism.diskanalyzer`.
+- Non modificare il vecchio worktree `D:\Progetti\Github\Prism`. Il vecchio Prism 1.0.1
+  (portatile, sul Desktop) e i suoi dati (`%APPDATA%\com.prism.diskanalyzer`,
+  `%LOCALAPPDATA%\com.prism.diskanalyzer`) sono stati spostati nel Cestino il 2026-11-08 su
+  richiesta dell'utente, per installare la 2.0.0 su questo PC.
+- **Prism 2.0 installato su questo PC** (dal 2026-11-08): l'app installata usa
+  `%LOCALAPPDATA%\com.prism.catalog`, che lo sviluppo non tocca; prima di avviare l'app di
+  sviluppo va chiusa quella installata (stesso identificativo: la seconda istanza passerebbe
+  alla prima, e Ctrl+Spazio sarebbe di una sola delle due).
 - **App di sviluppo protetta** (istruzione della supervisione, 2026-11-07 17:35; **priorità
   alta: fallo come prossimo passo**, prima di altre funzioni). Oggi `prism-app`
   (`state.rs`, `delete_entries`) passa `None` come guardia a `fileops::delete_entries`, quindi

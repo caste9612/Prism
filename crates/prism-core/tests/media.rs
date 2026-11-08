@@ -12,7 +12,7 @@ use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use prism_core::cancel::CancelToken;
 use prism_core::jobs::JobProgress;
 use prism_core::media::bktree::{distance, groups};
-use prism_core::media::{print_image, print_progress, print_volume, raw};
+use prism_core::media::{Workers, print_image, print_progress, print_volume, raw};
 use prism_core::store;
 
 fn photo(w: u32, h: u32) -> RgbImage {
@@ -169,10 +169,20 @@ fn f11_background_prints_and_groups() {
     cat.index(volume, sb.root());
 
     let progress = JobProgress::default();
+    // Three threads (REVIEW D60): every worker starts with `init`.
+    let started = std::sync::atomic::AtomicUsize::new(0);
+    let init = || {
+        started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    };
+    let workers = Workers {
+        count: 3,
+        init: &init,
+    };
     let report = print_volume(
         &cat.store,
         volume,
         sb.root(),
+        &workers,
         &CancelToken::new(),
         &|| false,
         &progress,
@@ -182,6 +192,8 @@ fn f11_background_prints_and_groups() {
         (report.printed, report.unreadable, report.changed),
         (3, 1, 0)
     );
+    assert_eq!(started.load(std::sync::atomic::Ordering::Relaxed), 3);
+    assert_eq!(progress.done.load(std::sync::atomic::Ordering::Relaxed), 4);
     assert_eq!(
         cat.store.read(|c| print_progress(c, volume)).unwrap(),
         (4, 4)
@@ -191,6 +203,7 @@ fn f11_background_prints_and_groups() {
         &cat.store,
         volume,
         sb.root(),
+        &Workers::one(),
         &CancelToken::new(),
         &|| false,
         &progress,

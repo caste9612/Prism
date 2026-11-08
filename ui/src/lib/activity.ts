@@ -27,6 +27,8 @@ export interface ActivityRow {
   elapsedMs: number | null;
   /** Estimated time left in the current phase, once the speed is known. */
   etaMs: number | null;
+  /** For `waiting`: why the analysis is not running (`paused`, `busy`, `skipped`, `next`). */
+  reason: string | null;
 }
 
 /** What was first seen of a job: when it started and when its current phase started. */
@@ -71,18 +73,21 @@ export class ActivityTracker {
         queued,
         elapsedMs: seen ? now - seen.at : null,
         etaMs,
+        reason: null,
       };
     });
-    // Disks with files still to analyse and no job on them now: the analysis waits for its
-    // next round (or for a file that keeps changing), it is not stuck.
+    // Disks with files still to analyse and no job on them now: the row says why (paused,
+    // another job on the disk, files in use, next round), so it does not look stuck. Disks the
+    // user left out of the analysis are not shown.
     // A disk counted as running whose job is not in the list yet shows the counted progress.
     for (const v of volumes) {
       const h = v.hashes;
-      if (!h || !v.online || h.hashed >= h.total || v.status === 'ignored') continue;
+      if (!h || !v.online || h.hashed >= h.total || v.status === 'ignored' || h.waiting === 'excluded') continue;
       if (active.some((j) => j.kind === 'hash' && j.volumeId === v.id)) continue;
       rows.push({
         key: `wait-${v.id}`,
         kind: h.running ? 'hash' : 'waiting',
+        reason: h.running ? null : (h.waiting ?? 'next'),
         volumeId: v.id,
         phase: null,
         done: h.hashed,

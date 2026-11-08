@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     }
   },
   "bundle": {
@@ -60,8 +60,10 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
-      "endpoints": [],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE4NDU1RDBCNjlDOTlCOUYKUldTZm04bHBDMTFGR0NHaEh4RjRycWpPdmVuWlpaUG5KZWpzS25xU2tQckVWRnVLWFBOU2dFRk0K",
+      "endpoints": [
+        "https://github.com/caste9612/Prism/releases/latest/download/latest.json"
+      ],
       "requireSignedVersion": true,
       "windows": {
         "installMode": "passive"

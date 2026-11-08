@@ -96,8 +96,8 @@
       onerror(errorMessage(e));
     }
   }
-  // Network drives are never analysed (REVIEW D30): no choice to offer for them.
-  const analysable = $derived(volumes.filter((v) => v.lastIndexedAt !== null && v.kind !== 'network'));
+  // Network drives are analysed too (REVIEW D58), so they can be left out like any disk.
+  const analysable = $derived(volumes.filter((v) => v.lastIndexedAt !== null));
 
   function update(patch: Partial<Settings>) {
     onchange({ ...settings, ...patch });

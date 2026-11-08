@@ -7,11 +7,12 @@
 
 - **Tappa**: T11 — nuova interfaccia (dalla revisione dell'utente del 2026-11-08, ADR-0019).
   T10 resta completa per la parte autonoma.
-- **Prossimo passo**: l'utente prova la nuova interfaccia sull'app di sviluppo (REVIEW §4,
-  checklist T11) e la confronta con i disegni; poi si riprende da `docs/REVIEW.md` §0 (U7, U1,
-  U3, U2).
+- **Prossimo passo**: pubblicazione della 2.0.0 chiesta dall'utente (REVIEW U2): servono le sue
+  scelte su chiavi degli aggiornamenti (U7) e firma (U1), poi installer finale, PR `rewrite` →
+  `develop` e release `v2.0.0` (note in `docs/releases/2.0.0.md`). Intanto l'utente prova l'app
+  di sviluppo.
 - **Bloccanti**: nessuno.
-- **Decisioni in sospeso**: Q7 firma del codice (U1), Q11 ramo principale (U2).
+- **Decisioni in sospeso**: Q7 firma del codice (U1), chiavi degli aggiornamenti (U7).
 - **Modalità di lavoro** (aggiornata 2026-11-07, ~15:30): autonomia totale **senza soste**
   fino alla 1.0; le decisioni si prendono in autonomia e si registrano in `docs/REVIEW.md`, che
   guida l'unica revisione dell'utente. Push consentito solo del branch `rewrite` (vedi
@@ -19,6 +20,39 @@
   rimuove (U6).
 
 ## Diario
+
+### 2026-11-08 — Preparazione del rilascio 2.0.0
+
+- Ripresa dopo uno spegnimento accidentale del PC: nessun dato perso (albero pulito, ultimo
+  commit già su GitHub).
+- Installer `Prism_2.0.0_x64-setup.exe` costruito (6 MB, senza firma né aggiornamenti).
+- `scripts/sandbox-test.ps1`: prova dell'installer in Windows Sandbox, un Windows pulito e usa e
+  getta (REVIEW U3, TESTING §4bis); Sandbox va attivata una volta dall'utente.
+- Note di rilascio in `docs/releases/2.0.0.md`.
+- Domanda dell'utente: C: compare sempre come disco nuovo. Non è un errore di riconoscimento
+  (una sola scheda dal 2026-11-07, ritrovata a ogni avvio): nel catalogo di sviluppo C: non è
+  mai stato né indicizzato né ignorato. Il testo "nuovo" resta (scelta dell'utente).
+- Aggiornamenti come Orbit (D57): chiave pubblica e indirizzo in `tauri.conf.json`, workflow
+  `release.yml` con approvazione, environment `release` creato su GitHub (solo `develop`),
+  `scripts/new-update-key.ps1` per la chiave (da lanciare dall'utente). Niente firma del codice
+  per ora, come Orbit.
+- Dalle domande dell'utente durante la prova dell'app:
+  - il NAS aveva cambiato indirizzo dopo un riavvio (.65 → .57): ora una cartella di rete si
+    ritrova dal nome del server o si sposta a mano (D59); l'utente ha messo una prenotazione
+    DHCP e il NAS è tornato a .65;
+  - le unità di rete si analizzano anche loro, una per server alla volta (D58); trovato e chiuso
+    il rischio di eliminare l'unica copia di un file visto da due percorsi (D62: hard link, o
+    ZimaOS-HD che mostra in `.media` le altre condivisioni);
+  - *Attività in corso* dice perché un'analisi aspetta (D61);
+  - multithreading misurato: le impronte delle foto scalano quasi linearmente, ora usano un
+    quarto dei core, da 1 a 4 thread (D60, `docs/benchmarks/2026-11-08-prints-threads.md`);
+  - le anteprime di *Simili* non si vedevano nell'app vera per la CSP (L20): corretto e aggiunto
+    un controllo alla prova dell'app vera; nelle schede di un disco il conteggio di quello che
+    resta da analizzare è ora del disco (L21);
+  - cartelle di rete col nome della cartella e l'icona di rete (D63); schede raggruppate per
+    disco fisico e per NAS (D64): sul PC dell'utente C:, D: ed E: stanno sotto "Samsung SSD 990
+    PRO 2TB · NVMe · 3 partizioni".
+- Prova dell'app vera: 14 su 14 (con le anteprime); test elevati verdi.
 
 ### 2026-11-08 — Versione 2.0.0, icona ovunque, prova dell'app vera
 

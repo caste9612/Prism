@@ -1,10 +1,14 @@
-//! History of the health of the physical disks (F17-AC2).
+//! History of the health of the physical disks (F17-AC2), and the physical disk of each volume
+//! (REVIEW D64).
+
+use std::collections::HashMap;
 
 use rusqlite::{Connection, params};
 
 use super::catalog::{from_db, to_db};
 use super::{StoreError, WriteTx};
 use crate::health::{HealthReading, HealthStatus};
+use crate::model::VolumeId;
 
 /// A stored reading.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,4 +129,30 @@ pub fn prune_health(wtx: &mut WriteTx<'_>, before: i64) -> Result<usize, StoreEr
         .conn()
         .prepare_cached("DELETE FROM disk_health WHERE at < ?1")?
         .execute([before])?)
+}
+
+/// The physical disk ("model|serial") of the volumes for which it is known (REVIEW D64).
+///
+/// # Errors
+/// SQLite errors.
+pub fn volume_disks(conn: &Connection) -> Result<HashMap<VolumeId, String>, StoreError> {
+    let mut stmt =
+        conn.prepare_cached("SELECT id, disk_key FROM volumes WHERE disk_key IS NOT NULL")?;
+    let rows = stmt.query_map([], |r| Ok((VolumeId(r.get(0)?), r.get(1)?)))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Records the physical disk of a volume, read while it is connected.
+///
+/// # Errors
+/// SQLite errors.
+pub fn set_volume_disk(
+    wtx: &mut WriteTx<'_>,
+    volume: VolumeId,
+    key: &str,
+) -> Result<(), StoreError> {
+    wtx.conn()
+        .prepare_cached("UPDATE volumes SET disk_key = ?2 WHERE id = ?1")?
+        .execute(params![volume.0, key])?;
+    Ok(())
 }

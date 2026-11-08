@@ -155,7 +155,7 @@ impl AppState {
             found,
             volume,
             &|a, b| bktree::distance(hashes[a], hashes[b]),
-            self.hashing.pending_images(),
+            self.hashing.pending_images(volume),
         )
     }
 
@@ -191,7 +191,7 @@ impl AppState {
                 video::mean_distance(&prints[a].frames, &prints[b].frames)
                     .map_or(64, |d| d.round() as u32)
             },
-            self.hashing.pending_videos(),
+            self.hashing.pending_videos(volume),
         )
     }
 

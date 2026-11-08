@@ -52,14 +52,24 @@ describe('in progress panel', () => {
     expect(rows.map((r) => [r.kind, r.queued])).toEqual([['update', true]]);
   });
 
-  it('a connected disk with files left and no job waits for its next round', () => {
+  it('a connected disk with files left and no job says why it waits', () => {
     const tracker = new ActivityTracker();
-    const volumes = sampleVolumes(0).map((v) => (v.id === 1 ? { ...v, hashes: { total: 1_000, hashed: 990, running: false } } : v));
+    const hashes = (hashed: number, running: boolean, waiting: 'excluded' | 'paused' | 'busy' | 'skipped' | 'next' | null, skipped = 0) =>
+      sampleVolumes(0).map((v) => (v.id === 1 ? { ...v, hashes: { total: 1_000, hashed, running, waiting, skipped } } : v));
+    const volumes = hashes(990, false, 'skipped', 10);
     const rows = tracker.rows([], volumes, 0);
-    expect(rows).toEqual([expect.objectContaining({ kind: 'waiting', volumeId: 1, percent: 99, done: 990, total: 1_000 })]);
+    expect(rows).toEqual([
+      expect.objectContaining({ kind: 'waiting', reason: 'skipped', volumeId: 1, percent: 99, done: 990, total: 1_000 }),
+    ]);
+    expect(tracker.rows([], hashes(990, false, 'paused'), 0)[0]?.reason).toBe('paused');
+    expect(tracker.rows([], hashes(990, false, null), 0)[0]?.reason).toBe('next');
+    // A disk left out of the analysis is not shown.
+    expect(tracker.rows([], hashes(990, false, 'excluded'), 0)).toEqual([]);
     // Counted as running before its job reaches the list: the counted progress, no phase.
-    const counted = volumes.map((v) => (v.id === 1 ? { ...v, hashes: { total: 1_000, hashed: 500, running: true } } : v));
-    expect(new ActivityTracker().rows([], counted, 0)).toEqual([expect.objectContaining({ kind: 'hash', volumeId: 1, percent: 50, phase: null })]);
+    const counted = hashes(500, true, null);
+    expect(new ActivityTracker().rows([], counted, 0)).toEqual([
+      expect.objectContaining({ kind: 'hash', volumeId: 1, percent: 50, phase: null, reason: null }),
+    ]);
     // While its job runs, the job row is shown instead.
     const running = tracker.rows([job({ volumeId: 1, phase: 'hashFull', done: 1, total: 10 })], volumes, 0);
     expect(running.map((r) => r.kind)).toEqual(['hash']);
