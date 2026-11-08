@@ -98,9 +98,15 @@ dall'utente in un PowerShell amministratore (`scripts/admin/install-admin-runner
 Lo sviluppo può poi lanciare i test elevati con `schtasks /run /tn PrismDevAdminTests` e
 leggerne l'esito senza intervento dell'utente:
 
-- `%LOCALAPPDATA%\PrismDev\admin-tests\last.status` — `running`, `passed`, `failed <codice>`
-  o `error`, con data e ora;
+- `%LOCALAPPDATA%\PrismDev\admin-tests\last.status` — `running`, `passed`, `failed <codice>`,
+  `error`, `attached` o `detached`, con data e ora;
 - `%LOCALAPPDATA%\PrismDev\admin-tests\last.log` — output completo di `cargo test`.
+
+Il runner collega il disco di test per i test e lo **scollega alla fine**, se l'ha collegato lui
+(dal 2026-11-08: prima restava collegato fino al riavvio e il Prism installato sul PC lo vedeva
+come un disco nuovo). Un file `request.txt` nella stessa cartella, letto e tolto all'avvio, cambia
+cosa fa un giro: `attach` collega il disco e lo lascia collegato, senza test; `detach` lo
+scollega, senza test.
 
 Il runner esegue `cargo test -p prism-win --features admin-tests`, passa ai test la radice del
 volume di test in `PRISM_TEST_VOLUME` e compila in `target\admin`, separato dalla build normale.
@@ -132,10 +138,13 @@ test usano sempre `PRISM_TEST_VOLUME` e mai una lettera fissa.
   in locale e Playwright vi si collega (al posto di `tauri-driver` + `msedgedriver`):
 
   ```powershell
-  schtasks /run /tn PrismDevAdminTests   # monta il disco PRISMTEST (e rifà i test elevati, §4)
+  # Prima chiudere il Prism installato (stesso identificativo: la seconda istanza passerebbe alla prima).
+  $req = "$env:LOCALAPPDATA\PrismDev\admin-tests\request.txt"
+  Set-Content $req attach; schtasks /run /tn PrismDevAdminTests   # collega il disco PRISMTEST (§4)
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9333'
   .\target\debug\prism.exe               # build di debug: eliminazioni solo nella sandbox
   npm --prefix ui run e2e:real
+  Set-Content $req detach; schtasks /run /tn PrismDevAdminTests   # e lo scollega alla fine
   ```
 
   Sui dischi veri la prova solo legge e naviga: ogni schermata e scheda del primo disco

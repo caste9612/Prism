@@ -72,6 +72,9 @@
   Esplora risorse e catalogo nuovo verificati (REVIEW U3). Chiave degli aggiornamenti copiata,
   e password spostata, nella cartella delle credenziali dell'utente su sua richiesta; verificato
   che la chiave si apre (REVIEW U7).
+- Pulizia chiesta dall'utente (REVIEW L22): il runner amministratore ora scollega il disco
+  PRISMTEST a fine giro (prima restava collegato e il Prism installato l'ha visto come disco
+  nuovo); disco scollegato; eliminati benchmark, esperimenti in `%TEMP%` e log vecchi (~1,3 GB).
 
 ### 2026-11-08 — Versione 2.0.0, icona ovunque, prova dell'app vera
 
