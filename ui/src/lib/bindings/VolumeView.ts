@@ -18,7 +18,33 @@ kind: string, fsType: string | null,
 /**
  * Current mount when online, last known one otherwise.
  */
-mount: string | null, online: boolean, 
+mount: string | null, 
+/**
+ * The network path of a network share.
+ */
+path: string | null, 
+/**
+ * What the volume is shown together with (REVIEW D64): `disk:<model|serial>` for the
+ * partitions of one physical disk, `net:<server>` for the shares of one server; `None` when
+ * the physical disk is not known yet.
+ */
+group: string | null, 
+/**
+ * The model of its physical disk, when known.
+ */
+diskModel: string | null, 
+/**
+ * How its disk is connected: `nvme`, `sata`, `usb`, `virtual`…
+ */
+bus: string | null, 
+/**
+ * For a network share: its server as written in the path (`192.168.1.65`)…
+ */
+server: string | null, 
+/**
+ * …and the name learned for it (`ZimaOS.local`), if any (REVIEW D59).
+ */
+serverName: string | null, online: boolean, 
 /**
  * `new`, `indexing`, `indexed`, `ignored`, `reindex_needed`.
  */

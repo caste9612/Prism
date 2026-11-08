@@ -57,12 +57,14 @@ Archivio SQLite in modalità WAL, nella cartella dati dell'app. Lo schema è ver
 migrazioni SQL incorporate (`crates/prism-core/src/store/migrations/`) e `PRAGMA user_version`;
 una migrazione già pubblicata non si modifica, se ne aggiunge una nuova.
 
-**Schema in uso (versione 8)** — testo completo in `0001_initial.sql`,
+**Schema in uso (versione 10)** — testo completo in `0001_initial.sql`,
 `0002_volume_bus.sql` (aggiunge `bus_type`), `0003_entries_volume_index.sql` (indice sul solo
 volume al posto di `(volume_id, file_ref)`, ADR-0017) e `0004_actions_log.sql` (registro delle
 azioni, T4), `0005_content_hashes.sql` (hash del contenuto, T6), `0006_image_prints.sql`
-(impronte delle immagini, T8), `0007_video_prints.sql` (impronte dei video, T8) e
-`0008_disk_health.sql` (salute dei dischi, T9):
+(impronte delle immagini, T8), `0007_video_prints.sql` (impronte dei video, T8),
+`0008_disk_health.sql` (salute dei dischi, T9), `0009_share_servers.sql` (nomi dei server
+delle condivisioni di rete, REVIEW D59) e `0010_volume_disk.sql` (disco fisico di ogni volume,
+REVIEW D64):
 
 ```sql
 volumes (
@@ -74,7 +76,8 @@ volumes (
   last_mount,                       -- ultima lettera o percorso visto (mai una chiave)
   first_seen_at, last_seen_at, last_indexed_at,   -- millisecondi Unix
   usn_journal_id, usn_next,         -- journal USN (solo NTFS, T2)
-  settings                          -- JSON: esclusioni per volume, politica hash
+  settings,                         -- JSON: esclusioni per volume, politica hash
+  disk_key                          -- disco fisico "modello|seriale" (v10, REVIEW D64)
 ) STRICT
 
 entries (
@@ -123,6 +126,9 @@ disk_health (disk_key,                 -- "modello|numero di serie" del disco fi
              at, status, temperature, power_on_hours, wear, reallocated, pending,
              media_errors, spare, reasons,
              PRIMARY KEY (disk_key, at)) STRICT   -- v8 (T9)
+
+share_servers (address PRIMARY KEY,      -- il server come scritto nei percorsi UNC (un IP)
+               name, seen_at) STRICT     -- il suo nome ("ZimaOS.local"); v9 (REVIEW D59)
 ```
 
 Le chiavi esterne sono attive sulla connessione di scrittura; `entries` non usa cascate (una
@@ -301,9 +307,14 @@ Nell'app (`prism-app/src/hash_jobs.rs`) un thread, 20 s dopo l'avvio e poi ogni 
 - conta per ogni volume indicizzato file e file con hash valido (ogni 5 minuti, ogni minuto
   mentre l'analisi gira: il conteggio costa centinaia di ms su un catalogo grande) e lo mette
   sulle schede (`VolumeView.hashes`, F06-AC5);
-- accoda un job `hash` a priorità *background* per ogni volume locale collegato, indicizzato,
-  con lavoro da fare, non escluso dall'utente (F21-AC3) e senza altri job, al massimo ogni 2
-  minuti; le unità di rete non si leggono in background (REVIEW D30).
+- accoda un job `hash` a priorità *background* per ogni volume collegato, indicizzato, con
+  lavoro da fare, non escluso dall'utente (F21-AC3) e senza altri job, al massimo ogni 2
+  minuti. Anche le unità di rete (REVIEW D58): il loro job occupa la risorsa `net:<server>`,
+  quindi le cartelle di uno stesso NAS si leggono una alla volta;
+- per ogni volume con file ancora da leggere e nessun job dice perché aspetta
+  (`HashesView.waiting`, REVIEW D61): escluso, in pausa, un altro job sul disco, file che
+  l'ultimo giro completo non ha potuto leggere (cambiati durante la lettura o illeggibili,
+  `skipped`), oppure il prossimo giro.
 
 Il job entra in modalità background di Windows (`prism_win::process::BackgroundMode`) e si
 ferma tra due file se l'utente mette in pausa (tray o impostazioni), se il PC va a batteria e
@@ -596,6 +607,17 @@ Implementazione (T3):
 - `netprobe.rs`: le unità di rete contano come collegate solo quando il server risponde; capacità
   e spazio libero si chiedono in thread separati con un tempo massimo di 5 s (un server spento
   può bloccare la chiamata per decine di secondi), ogni 30 s se raggiungibili e ogni 10 s se no.
+- Cartelle di rete a un nuovo indirizzo (REVIEW D59): un NAS raggiunto per IP può avere un
+  altro indirizzo dopo un riavvio. `netnames.rs` impara il nome del server quando risponde
+  (`prism_win::net::host_name`, ricerca inversa di Windows: DNS, mDNS, LLMNR, NetBIOS) e lo
+  salva in `share_servers`; quando una cartella del catalogo non risponde più,
+  `monitor::moved_shares` cerca il nome (`prism_win::net::ipv4_addresses`) e prova la stessa
+  cartella ai nuovi indirizzi. Una cartella con il nome di una del catalogo trovata a un altro
+  server (così, o mappata con una lettera) non corrisponde per percorso: `match_volumes` la
+  rende ambigua e l'utente conferma ("Cartella di rete a un nuovo indirizzo?"); scelta la
+  cartella del catalogo, questa prende il nuovo percorso. In più `shares.rs` permette di dare
+  il nuovo percorso a mano dalla scheda del disco, dopo aver controllato che risponda e quante
+  delle voci principali del catalogo ci sono.
 - `watchers.rs`: per i volumi indicizzati senza un journal utilizzabile (FAT, exFAT, ReFS, unità
   di rete) un `FolderWatcher` raccoglie i percorsi cambiati e un job `refresh` rilegge le
   cartelle interessate (`prism-core::refresh`); i cambi nella cartella dati di Prism sono
@@ -639,7 +661,10 @@ Interfaccia "B+C" (T11, ADR-0019):
   con il suo riquadro, impostazioni), poi la schermata, poi la barra di stato in `App.svelte`.
 - **Catalogo** (`CatalogView.svelte`, `DiskCard.svelte`): filtri, ordine e colori in
   `catalog.ts` (`catalogCards`, `filterCounts`, `stickerColor`, `knownLocations`,
-  `diskQuery`); la vista Schede/Elenco resta nel `localStorage` (solo una comodità). Le barre
+  `diskQuery`); la vista Schede/Elenco resta nel `localStorage` (solo una comodità). Schede e
+  righe si raggruppano per disco fisico o per server (`diskGroups`, `groupTitle`, REVIEW D64)
+  secondo `VolumeView.group`; le cartelle di rete si chiamano col nome della cartella, con
+  l'icona di rete al posto della lettera e "NAS · server" sopra il nome (`whereLabel`, D63). Le barre
   per categoria vengono da `categories.svelte.ts`: chiede `type_stats` di un disco alla volta in
   sottofondo e tiene il risultato almeno 10 minuti (un milione di file costa circa un secondo).
   Le *Ultime azioni* vengono dal comando `recent_actions` (registro delle azioni, F16-AC6),
@@ -703,14 +728,43 @@ installa solo dopo la conferma dell'utente: l'installer NSIS parte in modalità 
 Prism riparte. Prima di installare, il plugin verifica la firma del pacchetto (minisign) con
 la chiave pubblica; un pacchetto con una firma sbagliata non viene installato.
 
-La chiave pubblica e l'indirizzo del manifest `latest.json` si danno **alla compilazione**
-(`PRISM_UPDATE_PUBKEY`, `PRISM_UPDATE_URL`, solo `https://`); in `tauri.conf.json` la chiave
-resta vuota. Una build senza queste variabili non si collega mai e le impostazioni lo dicono.
-Con `TAURI_SIGNING_PRIVATE_KEY` impostata, `scripts\build-installer.ps1` firma l'installer
-(`.sig`) e scrive `latest.json` accanto: si pubblicano tutti e tre nella release
-`v<versione>`, e l'indirizzo pensato è
-`https://github.com/caste9612/Prism/releases/latest/download/latest.json` (REVIEW U7). È
-l'unica connessione in uscita di Prism (NF6).
+Lo schema è lo stesso di Orbit (D57). La chiave pubblica e l'indirizzo del manifest sono in
+`plugins.updater` di `tauri.conf.json`:
+`https://github.com/caste9612/Prism/releases/latest/download/latest.json`, cioè il
+`latest.json` dell'ultima release di GitHub (una release senza `latest.json`, in bozza o
+pre-release, è invisibile alle copie installate). Controllano solo le build di release: quella
+di sviluppo non si collega mai e le impostazioni lo dicono. È l'unica connessione in uscita di
+Prism (NF6).
+
+**La chiave privata** (minisign, protetta da password) sta in `~\.tauri\prism-updater.key`,
+fuori dal repository, accanto a quelle di Orbit e Zenith; la crea una volta
+`scripts\new-update-key.ps1` (chiede la password, o con `-GeneratePassword` ne genera una e la
+salva in `prism-updater.key.password.txt`), che mette chiave e password anche nei secret
+`TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` dell'environment `release`
+del repository GitHub. I secret non si possono rileggere: la copia di sicurezza (file e password
+insieme, fuori dal PC) la tiene l'utente. Persa la chiave o la password, le copie installate non
+accettano più aggiornamenti: serve una chiave nuova e una reinstallazione a mano. Per cambiarla
+in modo pianificato si pubblica prima una versione con la nuova chiave pubblica, firmata con la
+vecchia.
+
+**Rilascio.** `scripts\build-installer.ps1` controlla che la versione sia la stessa in
+`tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, `ui\package.json` e `ui\package-lock.json`,
+chiede la password (o la legge da `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) e la prova firmando un
+file di prova prima di compilare; poi firma l'installer (`.sig`) e scrive `latest.json` accanto,
+con il primo paragrafo di `docs\releases\<versione>.md` come note mostrate in *Impostazioni*.
+Con `-NoUpdateSignature` costruisce un installer solo da provare. Di solito però si pubblica da
+GitHub Actions (`.github\workflows\release.yml`), a mano e mai da una pull request:
+
+```powershell
+gh workflow run release.yml --ref develop                  # prova a secco: i file restano come artefatto
+gh workflow run release.yml --ref develop -f publish=true  # release v<versione> su GitHub
+```
+
+L'environment `release` vale solo per `develop` e aspetta l'approvazione dell'utente prima di
+dare i secret al job di compilazione (Windows). Con *publish* un secondo job controlla che
+`latest.json` sia della versione giusta e con la firma dell'installer, che la release non esista
+già, e crea la release `v<versione>` sul commit compilato, con le note di
+`docs\releases\<versione>.md` e i tre file: installer, `.sig`, `latest.json`.
 
 ## 9. Errori, log, diagnostica
 

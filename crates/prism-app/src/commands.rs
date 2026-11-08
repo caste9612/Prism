@@ -19,6 +19,7 @@ use crate::duplicates_views::{DupFilterInput, DuplicatesView, RuleInput};
 use crate::health_state::DiskHealthView;
 use crate::identity::AmbiguousView;
 use crate::search_views::SearchResultView;
+use crate::shares::SharePathView;
 use crate::shell_requests::LocatedView;
 use crate::similar_views::SimilarView;
 use crate::space_views::{LargeFileView, SpaceFolderView, TypeStatsView};
@@ -95,6 +96,31 @@ pub fn set_labels(
     state
         .store
         .write(move |w| store::set_volume_labels(w, VolumeId(id), &labels))?;
+    emit_volumes(&app);
+    Ok(())
+}
+
+/// Checks the new network path of a share of the catalog (REVIEW D59).
+#[tauri::command]
+pub async fn check_share_path(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    path: String,
+) -> R<SharePathView> {
+    let s = Arc::clone(&state);
+    blocking(move || s.check_share_path(VolumeId(id), &path)).await
+}
+
+/// Gives a share of the catalog its new network path, after the user confirmed it (REVIEW D59).
+#[tauri::command]
+pub async fn move_share(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    path: String,
+) -> R<()> {
+    let s = Arc::clone(&state);
+    blocking(move || s.move_share(VolumeId(id), &path)).await?;
     emit_volumes(&app);
     Ok(())
 }

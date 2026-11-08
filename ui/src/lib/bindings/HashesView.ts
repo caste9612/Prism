@@ -15,4 +15,12 @@ hashed: number,
 /**
  * A hash job runs on the volume now.
  */
-running: boolean, };
+running: boolean, 
+/**
+ * With files left and no hash job: why (`excluded`, `paused`, `busy`, `skipped`, `next`).
+ */
+waiting: 'excluded' | 'paused' | 'busy' | 'skipped' | 'next' | null, 
+/**
+ * Files the last complete round could not read (changed while read, or unreadable).
+ */
+skipped: number, };

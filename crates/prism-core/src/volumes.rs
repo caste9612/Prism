@@ -63,6 +63,16 @@ pub fn normalize_unc(path: &str) -> String {
     names::fold(p.trim_end_matches('\\'))
 }
 
+/// Server and share of a UNC path, in canonical form: `\\nas\photos\2024` → `("nas", "photos")`.
+#[must_use]
+pub fn unc_parts(path: &str) -> Option<(String, String)> {
+    let p = normalize_unc(path);
+    let mut parts = p.strip_prefix(r"\\")?.split('\\');
+    let server = parts.next().filter(|s| !s.is_empty())?;
+    let share = parts.next().filter(|s| !s.is_empty())?;
+    Some((server.to_owned(), share.to_owned()))
+}
+
 fn same_text(a: Option<&str>, b: Option<&str>) -> bool {
     matches!((a, b), (Some(x), Some(y)) if names::eq_ignore_case(x, y))
 }
@@ -159,9 +169,45 @@ pub fn match_volumes(detected: &[DetectedVolume], known: &[Volume]) -> Vec<Volum
             result[i] = Some(decision);
         }
     }
+    // A new network share with the name of a catalog share that is not connected may be that
+    // share at a new address (a NAS whose IP changed): the user decides.
+    for (i, d) in detected.iter().enumerate() {
+        if result[i] != Some(VolumeMatch::New) || d.info.kind != VolumeKind::Network {
+            continue;
+        }
+        let moved = moved_share_candidates(&d.info, known, &taken);
+        if !moved.is_empty() {
+            result[i] = Some(VolumeMatch::Ambiguous(moved));
+        }
+    }
     result
         .into_iter()
         .map(|m| m.unwrap_or(VolumeMatch::New))
+        .collect()
+}
+
+/// Catalog shares with the share name of `d` on another server, not connected now.
+fn moved_share_candidates(
+    d: &VolumeInfo,
+    known: &[Volume],
+    taken: &HashSet<VolumeId>,
+) -> Vec<VolumeId> {
+    let Some((server, share)) = d.unc_path.as_deref().and_then(unc_parts) else {
+        return Vec::new();
+    };
+    known
+        .iter()
+        .filter(|v| {
+            v.info.kind == VolumeKind::Network
+                && v.status != VolumeStatus::Ignored
+                && !taken.contains(&v.id)
+                && v.info
+                    .unc_path
+                    .as_deref()
+                    .and_then(unc_parts)
+                    .is_some_and(|(s, n)| n == share && s != server)
+        })
+        .map(|v| v.id)
         .collect()
 }
 
@@ -350,6 +396,38 @@ mod tests {
             vec![VolumeMatch::Known(VolumeId(1)), VolumeMatch::New]
         );
         assert_eq!(normalize_unc(r"\\?\UNC\Nas\Photos\"), r"\\NAS\PHOTOS");
+        assert_eq!(
+            unc_parts(r"\\192.168.1.65\Big-Storage\photos"),
+            Some(("192.168.1.65".into(), "BIG-STORAGE".into()))
+        );
+        assert_eq!(unc_parts(r"\\nas"), None);
+        assert_eq!(unc_parts(r"D:\photos"), None);
+    }
+
+    #[test]
+    fn a_share_with_a_known_name_at_another_address_is_asked_about() {
+        let known = catalog(vec![
+            network(r"\\192.168.1.65\ZimaOS-HD", r"\\192.168.1.65\ZimaOS-HD"),
+            network(r"\\192.168.1.65\Public", r"\\192.168.1.65\Public"),
+        ]);
+        // The NAS answers at a new address; its old one is gone.
+        let now = [detected(network(r"\\192.168.1.57\zimaos-hd", r"Z:\"))];
+        assert_eq!(
+            match_volumes(&now, &known),
+            vec![VolumeMatch::Ambiguous(vec![VolumeId(1)])]
+        );
+        // The catalog share answers at its own address: the other one is a new share.
+        let both = [
+            detected(network(r"\\192.168.1.65\Public", r"\\192.168.1.65\Public")),
+            detected(network(r"\\192.168.1.80\Public", r"Y:\")),
+        ];
+        assert_eq!(
+            match_volumes(&both, &known),
+            vec![VolumeMatch::Known(VolumeId(2)), VolumeMatch::New]
+        );
+        // Another name: a new share.
+        let other = [detected(network(r"\\192.168.1.57\Media", r"M:\"))];
+        assert_eq!(match_volumes(&other, &known), vec![VolumeMatch::New]);
     }
 
     #[test]

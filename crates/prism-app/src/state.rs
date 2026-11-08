@@ -50,6 +50,8 @@ pub struct AppState {
     pub dev: bool,
     /// Reachability and free space of network shares (REVIEW L5).
     pub net: Arc<NetProbe>,
+    /// Names of the servers of network shares, to find them at a new address (REVIEW D59).
+    pub names: Arc<crate::netnames::ServerNames>,
     /// New disks waiting to be announced while the window is hidden (REVIEW L8).
     pub notices: Mutex<Notices>,
     /// Identifier under which notifications are shown (`prism_win::notify`).
@@ -83,6 +85,13 @@ pub fn job_view(j: &JobInfo) -> JobView {
     }
 }
 
+/// The server of a UNC path as written (`\\ZimaOS\Foto` → `ZimaOS`).
+fn unc_server(unc: &str) -> Option<String> {
+    let rest = unc.replace('/', "\\");
+    let server = rest.strip_prefix(r"\\")?.split('\\').next()?;
+    (!server.is_empty() && server != "?").then(|| server.to_owned())
+}
+
 fn kind_name(v: &Volume) -> String {
     if v.info.fs_serial.is_none() && v.info.unc_path.is_none() {
         return "folder".into();
@@ -113,7 +122,7 @@ impl AppState {
 
     /// The catalog screen: every volume with its labels, state, totals and current job.
     pub fn volume_views(&self) -> Result<Vec<VolumeView>, ApiError> {
-        let rows = self.store.read(|c| {
+        let (rows, disks) = self.store.read(|c| {
             let mut out = Vec::new();
             for v in store::volumes(c)? {
                 let totals = match store::root_entry(c, v.id)? {
@@ -122,7 +131,7 @@ impl AppState {
                 };
                 out.push((v, totals));
             }
-            Ok(out)
+            Ok((out, store::volume_disks(c)?))
         })?;
         let jobs = self.engine.jobs();
         let online = self.online();
@@ -130,6 +139,19 @@ impl AppState {
             .into_iter()
             .map(|(v, totals)| {
                 let detected = online.get(&v.id);
+                let server = v.info.unc_path.as_deref().and_then(unc_server);
+                // The physical disk: as saved, or as read now (before it is saved).
+                let disk_key = disks.get(&v.id).cloned().or_else(|| {
+                    detected
+                        .and_then(|d| d.disks.first())
+                        .and_then(|n| self.health.snapshot(*n))
+                        .map(|s| s.key)
+                });
+                let group = if v.info.kind == VolumeKind::Network {
+                    server.as_ref().map(|s| format!("net:{}", names::fold(s)))
+                } else {
+                    disk_key.as_ref().map(|k| format!("disk:{k}"))
+                };
                 let job = jobs
                     .iter()
                     .filter(|j| {
@@ -158,6 +180,17 @@ impl AppState {
                     os_label: v.info.os_label.clone(),
                     fs_type: v.info.fs_type.clone(),
                     mount,
+                    path: v.info.unc_path.clone(),
+                    group,
+                    disk_model: disk_key
+                        .as_deref()
+                        .and_then(|k| k.split('|').next())
+                        .map(str::to_owned),
+                    bus: v.info.bus.map(|b| b.as_str().to_owned()),
+                    server_name: server
+                        .as_deref()
+                        .and_then(|s| self.names.name_of(&names::fold(s))),
+                    server,
                     online: detected.is_some(),
                     status: v.status.as_str().to_owned(),
                     capacity: detected.and_then(|d| d.info.capacity).or(v.info.capacity),
@@ -171,12 +204,26 @@ impl AppState {
                     last_seen_at: v.last_seen_at,
                     job,
                     health: detected.and_then(|d| self.health_badge(d)),
-                    hashes: self.hashing.progress(v.id).map(|h| HashesView {
-                        total: h.total,
-                        hashed: h.hashed,
-                        running: jobs.iter().any(|j| {
-                            j.volume == Some(v.id) && j.kind == "hash" && !j.state.is_finished()
-                        }),
+                    hashes: self.hashing.progress(v.id).map(|h| {
+                        let active = |hash: bool| {
+                            jobs.iter().any(|j| {
+                                j.volume == Some(v.id)
+                                    && (j.kind == "hash") == hash
+                                    && !j.state.is_finished()
+                            })
+                        };
+                        let running = active(true);
+                        let left = h.total.saturating_sub(h.hashed);
+                        HashesView {
+                            total: h.total,
+                            hashed: h.hashed,
+                            running,
+                            waiting: self
+                                .hashing
+                                .waiting(v.id, left, running, active(false))
+                                .map(|w| w.as_str().to_owned()),
+                            skipped: self.hashing.skipped_files(v.id).min(left),
+                        }
                     }),
                 }
             })
@@ -506,7 +553,7 @@ impl AppState {
                 (v.id, (v, mount))
             })
             .collect();
-        let pending = self.hashing.pending_files();
+        let pending = self.hashing.pending_files(filter.volume_id.map(VolumeId));
         Ok(duplicates_views::view(
             &result,
             &duplicates_views::rules(rules),
@@ -541,6 +588,7 @@ impl AppState {
             };
             return Err(ApiError::new(code, entry.0));
         }
+        self.check_same_files(entries)?;
         let mut by_volume: std::collections::BTreeMap<VolumeId, Vec<EntryId>> =
             std::collections::BTreeMap::new();
         for (id, record) in records {
@@ -559,6 +607,58 @@ impl AppState {
             crate::hash_jobs::refresh(self, volume);
         }
         Ok(total)
+    }
+
+    /// Refuses to delete a copy that is, on the disk, the same file as a copy that stays: a hard
+    /// link, or one file a NAS shows under two shares (REVIEW D62). The catalog sees two copies;
+    /// deleting "one" would delete the only one. Checked on the connected copies, before
+    /// anything is touched.
+    fn check_same_files(&self, entries: &[EntryId]) -> Result<(), ApiError> {
+        use prism_win::files::{identity, same_file};
+        let kept = self.store.read(|c| duplicates::kept_copies(c, entries))?;
+        // A copy of the map: `entry_path` takes the lock itself.
+        let online = self.online().clone();
+        let server = |v: VolumeId| {
+            online
+                .get(&v)
+                .filter(|d| d.info.kind == VolumeKind::Network)
+                .and_then(|d| d.info.unc_path.as_deref())
+                .and_then(prism_core::volumes::unc_parts)
+                .map(|(s, _)| s)
+        };
+        for (doomed, copies) in kept {
+            let Some(volume) = self
+                .store
+                .read(move |c| store::entry(c, doomed))?
+                .map(|r| r.volume)
+            else {
+                continue;
+            };
+            if !online.contains_key(&volume) {
+                continue;
+            }
+            let Some(id) = self
+                .entry_path(volume, doomed)
+                .ok()
+                .and_then(|p| identity(&p))
+            else {
+                continue;
+            };
+            for (copy, copy_volume) in copies {
+                if !online.contains_key(&copy_volume) {
+                    continue;
+                }
+                let Ok(path) = self.entry_path(copy_volume, copy) else {
+                    continue;
+                };
+                let same_server = server(volume).is_some() && server(volume) == server(copy_volume);
+                if identity(&path).is_some_and(|other| same_file(&id, &other, same_server)) {
+                    tracing::warn!(entry = doomed.0, same_as = %path.display(), "one file under two paths: not deleted");
+                    return Err(ApiError::new("same_file", path.display()));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The guard of every destructive operation of the app (CLAUDE.md, TESTING S2): development
@@ -783,13 +883,13 @@ pub fn shown_on_card(kind: &str) -> bool {
     matches!(kind, "index" | "update")
 }
 
-/// The physical resources a job on this volume keeps busy (one heavy job per disk, ADR-0009).
+/// The physical resources a job on this volume keeps busy (one heavy job per disk, ADR-0009):
+/// for a network share its server, so the shares of one NAS are read one at a time.
 pub(crate) fn job_disks(d: &DetectedVolume) -> Vec<String> {
     if d.info.kind == VolumeKind::Network {
-        vec![format!(
-            "net:{}",
-            d.info.unc_path.clone().unwrap_or_default()
-        )]
+        let unc = d.info.unc_path.as_deref().unwrap_or_default();
+        let server = prism_core::volumes::unc_parts(unc).map_or_else(|| unc.to_owned(), |(s, _)| s);
+        vec![format!("net:{server}")]
     } else {
         d.disks.iter().map(|n| format!("disk{n}")).collect()
     }

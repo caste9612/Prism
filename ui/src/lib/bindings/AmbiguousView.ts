@@ -4,4 +4,12 @@ import type { CandidateView } from "./CandidateView";
 /**
  * A connected disk Prism cannot tell apart, with the catalog disks it could be (F02-AC3).
  */
-export type AmbiguousView = { key: string, label: string | null, mount: string | null, fsType: string | null, capacity: number | null, candidates: Array<CandidateView>, };
+export type AmbiguousView = { key: string, 
+/**
+ * A network share with the name of a catalog share, at another address (REVIEW D59).
+ */
+network: boolean, 
+/**
+ * Its network path, for a network share.
+ */
+path: string | null, label: string | null, mount: string | null, fsType: string | null, capacity: number | null, candidates: Array<CandidateView>, };

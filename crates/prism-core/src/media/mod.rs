@@ -13,7 +13,8 @@ pub mod raw;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 
 use image::{DynamicImage, ImageFormat, ImageReader};
 
@@ -212,8 +213,9 @@ pub fn print_progress(
     Ok((total, done))
 }
 
-/// Prints the images of a volume reached at `root` that have no valid print, saving them in
-/// batches; `pause` is asked between files. Progress is counted in files.
+/// Prints the images of a volume reached at `root` that have no valid print, with the worker
+/// threads (REVIEW D60), saving them in batches; `pause` is asked between small groups of files.
+/// Progress is counted in files.
 ///
 /// # Errors
 /// [`MediaError::Store`] if the catalog cannot be read or written.
@@ -221,6 +223,7 @@ pub fn print_volume(
     store: &Store,
     volume: VolumeId,
     root: &Path,
+    workers: &Workers<'_>,
     cancel: &CancelToken,
     pause: &dyn Fn() -> bool,
     progress: &JobProgress,
@@ -230,6 +233,8 @@ pub fn print_volume(
         .into_iter()
         .filter(|s| !s.printed && is_printable(&s.name) && s.size <= MAX_IMAGE_BYTES)
         .collect();
+    let compute = |path: &Path| print_image(path).map_err(|e| e.to_string());
+    let one = |s: &store::PrintState, path: &Path| print_one(s, path, cancel, &compute);
     run_pass(
         store,
         root,
@@ -238,7 +243,8 @@ pub fn print_volume(
         cancel,
         pause,
         progress,
-        &|path| print_image(path).map_err(|e| e.to_string()),
+        workers.count.max(1) * 4,
+        &|items| in_parallel(items, workers, &one),
         &|batch: Vec<(store::PrintState, Option<ImagePrint>)>| {
             let records: Vec<PrintRecord> = batch
                 .into_iter()
@@ -287,10 +293,114 @@ fn file_path(
 /// Files with their print, or `None` when they could not be decoded.
 type Batch<T> = Vec<(store::PrintState, Option<T>)>;
 
-/// One printing pass over `todo` (images or videos): each file is printed only if it still has
-/// the size and date of the catalog before and after being read (otherwise it is left for after
-/// the next update); results are saved in batches through `save`, an undecodable file with
-/// `None`.
+/// The threads that print the images and how each one starts (REVIEW D60).
+pub struct Workers<'a> {
+    pub count: usize,
+    /// Run first on every worker thread: the app puts it in Windows background mode.
+    pub init: &'a (dyn Fn() + Sync),
+}
+
+fn nothing() {}
+
+impl Workers<'static> {
+    /// Everything on the calling thread.
+    #[must_use]
+    pub fn one() -> Self {
+        Self {
+            count: 1,
+            init: &nothing,
+        }
+    }
+}
+
+/// The threads the image prints use on this machine: a quarter of the cores, from 1 to 4.
+/// Decoding is limited by the processor and scales with the threads (×3.8 with 4 on 300 photos,
+/// docs/benchmarks/2026-11-08-prints-threads.md); a quarter keeps the PC responsive.
+#[must_use]
+pub fn print_workers() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| (n.get() / 4).clamp(1, 4))
+}
+
+/// What became of one file of a printing pass.
+enum Outcome<T> {
+    Printed(T),
+    Unreadable(String),
+    /// Changed on the disk since it was indexed: left for after the next update.
+    Changed,
+    /// Not started: the pass was cancelled.
+    Stopped,
+}
+
+/// Prints one file if it has the size and date of the catalog before and after being read.
+fn print_one<T>(
+    s: &store::PrintState,
+    path: &Path,
+    cancel: &CancelToken,
+    compute: &dyn Fn(&Path) -> Result<T, String>,
+) -> Outcome<T> {
+    if cancel.is_cancelled() {
+        return Outcome::Stopped;
+    }
+    let unchanged = |p: &Path| {
+        disk_meta(p)
+            .is_ok_and(|(is_dir, m)| !is_dir && m.size == s.size && m.modified == s.modified)
+    };
+    if !unchanged(path) {
+        return Outcome::Changed;
+    }
+    let result = compute(path);
+    if !unchanged(path) {
+        return Outcome::Changed;
+    }
+    match result {
+        Ok(v) => Outcome::Printed(v),
+        Err(e) => Outcome::Unreadable(e),
+    }
+}
+
+/// Prints `items` with the worker threads, the results in the order of `items`.
+fn in_parallel<T: Send>(
+    items: &[(&store::PrintState, PathBuf)],
+    workers: &Workers<'_>,
+    one: &(dyn Fn(&store::PrintState, &Path) -> Outcome<T> + Sync),
+) -> Vec<Outcome<T>> {
+    if workers.count <= 1 || items.len() <= 1 {
+        return items.iter().map(|(s, p)| one(s, p)).collect();
+    }
+    let next = AtomicUsize::new(0);
+    let slots: Vec<Mutex<Option<Outcome<T>>>> = items.iter().map(|_| Mutex::new(None)).collect();
+    std::thread::scope(|scope| {
+        for _ in 0..workers.count.min(items.len()) {
+            scope.spawn(|| {
+                (workers.init)();
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some((s, p)) = items.get(i) else {
+                        break;
+                    };
+                    let outcome = one(s, p);
+                    *slots[i].lock().unwrap_or_else(PoisonError::into_inner) = Some(outcome);
+                }
+            });
+        }
+    });
+    slots
+        .into_iter()
+        .map(|m| {
+            m.into_inner()
+                .unwrap_or_else(PoisonError::into_inner)
+                .unwrap_or(Outcome::Stopped)
+        })
+        .collect()
+}
+
+/// Prints a group of files (in parallel or not), the results in their order.
+type Process<'a, T> = &'a dyn Fn(&[(&store::PrintState, PathBuf)]) -> Vec<Outcome<T>>;
+
+/// One printing pass over `todo` (images or videos), `chunk` files at a time: each file is
+/// printed only if it still has the size and date of the catalog before and after being read
+/// (otherwise it is left for after the next update); results are saved in batches through
+/// `save`, an undecodable file with `None`. `pause` is asked between chunks.
 #[allow(clippy::too_many_arguments)]
 fn run_pass<T>(
     store: &Store,
@@ -300,7 +410,8 @@ fn run_pass<T>(
     cancel: &CancelToken,
     pause: &dyn Fn() -> bool,
     progress: &JobProgress,
-    compute: &dyn Fn(&Path) -> Result<T, String>,
+    chunk: usize,
+    process: Process<'_, T>,
     save: &dyn Fn(Batch<T>) -> Result<(), StoreError>,
 ) -> Result<PrintReport, MediaError> {
     progress.set_phase(phase);
@@ -309,43 +420,42 @@ fn run_pass<T>(
     let mut report = PrintReport::default();
     let mut folders: HashMap<EntryId, PathBuf> = HashMap::new();
     let mut pending: Batch<T> = Vec::new();
-    for s in todo {
+    for slice in todo.chunks(chunk.max(1)) {
         if cancel.is_cancelled() || pause() {
             report.interrupted = true;
             break;
         }
-        let Some(path) = file_path(store, root, &mut folders, s)? else {
-            continue;
-        };
-        let unchanged = |p: &Path| {
-            disk_meta(p)
-                .is_ok_and(|(is_dir, m)| !is_dir && m.size == s.size && m.modified == s.modified)
-        };
-        if unchanged(&path) {
-            let result = compute(&path);
-            if unchanged(&path) {
-                let value = match result {
-                    Ok(v) => {
-                        report.printed += 1;
-                        Some(v)
-                    }
-                    Err(e) => {
-                        tracing::debug!(path = %path.display(), error = %e, "not printed");
-                        report.unreadable += 1;
-                        None
-                    }
-                };
-                pending.push((s.clone(), value));
-                if pending.len() >= 100 {
-                    save(std::mem::take(&mut pending))?;
-                }
-            } else {
-                report.changed += 1;
+        let mut items = Vec::with_capacity(slice.len());
+        for s in slice {
+            if let Some(path) = file_path(store, root, &mut folders, s)? {
+                items.push((s, path));
             }
-        } else {
-            report.changed += 1;
         }
-        progress.done.fetch_add(1, Ordering::Relaxed);
+        for ((s, path), outcome) in items.iter().zip(process(&items)) {
+            match outcome {
+                Outcome::Printed(v) => {
+                    report.printed += 1;
+                    pending.push(((*s).clone(), Some(v)));
+                }
+                Outcome::Unreadable(e) => {
+                    tracing::debug!(path = %path.display(), error = %e, "not printed");
+                    report.unreadable += 1;
+                    pending.push(((*s).clone(), None));
+                }
+                Outcome::Changed => report.changed += 1,
+                Outcome::Stopped => {
+                    report.interrupted = true;
+                    continue;
+                }
+            }
+            progress.done.fetch_add(1, Ordering::Relaxed);
+        }
+        if pending.len() >= 100 {
+            save(std::mem::take(&mut pending))?;
+        }
+        if report.interrupted {
+            break;
+        }
     }
     if !pending.is_empty() {
         save(pending)?;
@@ -357,7 +467,7 @@ fn run_pass<T>(
 pub mod video {
     use std::path::Path;
 
-    use super::{MediaError, PrintReport, run_pass};
+    use super::{MediaError, PrintReport, print_one, run_pass};
     use crate::cancel::CancelToken;
     use crate::jobs::JobProgress;
     use crate::model::{VolumeId, unix_millis_now};
@@ -432,6 +542,8 @@ pub mod video {
             .into_iter()
             .filter(|s| !s.printed && is_video(&s.name))
             .collect();
+        // One video at a time, on this thread: the decoder is Windows Media Foundation.
+        let compute = |path: &Path| decoder.print(path);
         run_pass(
             store,
             root,
@@ -440,7 +552,13 @@ pub mod video {
             cancel,
             pause,
             progress,
-            &|path| decoder.print(path),
+            1,
+            &|items| {
+                items
+                    .iter()
+                    .map(|(s, p)| print_one(s, p, cancel, &compute))
+                    .collect()
+            },
             &|batch: Vec<(store::PrintState, Option<VideoPrint>)>| {
                 let records: Vec<VideoPrintRecord> = batch
                     .into_iter()

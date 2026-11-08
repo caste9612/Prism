@@ -16,9 +16,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use prism_core::model::{VolumeId, VolumeKind, VolumeStatus};
+use prism_core::model::{Volume, VolumeId, VolumeKind, VolumeStatus};
 use prism_core::store;
-use prism_core::volumes::{self, DetectedVolume, VolumeMatch, VolumeSource, match_volumes};
+use prism_core::volumes::{
+    self, DetectedVolume, VolumeMatch, VolumeSource, match_volumes, normalize_unc,
+};
 use prism_win::volumes::WinVolumeSource;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -34,6 +36,8 @@ const HASH_START: Duration = Duration::from_secs(20);
 const HASH_EVERY: Duration = Duration::from_secs(30);
 const HEALTH_START: Duration = Duration::from_secs(10);
 const HEALTH_EVERY: Duration = Duration::from_secs(3600);
+/// How often the health thread looks for a disk plugged in or removed.
+const DISKS_CHANGED_CHECK: Duration = Duration::from_secs(5);
 
 pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
     let (a, s) = (app.clone(), Arc::clone(state));
@@ -61,13 +65,15 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
                 std::thread::sleep(HASH_EVERY);
             }
         });
-    // Health of the disks (F17): read soon after the start, then every hour.
+    // Health of the disks (F17): read soon after the start, then every hour, and at once when a
+    // disk is plugged in (its card shows its health and its physical disk, REVIEW D64).
     let (a, s) = (app.clone(), Arc::clone(state));
     let _ = std::thread::Builder::new()
         .name("prism-health".into())
         .spawn(move || {
             std::thread::sleep(HEALTH_START);
             loop {
+                let disks = crate::health_state::local_disks(&s);
                 let (worse, changed) = crate::health_state::tick(&s);
                 for name in worse {
                     let n = s.notices().health_notice(&name);
@@ -78,7 +84,12 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
                 if changed {
                     let _ = a.emit("volumes-changed", ());
                 }
-                std::thread::sleep(HEALTH_EVERY);
+                let read_at = Instant::now();
+                while read_at.elapsed() < HEALTH_EVERY
+                    && crate::health_state::local_disks(&s) == disks
+                {
+                    std::thread::sleep(DISKS_CHANGED_CHECK);
+                }
             }
         });
     // Search indexes (ADR-0010): rebuilt from catalog events, at most every 30 s per volume.
@@ -105,6 +116,92 @@ fn volume_monitor(app: &AppHandle, state: &Arc<AppState>) {
         }
         std::thread::sleep(DETECT_EVERY);
     }
+}
+
+/// The network shares of the catalog that no drive letter points to now — a mapping not
+/// restored at sign-in, or one that only another session sees (Prism runs elevated, ADR-0016):
+/// they are looked for by their network path, so a share is connected whenever its server
+/// answers, with or without a letter.
+pub(crate) fn known_shares(known: &[Volume], detected: &[DetectedVolume]) -> Vec<DetectedVolume> {
+    let mapped: Vec<String> = detected
+        .iter()
+        .filter_map(|d| d.info.unc_path.as_deref())
+        .map(normalize_unc)
+        .collect();
+    known
+        .iter()
+        .filter(|v| v.info.kind == VolumeKind::Network && v.status != VolumeStatus::Ignored)
+        .filter_map(|v| {
+            let unc = v.info.unc_path.clone()?;
+            if unc.is_empty() || mapped.contains(&normalize_unc(&unc)) {
+                return None;
+            }
+            let mut info = v.info.clone();
+            info.capacity = None;
+            info.free_space = None;
+            info.last_mount = Some(unc.clone());
+            Some(DetectedVolume {
+                info,
+                mounts: vec![unc],
+                disks: Vec::new(),
+            })
+        })
+        .collect()
+}
+
+/// The catalog shares whose server no longer answers at its IP address but answers to its
+/// name at another one (REVIEW D59): the same share is tried there. A share found this way does
+/// not match the catalog by its path, so the user is asked whether it is the one that moved.
+pub(crate) fn moved_shares(
+    known: &[Volume],
+    detected: &[DetectedVolume],
+    net: &NetProbe,
+    new_addresses: impl Fn(&str) -> Vec<String>,
+) -> Vec<DetectedVolume> {
+    let mut taken: Vec<String> = known
+        .iter()
+        .filter_map(|v| v.info.unc_path.as_deref())
+        .chain(detected.iter().filter_map(|d| d.info.unc_path.as_deref()))
+        .map(normalize_unc)
+        .collect();
+    let mut found = Vec::new();
+    for v in known
+        .iter()
+        .filter(|v| v.info.kind == VolumeKind::Network && v.status != VolumeStatus::Ignored)
+    {
+        let Some(unc) = v.info.unc_path.as_deref() else {
+            continue;
+        };
+        if net.status(unc) != NetStatus::Unreachable {
+            continue;
+        }
+        // `\\server\share\...`: the server is replaced, the rest kept as written.
+        let Some((_, share_path)) = unc.strip_prefix(r"\\").and_then(|r| r.split_once('\\')) else {
+            continue;
+        };
+        let Some((server, _)) = volumes::unc_parts(unc) else {
+            continue;
+        };
+        for address in new_addresses(&server) {
+            let candidate = format!(r"\\{address}\{share_path}");
+            let key = normalize_unc(&candidate);
+            if taken.contains(&key) {
+                continue;
+            }
+            taken.push(key);
+            let mut info = v.info.clone();
+            info.unc_path = Some(candidate.clone());
+            info.last_mount = Some(candidate.clone());
+            info.capacity = None;
+            info.free_space = None;
+            found.push(DetectedVolume {
+                info,
+                mounts: vec![candidate],
+                disks: Vec::new(),
+            });
+        }
+    }
+    found
 }
 
 /// Network shares are connected only when their server answers; their capacity and free space
@@ -135,8 +232,33 @@ fn apply_probe(detected: Vec<DetectedVolume>, net: &NetProbe) -> Vec<DetectedVol
 }
 
 fn detect_once(app: &AppHandle, state: &AppState) -> Result<(), String> {
-    let detected = WinVolumeSource.detect().map_err(|e| e.to_string())?;
+    let mut detected = WinVolumeSource.detect().map_err(|e| e.to_string())?;
+    if let Ok(known) = state.store.read(store::volumes) {
+        let shares = known_shares(&known, &detected);
+        detected.extend(shares);
+        let moved = moved_shares(&known, &detected, &state.net, |server| {
+            state.names.moved(server)
+        });
+        detected.extend(moved);
+    }
     let detected = apply_probe(detected, &state.net);
+    // The names of the servers that answer, to find them again if their address changes.
+    for d in detected
+        .iter()
+        .filter(|d| d.info.kind == VolumeKind::Network)
+    {
+        if let Some((server, _)) = d.info.unc_path.as_deref().and_then(volumes::unc_parts) {
+            state.names.reached(&server);
+        }
+    }
+    for (address, name) in state.names.take_learned() {
+        if let Err(e) = state
+            .store
+            .write(move |w| store::set_share_server(w, &address, &name))
+        {
+            tracing::warn!(error = %e, "network server name not saved");
+        }
+    }
     let (changed, came_back) = apply_detection(state, detected)?;
     // F05-AC2: an indexed volume that comes back is brought up to date.
     for id in came_back {
@@ -324,5 +446,110 @@ fn job_relay(app: &AppHandle, state: &AppState) {
         {
             let _ = app.emit("volumes-changed", ());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::known_shares;
+    use prism_core::model::{Volume, VolumeId, VolumeInfo, VolumeKind, VolumeLabels, VolumeStatus};
+    use prism_core::volumes::DetectedVolume;
+
+    fn share(id: i64, unc: &str, status: VolumeStatus) -> Volume {
+        Volume {
+            id: VolumeId(id),
+            info: VolumeInfo {
+                kind: VolumeKind::Network,
+                fs_type: None,
+                fs_serial: None,
+                volume_guid: None,
+                unc_path: Some(unc.to_owned()),
+                os_label: None,
+                capacity: Some(1),
+                free_space: Some(1),
+                bus: None,
+                last_mount: Some(format!(
+                    r"{}:\",
+                    char::from(b'W' + u8::try_from(id).unwrap())
+                )),
+            },
+            labels: VolumeLabels::default(),
+            status,
+            first_seen_at: 0,
+            last_seen_at: None,
+            last_indexed_at: None,
+            usn: None,
+        }
+    }
+
+    // A share mapped to a letter now is not added twice; one that no letter points to is looked
+    // for by its network path; an ignored one is not.
+    #[test]
+    fn known_shares_without_a_letter_are_looked_for_by_their_path() {
+        let known = vec![
+            share(1, r"\\nas\Foto", VolumeStatus::Indexed),
+            share(2, r"\\NAS\archivio", VolumeStatus::New),
+            share(3, r"\\nas\vecchio", VolumeStatus::Ignored),
+        ];
+        let mapped = DetectedVolume {
+            info: VolumeInfo {
+                unc_path: Some(r"\\NAS\foto\".to_owned()),
+                ..known[0].info.clone()
+            },
+            mounts: vec![r"X:\".to_owned()],
+            disks: Vec::new(),
+        };
+        let found = known_shares(&known, &[mapped]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].mounts, vec![r"\\NAS\archivio".to_owned()]);
+        assert_eq!(found[0].info.last_mount.as_deref(), Some(r"\\NAS\archivio"));
+        assert_eq!(found[0].info.capacity, None, "the probe says how big it is");
+    }
+
+    // REVIEW D59: a share whose server stopped answering at its address is tried where its
+    // server's name answers now; not when it still answers, nor at a path of another share.
+    #[test]
+    fn a_share_gone_from_its_address_is_tried_at_the_new_one() {
+        use super::moved_shares;
+        use crate::netprobe::{NetProbe, NetStatus, ProbeTiming};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let known = vec![
+            share(1, r"\\192.168.1.65\ZimaOS-HD", VolumeStatus::Indexed),
+            share(2, r"\\192.168.1.65\Big-Storage", VolumeStatus::Indexed),
+            share(3, r"\\192.168.1.57\Big-Storage", VolumeStatus::New),
+            share(4, r"\\192.168.1.70\Media", VolumeStatus::Indexed),
+        ];
+        let net = Arc::new(NetProbe::new(
+            Arc::new(|unc: &str| unc.contains(".70").then_some((1, 1))),
+            ProbeTiming::default(),
+        ));
+        net.want(known.iter().filter_map(|v| v.info.unc_path.as_deref()));
+        let start = Instant::now();
+        while net.status(r"\\192.168.1.65\ZimaOS-HD") == NetStatus::Unknown
+            || net.status(r"\\192.168.1.70\Media") == NetStatus::Unknown
+        {
+            assert!(start.elapsed() < Duration::from_secs(5));
+            net.tick();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let new_addresses = |server: &str| match server {
+            "192.168.1.65" => vec!["192.168.1.57".to_owned()],
+            "192.168.1.70" => vec!["192.168.1.71".to_owned()],
+            _ => Vec::new(),
+        };
+        let found = moved_shares(&known, &[], &net, new_addresses);
+        // Big-Storage at .57 is already a share of the catalog; Media still answers.
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].info.unc_path.as_deref(),
+            Some(r"\\192.168.1.57\ZimaOS-HD")
+        );
+        assert_eq!(
+            found[0].mounts,
+            vec![r"\\192.168.1.57\ZimaOS-HD".to_owned()]
+        );
+        assert_eq!(found[0].info.capacity, None);
     }
 }

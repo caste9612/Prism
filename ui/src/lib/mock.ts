@@ -31,6 +31,12 @@ function volume(v: Partial<VolumeView> & Pick<VolumeView, 'id' | 'name' | 'kind'
     osLabel: null,
     fsType: 'NTFS',
     mount: null,
+    path: null,
+    group: null,
+    diskModel: null,
+    bus: null,
+    server: null,
+    serverName: null,
     online: true,
     status: 'indexed',
     capacity: null,
@@ -49,11 +55,11 @@ function volume(v: Partial<VolumeView> & Pick<VolumeView, 'id' | 'name' | 'kind'
 
 export function sampleVolumes(now = Date.now()): VolumeView[] {
   return [
-    volume({ id: 1, name: 'Windows', osLabel: 'Windows', kind: 'internal', mount: 'C:\\', capacity: 439 * GB, freeSpace: 184 * GB, indexedSize: 210 * GB, fileCount: 951_644, folderCount: 307_861, lastIndexedAt: now - 3 * 60_000, lastSeenAt: now, hashes: { total: 900_000, hashed: 412_000, running: true }, health: { status: 'good', unavailable: null, temperature: 42 } }),
-    volume({ id: 2, name: 'Data', osLabel: 'Data', kind: 'internal', mount: 'D:\\', capacity: 977 * GB, freeSpace: 329 * GB, indexedSize: 612 * GB, fileCount: 544_808, folderCount: 76_107, lastIndexedAt: now - 2 * 3_600_000, lastSeenAt: now, hashes: { total: 500_000, hashed: 500_000, running: false }, health: { status: 'warning', unavailable: null, temperature: 38 } }),
-    volume({ id: 3, name: 'Backup Foto', userName: 'Backup Foto', location: 'cassetto 2', color: '#f59e0b', kind: 'external', mount: 'G:\\', online: false, capacity: 2000 * GB, freeSpace: 700 * GB, indexedSize: 1240 * GB, fileCount: 182_340, folderCount: 9_811, lastIndexedAt: now - 12 * DAY, lastSeenAt: now - 12 * DAY }),
-    volume({ id: 4, name: 'NAS Big-Storage', userName: 'NAS Big-Storage', kind: 'network', fsType: null, mount: 'Y:\\', indexedSize: 634 * GB, fileCount: 187_683, folderCount: 12_400, lastIndexedAt: now - DAY, lastSeenAt: now }),
-    volume({ id: 5, name: 'KINGSTON', osLabel: 'KINGSTON', kind: 'stick', fsType: 'exFAT', mount: 'H:\\', status: 'new', capacity: 64 * GB, freeSpace: 51 * GB, lastSeenAt: now }),
+    volume({ id: 1, name: 'Windows', group: 'disk:Samsung SSD 990 PRO 2TB|S7KH', diskModel: 'Samsung SSD 990 PRO 2TB', bus: 'nvme', osLabel: 'Windows', kind: 'internal', mount: 'C:\\', capacity: 439 * GB, freeSpace: 184 * GB, indexedSize: 210 * GB, fileCount: 951_644, folderCount: 307_861, lastIndexedAt: now - 3 * 60_000, lastSeenAt: now, hashes: { total: 900_000, hashed: 412_000, running: true, waiting: null, skipped: 0 }, health: { status: 'good', unavailable: null, temperature: 42 } }),
+    volume({ id: 2, name: 'Data', group: 'disk:Samsung SSD 990 PRO 2TB|S7KH', diskModel: 'Samsung SSD 990 PRO 2TB', bus: 'nvme', osLabel: 'Data', kind: 'internal', mount: 'D:\\', capacity: 977 * GB, freeSpace: 329 * GB, indexedSize: 612 * GB, fileCount: 544_808, folderCount: 76_107, lastIndexedAt: now - 2 * 3_600_000, lastSeenAt: now, hashes: { total: 500_000, hashed: 500_000, running: false, waiting: null, skipped: 0 }, health: { status: 'warning', unavailable: null, temperature: 38 } }),
+    volume({ id: 3, name: 'Backup Foto', group: 'disk:WD Elements 25A2|WX12', diskModel: 'WD Elements 25A2', bus: 'usb', userName: 'Backup Foto', location: 'cassetto 2', color: '#f59e0b', kind: 'external', mount: 'G:\\', online: false, capacity: 2000 * GB, freeSpace: 700 * GB, indexedSize: 1240 * GB, fileCount: 182_340, folderCount: 9_811, lastIndexedAt: now - 12 * DAY, lastSeenAt: now - 12 * DAY }),
+    volume({ id: 4, name: 'NAS Big-Storage', group: 'net:NAS', server: 'nas', serverName: 'nas.local', userName: 'NAS Big-Storage', kind: 'network', fsType: null, mount: 'Y:\\', path: '\\\\nas\\Big-Storage', indexedSize: 634 * GB, fileCount: 187_683, folderCount: 12_400, lastIndexedAt: now - DAY, lastSeenAt: now }),
+    volume({ id: 5, name: 'KINGSTON', group: 'disk:Kingston DataTraveler 3.0|K1', diskModel: 'Kingston DataTraveler 3.0', bus: 'usb', osLabel: 'KINGSTON', kind: 'stick', fsType: 'exFAT', mount: 'H:\\', status: 'new', capacity: 64 * GB, freeSpace: 51 * GB, lastSeenAt: now }),
   ];
 }
 
@@ -88,23 +94,38 @@ export function mockBackend(): Backend {
   let update: UpdateView = {
     enabled: true,
     checking: false,
-    available: '1.0.1',
+    available: '2.0.1',
     notes: 'Fixes for the backup check.',
     ready: true,
     error: null,
     lastCheck: Date.now() - 3_600_000,
   };
   // A clone of "Backup Foto" (same serial number, another capacity): Prism asks which disk it is.
+  // A share named like the NAS one answers at another address (REVIEW D59): Prism asks too.
   let ambiguous: AmbiguousView[] = [
     {
       key: '\\\\?\\Volume{c10e}',
+      network: false,
+      path: null,
       label: 'Backup Foto',
       mount: 'K:\\',
       fsType: 'NTFS',
       capacity: 2000 * GB,
       candidates: [
-        { volumeId: 3, name: 'Backup Foto', location: 'cassetto 2', mount: 'G:\\', capacity: 2000 * GB, lastSeenAt: Date.now() - 12 * DAY, lastIndexedAt: Date.now() - 12 * DAY },
-        { volumeId: 6, name: 'Backup Foto (copia)', location: 'ufficio', mount: 'G:\\', capacity: 2000 * GB, lastSeenAt: Date.now() - 40 * DAY, lastIndexedAt: Date.now() - 40 * DAY },
+        { volumeId: 3, name: 'Backup Foto', location: 'cassetto 2', mount: 'G:\\', path: null, capacity: 2000 * GB, lastSeenAt: Date.now() - 12 * DAY, lastIndexedAt: Date.now() - 12 * DAY },
+        { volumeId: 6, name: 'Backup Foto (copia)', location: 'ufficio', mount: 'G:\\', path: null, capacity: 2000 * GB, lastSeenAt: Date.now() - 40 * DAY, lastIndexedAt: Date.now() - 40 * DAY },
+      ],
+    },
+    {
+      key: 'net|\\\\192.168.1.57\\BIG-STORAGE',
+      network: true,
+      path: '\\\\192.168.1.57\\Big-Storage',
+      label: null,
+      mount: '\\\\192.168.1.57\\Big-Storage',
+      fsType: null,
+      capacity: null,
+      candidates: [
+        { volumeId: 4, name: 'NAS Big-Storage', location: null, mount: 'Y:\\', path: '\\\\nas\\Big-Storage', capacity: null, lastSeenAt: Date.now() - DAY, lastIndexedAt: Date.now() - DAY },
       ],
     },
   ];
@@ -135,7 +156,7 @@ export function mockBackend(): Backend {
   };
 
   return {
-    appInfo: async (): Promise<AppInfo> => ({ version: '0.1.0', elevated: true, dataDir: '(simulated)', dev: true, shortcutError: null }),
+    appInfo: async (): Promise<AppInfo> => ({ version: '2.0.0', elevated: true, dataDir: '(simulated)', dev: true, shortcutError: null }),
     volumes: async () => withJobs(),
     jobs: async () => jobs.map((j) => ({ ...j })),
     indexVolume: async (id) => {
@@ -187,6 +208,23 @@ export function mockBackend(): Backend {
     setIgnored: async (id, ignored) => {
       const v = find(id);
       v.status = ignored ? 'ignored' : v.lastIndexedAt ? 'reindex_needed' : 'new';
+      emitVolumes();
+    },
+    // Paths on a server called "nas…" answer; 3 of the 4 folders at the top match the catalog.
+    checkSharePath: async (id, path) => {
+      if (find(id).kind !== 'network') throw { code: 'volume_not_network', message: String(id) };
+      const clean = path.trim().replace(/[\\/]+$/, '');
+      if (!/^\\\\[^\\]+\\[^\\]+/.test(clean)) throw { code: 'share_path_invalid', message: clean };
+      const reachable = /^\\\\nas/i.test(clean);
+      return { path: clean, reachable, matching: reachable ? 3 : 0, total: 4 };
+    },
+    moveShare: async (id, path) => {
+      const v = find(id);
+      const clean = path.trim().replace(/[\\/]+$/, '');
+      if (!/^\\\\nas/i.test(clean)) throw { code: 'share_unreachable', message: clean };
+      v.path = clean;
+      v.mount = clean;
+      v.online = true;
       emitVolumes();
     },
     openVolume: async (id) => {
@@ -259,7 +297,7 @@ export function mockBackend(): Backend {
         { name: 'logs/prism.2026-11-06.log', size: 48_213 },
         { name: 'logs/prism.2026-11-07.log', size: 120_544 },
       ],
-      system: 'Prism 0.1.0 (development build)\nWindows 11 Pro 25H2 (build 26300)\nAdministrator: yes\nCatalog: 5 disks, 2,054,075 entries, 410 MB',
+      system: 'Prism 2.0.0 (development build)\nWindows 11 Pro 25H2 (build 26300)\nAdministrator: yes\nCatalog: 5 disks, 2,054,075 entries, 410 MB',
       destination: 'C:\\Users\\me\\Downloads',
     }),
     exportDiagnostics: async () => 'C:\\Users\\me\\Downloads\\prism-diagnostics-20261107-193010.zip',
@@ -329,6 +367,7 @@ export function mockBackend(): Backend {
         const v = find(volumeId);
         v.online = true;
         v.mount = a.mount;
+        if (a.network) v.path = a.path;
       } else {
         volumes = [...volumes, volume({ id: 100, name: a.label ?? 'Disk', osLabel: a.label, kind: 'external', mount: a.mount, status: 'new', capacity: a.capacity, freeSpace: a.capacity, lastSeenAt: Date.now() })];
       }

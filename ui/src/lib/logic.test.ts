@@ -91,8 +91,9 @@ describe('catalog screen', () => {
     expect(displayName(c!, 'Local disk')).toBe(c!.name);
     const bare = { ...c!, userName: null, osLabel: '', name: 'C:\\', mount: 'C:\\' };
     expect(displayName(bare, 'Internal disk')).toBe('Internal disk (C:)');
-    const unc = { ...bare, name: '\\\\nas\\share', mount: '\\\\nas\\share' };
-    expect(displayName(unc, 'Network drive')).toBe('Network drive (\\\\nas\\share)');
+    const unc = { ...bare, kind: 'network', name: '\\\\nas\\share', mount: '\\\\nas\\share', path: '\\\\nas\\share' };
+    // A network share is called by its folder name; the icon says it is on the network (D63).
+    expect(displayName(unc, 'Network drive')).toBe('share');
   });
 
   // F01-AC3: indexing and updates show on the card; automatic background updates do not.

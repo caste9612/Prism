@@ -8,9 +8,11 @@
 #![allow(unsafe_code)]
 
 pub mod autostart;
+pub mod files;
 pub mod health;
 pub(crate) mod ioctl;
 pub mod mft;
+pub mod net;
 pub mod notify;
 pub mod ntfs;
 pub mod pipe;

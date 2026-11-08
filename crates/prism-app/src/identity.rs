@@ -7,9 +7,9 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use prism_core::model::{VolumeId, VolumeInfo};
+use prism_core::model::{VolumeId, VolumeInfo, VolumeKind};
 use prism_core::store;
-use prism_core::volumes::DetectedVolume;
+use prism_core::volumes::{DetectedVolume, normalize_unc};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -52,10 +52,15 @@ impl Identities {
     }
 }
 
-/// What tells the connected volume apart while it waits: its GUID on this machine, or its mount,
-/// serial number and capacity.
+/// What tells the connected volume apart while it waits: its network path for a share (REVIEW
+/// D59), its GUID on this machine, or its mount, serial number and capacity.
 #[must_use]
 pub fn ambiguity_key(info: &VolumeInfo) -> String {
+    if info.kind == VolumeKind::Network
+        && let Some(unc) = info.unc_path.as_deref()
+    {
+        return format!("net|{}", normalize_unc(unc));
+    }
     info.volume_guid.clone().unwrap_or_else(|| {
         format!(
             "{}|{:?}|{:?}",
@@ -75,6 +80,8 @@ pub struct CandidateView {
     pub name: String,
     pub location: Option<String>,
     pub mount: Option<String>,
+    /// Its network path, for a network share.
+    pub path: Option<String>,
     #[ts(type = "number | null")]
     pub capacity: Option<u64>,
     #[ts(type = "number | null")]
@@ -89,6 +96,10 @@ pub struct CandidateView {
 #[ts(export)]
 pub struct AmbiguousView {
     pub key: String,
+    /// A network share with the name of a catalog share, at another address (REVIEW D59).
+    pub network: bool,
+    /// Its network path, for a network share.
+    pub path: Option<String>,
     pub label: Option<String>,
     pub mount: Option<String>,
     pub fs_type: Option<String>,
@@ -108,6 +119,8 @@ impl AppState {
         Ok(pending
             .into_iter()
             .map(|a| AmbiguousView {
+                network: a.detected.info.kind == VolumeKind::Network,
+                path: a.detected.info.unc_path.clone(),
                 label: a.detected.info.os_label.clone(),
                 mount: a.detected.info.last_mount.clone(),
                 fs_type: a.detected.info.fs_type.clone(),
@@ -121,6 +134,7 @@ impl AppState {
                         name: disk_name(v),
                         location: v.labels.location.clone().filter(|l| !l.trim().is_empty()),
                         mount: v.info.last_mount.clone(),
+                        path: v.info.unc_path.clone(),
                         capacity: v.info.capacity,
                         last_seen_at: v.last_seen_at,
                         last_indexed_at: v.last_indexed_at,

@@ -17,6 +17,7 @@ mod health;
 mod ops;
 mod prints;
 pub mod schema;
+mod servers;
 
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
@@ -34,6 +35,7 @@ pub use hashes::*;
 pub use health::*;
 pub use ops::WriteOp;
 pub use prints::*;
+pub use servers::*;
 
 use crate::model::{EntryId, VolumeId};
 

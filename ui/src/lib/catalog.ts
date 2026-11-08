@@ -23,12 +23,82 @@ export function newVolumePrompts(volumes: VolumeView[], dismissed: Set<number>):
 
 /**
  * Name shown for a volume. Without a user or system label the backend falls back to the mount
- * point; like Explorer, show it as "Local disk (C:)" instead of a bare "C:\".
+ * point; like Explorer, show it as "Local disk (C:)" instead of a bare "C:\". A network share is
+ * called by its folder name ("Big-Storage"): the network icon and the server say the rest
+ * (REVIEW D63).
  */
 export function displayName(v: VolumeView, kindLabel: string): string {
   const labelled = [v.userName, v.osLabel].some((n) => n !== null && n.trim() !== '');
-  if (labelled || v.mount === null) return v.name;
-  return `${kindLabel} (${v.mount.replace(/\\$/, '')})`;
+  if (labelled) return v.name;
+  const share = (v.path ?? (v.kind === 'network' ? v.mount : null))?.replace(/\\+$/, '').split('\\').pop();
+  if (v.kind === 'network' && share) return share;
+  if (v.mount === null) return v.name;
+  const shown = driveLetter(v.mount) ?? v.mount.replace(/\\+$/, '').split('\\').pop() ?? v.mount;
+  return `${kindLabel} (${shown})`;
+}
+
+/** The server of a network share as shown: the name learned for it, or its address. */
+export function serverLabel(v: VolumeView): string | null {
+  return v.serverName ?? v.server;
+}
+
+/**
+ * What the card says above the name: the location the user wrote, or for a network share its
+ * server ("NAS · ZimaOS.local"), or the kind of disk.
+ */
+export function whereLabel(v: VolumeView): string {
+  const location = v.location?.trim();
+  if (location) return location;
+  const server = v.kind === 'network' ? serverLabel(v) : null;
+  return server ? t('group.nasShort', { server }) : t(`kind.${v.kind}`);
+}
+
+/** Cards shown together under one heading (REVIEW D64). */
+export interface DiskGroup {
+  key: string;
+  /** `disk`: partitions of one physical disk; `server`: shares of one server; `single`: a disk whose physical disk is not known yet. */
+  kind: 'disk' | 'server' | 'single';
+  volumes: VolumeView[];
+}
+
+/**
+ * The cards grouped by physical disk or by server, in the order of the cards: a group takes the
+ * place of its first card.
+ */
+export function diskGroups(cards: VolumeView[]): DiskGroup[] {
+  const groups = new Map<string, DiskGroup>();
+  for (const v of cards) {
+    const key = v.group ?? `volume:${v.id}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { key, kind: v.group?.startsWith('net:') ? 'server' : v.group ? 'disk' : 'single', volumes: [] };
+      groups.set(key, g);
+    }
+    g.volumes.push(v);
+  }
+  return [...groups.values()];
+}
+
+/** Heading of a group: the disk model and how it is connected, or the server, or the kind. */
+export function groupTitle(g: DiskGroup): string {
+  const first = g.volumes[0]!;
+  if (g.kind === 'server') {
+    const name = first.serverName;
+    return name && first.server && name.toLowerCase() !== first.server.toLowerCase()
+      ? t('group.nasNamed', { name, address: first.server })
+      : t('group.nas', { server: first.server ?? '' });
+  }
+  if (g.kind === 'disk' && first.diskModel) {
+    const bus = first.bus ? t(`group.bus.${first.bus}`) : null;
+    return [first.diskModel, bus && !bus.startsWith('group.bus.') ? bus : null].filter(Boolean).join(' · ');
+  }
+  return t(`kind.${first.kind}`);
+}
+
+/** The drive letter of a mount, "X:", or null for a network path or a folder. */
+export function driveLetter(mount: string | null): string | null {
+  const m = mount === null ? null : /^([A-Za-z]:)\\?$/.exec(mount);
+  return m ? m[1]!.toUpperCase() : null;
 }
 
 /** [`displayName`] in the current language. */
@@ -99,9 +169,17 @@ export function hashPercent(h: { total: number; hashed: number }): number {
 export type DiskFilter = 'all' | 'online' | 'network' | 'offline';
 export type DiskSort = 'location' | 'name' | 'used';
 
+/** Network shares stay under "Network" when the server does not answer: they are not in a drawer. */
 function group(v: VolumeView): 'online' | 'network' | 'offline' {
-  if (!v.online) return 'offline';
-  return v.kind === 'network' ? 'network' : 'online';
+  if (v.kind === 'network') return 'network';
+  return v.online ? 'online' : 'offline';
+}
+
+/** The state of a disk that is not connected: in the drawer, or a share whose server is off. */
+export function offlineState(v: Pick<VolumeView, 'kind' | 'lastSeenAt'>, when: (ms: number) => string): string {
+  const network = v.kind === 'network';
+  if (v.lastSeenAt === null) return t(network ? 'card.unreachable' : 'card.inDrawer');
+  return t(network ? 'card.unreachableSeen' : 'card.inDrawerSeen', { when: when(v.lastSeenAt) });
 }
 
 /** How many disks each filter shows (ignored disks are never shown, F02-AC4). */

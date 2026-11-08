@@ -24,6 +24,20 @@ pub struct VolumeView {
     pub fs_type: Option<String>,
     /// Current mount when online, last known one otherwise.
     pub mount: Option<String>,
+    /// The network path of a network share.
+    pub path: Option<String>,
+    /// What the volume is shown together with (REVIEW D64): `disk:<model|serial>` for the
+    /// partitions of one physical disk, `net:<server>` for the shares of one server; `None` when
+    /// the physical disk is not known yet.
+    pub group: Option<String>,
+    /// The model of its physical disk, when known.
+    pub disk_model: Option<String>,
+    /// How its disk is connected: `nvme`, `sata`, `usb`, `virtual`…
+    pub bus: Option<String>,
+    /// For a network share: its server as written in the path (`192.168.1.65`)…
+    pub server: Option<String>,
+    /// …and the name learned for it (`ZimaOS.local`), if any (REVIEW D59).
+    pub server_name: Option<String>,
     pub online: bool,
     /// `new`, `indexing`, `indexed`, `ignored`, `reindex_needed`.
     pub status: String,
@@ -63,6 +77,12 @@ pub struct HashesView {
     pub hashed: u64,
     /// A hash job runs on the volume now.
     pub running: bool,
+    /// With files left and no hash job: why (`excluded`, `paused`, `busy`, `skipped`, `next`).
+    #[ts(type = "'excluded' | 'paused' | 'busy' | 'skipped' | 'next' | null")]
+    pub waiting: Option<String>,
+    /// Files the last complete round could not read (changed while read, or unreadable).
+    #[ts(type = "number")]
+    pub skipped: u64,
 }
 
 /// A job of the engine (ADR-0009).

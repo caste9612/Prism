@@ -79,3 +79,15 @@ test('a connected disk offers open and show in Explorer for each item', async ({
   await list(page).getByRole('button', { name: /^Show in Explorer: / }).first().click();
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
+
+test('the map stays in its folder while the catalog refreshes in the background', async ({ page }) => {
+  await openSpace(page, 'Windows');
+  await list(page).getByRole('button', { name: 'Foto', exact: true }).click();
+  const current = page.getByRole('navigation', { name: 'Folder path' }).locator('[aria-current="location"]');
+  await expect(current).toHaveText('Foto');
+  // Indexing another disk sends a refresh of every volume several times a second.
+  await page.getByRole('button', { name: '1 new disk' }).click();
+  await page.getByRole('dialog', { name: 'New disks' }).getByRole('button', { name: 'Index', exact: true }).click();
+  await page.waitForTimeout(1_500);
+  await expect(current).toHaveText('Foto');
+});

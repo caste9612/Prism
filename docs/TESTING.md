@@ -13,7 +13,7 @@ Lo sviluppo avviene sul PC dell'utente, che contiene dati reali. Per questo:
 | S1 | **Operazioni distruttive solo in sandbox.** Eliminazione, spostamento, sovrascrittura, Cestino e copia *verso* una destinazione si eseguono nei test esclusivamente: (a) in cartelle temporanee create dal test (`tempfile`, sotto `%TEMP%`), oppure (b) sul **disco virtuale di test** dedicato (sezione 4). |
 | S2 | **Guardia nel codice.** Le operazioni distruttive di `fileops` passano da un'interfaccia che, nei test e nei comandi di sviluppo della CLI, è avvolta da una guardia (`SandboxGuard`): se il percorso non è dentro una radice consentita, l'operazione viene **rifiutata** e il test fallisce. Così un errore nel test non può raggiungere file reali. |
 | S3 | **Dischi reali solo in lettura.** Scansioni, letture MFT/USN, SMART e benchmark sui dischi reali sono solo letture. |
-| S4 | **Dati di sviluppo separati.** I cataloghi di sviluppo e di test stanno in `%LOCALAPPDATA%\PrismDev\`, mai nella cartella dati dell'app installata. I dati del vecchio Prism (`%APPDATA%\com.prism.diskanalyzer`) non si toccano. |
+| S4 | **Dati di sviluppo separati.** I cataloghi di sviluppo e di test stanno in `%LOCALAPPDATA%\PrismDev\`, mai nella cartella dati dell'app installata (`%LOCALAPPDATA%\com.prism.catalog`, Prism 2.0 è installato sul PC di sviluppo dal 2026-11-08), che lo sviluppo non tocca. |
 | S5 | **Niente prove manuali distruttive su dischi reali.** Quando si prova l'app a mano (cancellazioni, pulizia, copia), lo si fa su cartelle di prova o sul disco virtuale di test. |
 | S6 | **Mai indebolire un test per farlo passare.** Se un test fallisce e la causa non è chiara, niente commit: si torna all'ultimo stato verde, si segnala il problema in `docs/REVIEW.md` §3 e si passa a un lavoro indipendente. |
 
@@ -127,8 +127,29 @@ test usano sempre `PRISM_TEST_VOLUME` e mai una lettera fissa.
 - Le build di **debug** usano il manifest `asInvoker`: partono dalla shell di sviluppo non
   elevata (senza MFT/USN, si usa il walker). Solo le build di **release** richiedono
   l'amministratore (ADR-0003).
-- I flussi end-to-end si eseguono anche sull'app vera, pilotando WebView2 via WebDriver
-  (`tauri-driver` + `msedgedriver`), oltre che nel browser con IPC simulato.
+- I flussi end-to-end si eseguono anche sull'app vera: **prova prima di ogni rilascio**
+  (`ui/e2e-real/`, T11). L'app di sviluppo si avvia con la porta di debug di WebView2 aperta
+  in locale e Playwright vi si collega (al posto di `tauri-driver` + `msedgedriver`):
+
+  ```powershell
+  schtasks /run /tn PrismDevAdminTests   # monta il disco PRISMTEST (e rifà i test elevati, §4)
+  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9333'
+  .\target\debug\prism.exe               # build di debug: eliminazioni solo nella sandbox
+  npm --prefix ui run e2e:real
+  ```
+
+  Sui dischi veri la prova solo legge e naviga: ogni schermata e scheda del primo disco
+  indicizzato, "Tutto il catalogo", ricerca, impostazioni (lingua e tema rimessi come prima),
+  e controlla che nessuna schermata sia più larga della finestra con i nomi veri. Le operazioni
+  sui file (duplicato nel Cestino, pulizia di una cartella vuota, verifica e copia di backup)
+  avvengono solo sul volume con etichetta PRISMTEST, in `prism-real-test`, creata e tolta dalla
+  prova, con i risultati controllati sul disco; anche il menu di Esplora risorse
+  (`prism-shell.exe analyze`), le etichette (rimesse come prima) e le anteprime della scheda
+  *Simili*: due immagini simili create sul disco di test devono essere disegnate davvero
+  (REVIEW L20: la CSP della finestra le bloccava e i test simulati non potevano accorgersene).
+- L'installer non si prova sulla macchina di sviluppo. Su un Windows pulito e usa e getta:
+  `scripts/sandbox-test.ps1` apre Windows Sandbox con l'installer sul desktop (Sandbox va
+  attivata una volta, comando in testa allo script; checklist T10 in `docs/REVIEW.md` §4).
 - Per i controlli visivi lo sviluppo cattura screenshot della finestra e li esamina; il giudizio
   estetico finale resta all'utente (revisione finale, `docs/REVIEW.md`).
 - In T3 l'app vera è stata provata così (dalla shell elevata): screenshot della finestra

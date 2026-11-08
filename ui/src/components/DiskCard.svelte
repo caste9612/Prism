@@ -3,7 +3,8 @@
   // used space split by file category, a few numbers, and what is happening to it now.
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { barParts, categories } from '../lib/categories.svelte';
-  import { diskQuery, hashPercent, primaryAction, stickerColor, volumeName } from '../lib/catalog';
+  import { diskQuery, driveLetter, hashPercent, offlineState, primaryAction, stickerColor, volumeName, whereLabel } from '../lib/catalog';
+  import Icon from './Icon.svelte';
   import { nav } from '../lib/nav.svelte';
   import { ago, formatBytes, formatCount, usedFraction } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
@@ -38,7 +39,7 @@
     volume.capacity !== null && volume.freeSpace !== null ? volume.capacity - volume.freeSpace : null,
   );
   const parts = $derived(barParts(used, categories.segments(volume.id) ?? []));
-  const letter = $derived(volume.online && volume.mount ? volume.mount.replace(/\\$/, '') : null);
+  const letter = $derived(volume.online ? driveLetter(volume.mount) : null);
   const action = $derived(primaryAction(volume));
   const indexed = $derived(volume.lastIndexedAt !== null);
   const when = (ms: number) => {
@@ -59,7 +60,7 @@
   });
   const state = $derived.by(() => {
     if (!volume.online) {
-      return volume.lastSeenAt !== null ? t('card.inDrawerSeen', { when: when(volume.lastSeenAt) }) : t('card.inDrawer');
+      return offlineState(volume, when);
     }
     if (volume.status === 'reindex_needed') return t('status.reindex_needed');
     if (!indexed) return t('catalog.neverIndexed');
@@ -83,13 +84,18 @@
 <article class="disk" class:offline={!volume.online} aria-label={name} style:--sticker={stickerColor(volume)}>
   <div class="top">
     <span class="sticker" class:ring={!volume.online}></span>
-    <span class="caption where">{volume.location?.trim() || t(`kind.${volume.kind}`)}</span>
+    <span class="caption where">{whereLabel(volume)}</span>
     <Menu label={t('card.actionsFor', { name })} {items} />
   </div>
 
   <div class="title">
     <h3><button class="name" onclick={() => onopen(volume)}>{name}</button></h3>
-    {#if letter}<span class="letter">{letter}</span>{/if}
+    {#if volume.kind === 'network'}
+      <!-- REVIEW D63: a network share has the network icon, with its letter when it is mapped. -->
+      <span class="letter net" title={volume.path ?? t('kind.network')} aria-label={[t('kind.network'), letter].filter(Boolean).join(' ')}>
+        <Icon name="network" size={13} />{#if letter}{letter}{/if}
+      </span>
+    {:else if letter}<span class="letter">{letter}</span>{/if}
     {#if used !== null}<span class="pct">{Math.round(used * 100)}%</span>{/if}
   </div>
 

@@ -329,6 +329,14 @@ label {
   border: 1.5px solid currentColor;
   border-radius: 5px;
 }
+/* A network share: the network icon in the box, with the letter when it is mapped (D63). */
+.letter.net {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 5px;
+  flex: none;
+}
 
 /* Segmented control (pill tabs): a row of buttons or links, the current one inked. */
 .pills {
@@ -400,12 +408,16 @@ label {
   z-index: 5;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 14px;
   padding: 12px 28px;
   margin: 0 -28px -24px;
   background: var(--block);
   color: var(--block-text);
+}
+
+.actionbar > * {
+  flex: none;
+  white-space: nowrap;
 }
 
 .actionbar .total {
@@ -415,6 +427,10 @@ label {
 }
 
 .actionbar .note {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12.5px;
   color: var(--block-text-2);
 }
@@ -449,7 +465,7 @@ label {
 
 .stats .value {
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: clamp(17px, 1.7vw, 22px);
   font-weight: 600;
   margin-top: 2px;
   white-space: nowrap;

@@ -1,0 +1,146 @@
+# Release of Prism from GitHub Actions, as for Orbit (ARCHITECTURE §8.1): the same
+# scripts/build-installer.ps1 of a local release, with the update signing key from the secrets of
+# the environment "release" instead of a PC.
+#
+# Run only by hand, never from a pull request (the repo is public):
+#   - from the site: Actions → Release → Run workflow, on develop;
+#   - from a terminal: gh workflow run release.yml --ref develop -f publish=true
+# The environment "release" holds only for develop and waits for the maintainer's approval
+# before giving the secrets to the build job. Without publish it is a dry run: the installer,
+# its signature and latest.json stay as the artifact of the run, for 14 days.
+name: Release
+run-name: Release ${{ inputs.publish && '(publish)' || '(dry run)' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the release on GitHub (off: dry run, the files stay as this run's artifact)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    environment: release
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      # Only GitHub's own actions, pinned to a commit (the version in the comment): this job sees
+      # the signing key.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Before the secrets: without the notes of the version the run stops here.
+      - name: Version and notes
+        id: version
+        run: |
+          $version = (Get-Content -LiteralPath crates/prism-app/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if (-not (Test-Path -LiteralPath "docs/releases/$version.md")) { throw "docs/releases/$version.md is missing" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      # Keep the version in sync with rust-toolchain.toml
+      - name: Rust toolchain
+        run: rustup toolchain install 1.92.0 --profile minimal
+
+      - name: Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: npm ci
+        run: npm --prefix ui ci
+
+      - name: Signing key to a temporary file
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if (-not $env:SIGNING_KEY) { throw 'The secret TAURI_SIGNING_PRIVATE_KEY of the environment "release" is missing.' }
+          $path = Join-Path $env:RUNNER_TEMP 'prism-updater.key'
+          [IO.File]::WriteAllText($path, $env:SIGNING_KEY.Trim())
+          "KEY_PATH=$path" >> $env:GITHUB_ENV
+
+      - name: build-installer.ps1
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { throw 'The secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD of the environment "release" is missing.' }
+          ./scripts/build-installer.ps1 -KeyPath $env:KEY_PATH
+
+      - name: Remove the signing key
+        if: always()
+        run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'prism-updater.key') -Force -ErrorAction SilentlyContinue
+
+      - name: Release files
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $bundle = 'target/release/bundle/nsis'
+          $setup = "Prism_$($env:VERSION)_x64-setup.exe"
+          New-Item -ItemType Directory -Path release | Out-Null
+          Copy-Item -LiteralPath "$bundle/$setup", "$bundle/$setup.sig", "$bundle/latest.json" -Destination release
+          $rows = Get-ChildItem release | ForEach-Object { '| `{0}` | {1:N2} MiB |' -f $_.Name, ($_.Length / 1MB) }
+          @('| File | Size |', '|---|---|') + $rows | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prism-${{ steps.version.outputs.version }}
+          path: release
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # tag and release, with gh
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: prism-${{ needs.build.outputs.version }}
+          path: release
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $tag = "v$($env:VERSION)"
+          $latest = Get-Content -LiteralPath release/latest.json -Raw | ConvertFrom-Json
+          if ($latest.version -ne $env:VERSION) { throw "latest.json is for $($latest.version), not $($env:VERSION)" }
+          $setup = "Prism_$($env:VERSION)_x64-setup.exe"
+          if ($latest.platforms.'windows-x86_64'.signature -ne (Get-Content -LiteralPath "release/$setup.sig" -Raw).Trim()) {
+            throw 'the signature in latest.json is not the one of the installer'
+          }
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw "the release $tag exists already" }
+          gh release create $tag --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA `
+            --title "Prism $($env:VERSION)" --notes-file "docs/releases/$($env:VERSION).md" `
+            "release/$setup" "release/$setup.sig" release/latest.json

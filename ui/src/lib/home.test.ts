@@ -2,9 +2,64 @@ import { describe, expect, it } from 'vitest';
 import type { ActionView } from './bindings/ActionView';
 import { BATCH_GAP_MS, batchActions } from './actions';
 import { barParts } from './categories.svelte';
-import { catalogCards, diskQuery, filterCounts, knownLocations, LABEL_COLORS, stickerColor } from './catalog';
+import {
+  catalogCards,
+  diskGroups,
+  diskQuery,
+  displayName,
+  driveLetter,
+  filterCounts,
+  groupTitle,
+  knownLocations,
+  LABEL_COLORS,
+  offlineState,
+  stickerColor,
+  whereLabel,
+} from './catalog';
 import { sampleVolumes } from './mock';
 import { setLanguage, t } from './i18n.svelte';
+
+describe('network shares reached by their path', () => {
+  it('a letter only for drive letters; the folder name as the name (D63)', () => {
+    expect(driveLetter('x:\\')).toBe('X:');
+    expect(driveLetter('D:')).toBe('D:');
+    expect(driveLetter('\\\\192.168.1.65\\Small-Storage')).toBeNull();
+    expect(driveLetter(null)).toBeNull();
+    const nas = {
+      ...sampleVolumes(0)[3]!,
+      userName: null,
+      osLabel: null,
+      path: '\\\\192.168.1.65\\Small-Storage',
+      mount: '\\\\192.168.1.65\\Small-Storage\\',
+    };
+    expect(displayName(nas, 'Network drive')).toBe('Small-Storage');
+    // Mapped to a letter: still the folder name (the letter is in its box).
+    expect(displayName({ ...nas, mount: 'X:\\' }, 'Network drive')).toBe('Small-Storage');
+    setLanguage('en');
+    expect(whereLabel({ ...nas, server: '192.168.1.65', serverName: 'ZimaOS.local' })).toBe('NAS · ZimaOS.local');
+    expect(whereLabel({ ...nas, server: '192.168.1.65', serverName: null })).toBe('NAS · 192.168.1.65');
+    expect(whereLabel({ ...nas, location: 'Studio' })).toBe('Studio');
+  });
+});
+
+describe('cards grouped by physical disk and by server (D64)', () => {
+  it('partitions of one disk together, in the order of the cards; a heading for each', () => {
+    setLanguage('en');
+    const groups = diskGroups(catalogCards(sampleVolumes(0), 'all', 'name'));
+    expect(groups.map((g) => [g.kind, g.volumes.map((v) => v.name)])).toEqual([
+      ['disk', ['Data', 'Windows']],
+      ['disk', ['KINGSTON']],
+      ['server', ['NAS Big-Storage']],
+      ['disk', ['Backup Foto']],
+    ]);
+    expect(groupTitle(groups[0]!)).toBe('Samsung SSD 990 PRO 2TB · NVMe');
+    expect(groupTitle(groups[2]!)).toBe('NAS nas.local · nas');
+    // A disk whose physical disk is not known yet stands alone, under its kind.
+    const lone = diskGroups([{ ...sampleVolumes(0)[0]!, group: null, diskModel: null }]);
+    expect(lone.map((g) => g.kind)).toEqual(['single']);
+    expect(groupTitle(lone[0]!)).toBe('Internal disk');
+  });
+});
 
 // The catalog of the B+C interface (ADR-0019): last actions, filters, order, colours, bars.
 
@@ -78,6 +133,16 @@ describe('catalog cards', () => {
   it('locations already used are suggested once each, sorted', () => {
     const v = sampleVolumes(0).map((x, i) => ({ ...x, location: ['ufficio', 'cassetto 2', 'Ufficio', null, ' '][i] ?? null }));
     expect(knownLocations(v)).toEqual(['cassetto 2', 'ufficio']);
+  });
+
+  it('a network share whose server is off stays under Network and is "not reachable"', () => {
+    const off = volumes.map((v) => (v.kind === 'network' ? { ...v, online: false } : v));
+    expect(filterCounts(off)).toEqual({ all: 5, online: 3, network: 1, offline: 1 });
+    setLanguage('en');
+    const when = () => '2 h ago';
+    expect(offlineState({ kind: 'network', lastSeenAt: 1 }, when)).toBe('Not reachable · seen 2 h ago');
+    expect(offlineState({ kind: 'external', lastSeenAt: 1 }, when)).toBe('In the drawer · seen 2 h ago');
+    expect(offlineState({ kind: 'stick', lastSeenAt: null }, when)).toBe('In the drawer');
   });
 
   it('a search limited to one disk', () => {

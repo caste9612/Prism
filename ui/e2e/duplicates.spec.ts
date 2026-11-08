@@ -129,10 +129,10 @@ test('F06-AC5: progress on the cards; pause and resume from the settings', async
   await openSettings(page);
   await page.getByRole('checkbox', { name: 'Pause the content analysis' }).check();
   await expect(page.getByRole('checkbox', { name: 'Pause it while the PC runs on battery' })).not.toBeChecked();
-  // F21-AC3: the analysis can be turned off per disk; network drives are never analysed.
+  // F21-AC3: the analysis can be turned off per disk, network drives included (REVIEW D58).
   const disks = page.getByRole('group', { name: 'Disks to analyse' });
-  await expect(disks.getByRole('checkbox')).toHaveCount(3);
-  await expect(disks.getByRole('checkbox', { name: /NAS/ })).toHaveCount(0);
+  await expect(disks.getByRole('checkbox')).toHaveCount(4);
+  await expect(disks.getByRole('checkbox', { name: /NAS/ })).toBeChecked();
   await disks.getByRole('checkbox', { name: /^Data/ }).uncheck();
   await backToCatalog(page);
   await expect(page.locator('footer')).toContainText('content analysis paused');

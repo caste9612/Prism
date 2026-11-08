@@ -24,6 +24,7 @@ import type { ReportFilterInput } from './bindings/ReportFilterInput';
 import type { ReportFolderView } from './bindings/ReportFolderView';
 import type { RuleInput } from './bindings/RuleInput';
 import type { SearchResultView } from './bindings/SearchResultView';
+import type { SharePathView } from './bindings/SharePathView';
 import type { ShellRequest } from './bindings/ShellRequest';
 import type { SideInput } from './bindings/SideInput';
 import type { SimilarView } from './bindings/SimilarView';
@@ -46,6 +47,10 @@ export interface Backend {
   cancelJob(id: number): Promise<boolean>;
   setLabels(id: number, labels: LabelsInput): Promise<void>;
   setIgnored(id: number, ignored: boolean): Promise<void>;
+  /** Whether a network share of the catalog answers at a new path, and how much matches (REVIEW D59). */
+  checkSharePath(id: number, path: string): Promise<SharePathView>;
+  /** Gives a network share of the catalog its new path, after the user confirmed it. */
+  moveShare(id: number, path: string): Promise<void>;
   openVolume(id: number): Promise<void>;
   spaceFolder(volumeId: number, folderId: number | null): Promise<SpaceFolderView>;
   largestFiles(volumeId: number, folderId: number | null, limit: number): Promise<LargeFileView[]>;
@@ -118,6 +123,8 @@ const tauriBackend: Backend = {
   cancelJob: (id) => invoke('cancel_job', { id }),
   setLabels: (id, labels) => invoke('set_labels', { id, labels }),
   setIgnored: (id, ignored) => invoke('set_ignored', { id, ignored }),
+  checkSharePath: (id, path) => invoke('check_share_path', { id, path }),
+  moveShare: (id, path) => invoke('move_share', { id, path }),
   openVolume: (id) => invoke('open_volume', { id }),
   spaceFolder: (volumeId, folderId) => invoke('space_folder', { volumeId, folderId }),
   largestFiles: (volumeId, folderId, limit) => invoke('largest_files', { volumeId, folderId, limit }),

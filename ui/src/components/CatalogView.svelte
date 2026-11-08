@@ -1,3 +1,9 @@
+<script lang="ts" module>
+  import { ActivityTracker as Tracker } from '../lib/activity';
+  // Kept across visits of the screen, so the speed of a job is measured over its whole run.
+  const activityTracker = new Tracker();
+</script>
+
 <script lang="ts">
   // Home screen = disk catalog (F01, ADR-0019): the "whole catalog" block, the disks as compact
   // cards (or a list) with filters, the disks Prism cannot tell apart (F02-AC3), the jobs in
@@ -8,20 +14,27 @@
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { backend, errorMessage } from '../lib/api';
   import { batchActions } from '../lib/actions';
+  import type { ActivityRow } from '../lib/activity';
   import { categories } from '../lib/categories.svelte';
   import {
     catalogCards,
+    diskGroups,
+    driveLetter,
     filterCounts,
-    hashPercent,
+    groupTitle,
+    offlineState,
     stickerColor,
     volumeName,
+    whereLabel,
     type DiskFilter,
+    type DiskGroup,
     type DiskSort,
   } from '../lib/catalog';
-  import { ago, formatBytes, formatCount, usedFraction } from '../lib/format';
+  import { ago, formatBytes, formatCount, formatDuration, usedFraction } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
   import { nav } from '../lib/nav.svelte';
   import DiskCard from './DiskCard.svelte';
+  import Icon from './Icon.svelte';
 
   let {
     volumes,
@@ -66,6 +79,23 @@
 
   const counts = $derived(filterCounts(volumes));
   const cards = $derived(catalogCards(volumes, filter, sort));
+  // REVIEW D64: the partitions of one physical disk and the shares of one server together.
+  const groups = $derived(diskGroups(cards));
+  /** What a group heading says besides its title: how many volumes, and the health of the disk. */
+  function groupDetail(g: DiskGroup): string {
+    const parts: string[] = [];
+    if (g.kind !== 'single') {
+      parts.push(t(g.kind === 'server' ? 'group.shares' : 'group.parts', { count: g.volumes.length }));
+    }
+    const h = g.volumes.find((v) => v.health && v.health.status !== 'unavailable')?.health;
+    if (h) {
+      parts.push(
+        t('group.health', { status: t(`health.word.${h.status}`).toLowerCase() }) +
+          (h.temperature !== null ? ` ${h.temperature} °C` : ''),
+      );
+    }
+    return parts.join(' · ');
+  }
   const shown = $derived(volumes.filter((v) => v.status !== 'ignored'));
   const totals = $derived({
     files: shown.reduce((s, v) => s + v.fileCount, 0),
@@ -132,49 +162,68 @@
     return v ? volumeName(v) : null;
   };
 
-  // Jobs in progress: indexing, updates and copies, plus the content analysis of each disk.
-  const activity = $derived([
-    ...jobs
-      .filter((j) => (j.kind === 'index' || j.kind === 'update' || j.kind === 'copy') && (j.state === 'running' || j.state === 'queued'))
-      .map((j) => ({
-        key: `job-${j.id}`,
-        label: t(`activity.${j.kind}`, { name: nameOf(j.volumeId) ?? '' }),
-        percent: j.state === 'queued' ? null : j.total > 0 ? Math.floor((j.done / j.total) * 100) : null,
-        detail: j.state === 'queued' ? t('job.queued') : null,
-      })),
-    ...shown
-      .filter((v) => v.hashes && v.hashes.running && v.hashes.hashed < v.hashes.total)
-      .map((v) => ({
-        key: `hash-${v.id}`,
-        label: t('activity.hash', { name: volumeName(v) }),
-        percent: hashPercent(v.hashes!),
-        detail: null,
-      })),
-  ]);
+  // Jobs in progress (indexing, updates, copies, content analysis) with their phase, since when
+  // and how long is left; disks whose analysis waits for its next round are listed too.
+  let now = $state(Date.now());
+  $effect(() => {
+    const timer = setInterval(() => (now = Date.now()), 5_000);
+    return () => clearInterval(timer);
+  });
+  const activity = $derived(activityTracker.rows(jobs, shown, now));
+  const titleOf = (a: ActivityRow) =>
+    t(`activity.${a.kind === 'waiting' ? 'hash' : a.kind}`, { name: nameOf(a.volumeId) ?? '' });
+  function detailOf(a: ActivityRow): string {
+    if (a.queued) return t('job.queued');
+    if (a.kind === 'waiting')
+      return t(`activity.waiting.${a.reason ?? 'next'}`, { count: formatCount(a.total - a.done, lang) });
+    const amount = (n: number) => (a.kind === 'copy' ? formatBytes(n, lang) : formatCount(n, lang));
+    const parts: string[] = [];
+    if (a.phase) parts.push(t(`activity.phase.${a.phase}`));
+    parts.push(
+      a.total > 0
+        ? t('activity.of', { done: amount(a.done), total: amount(a.total) })
+        : t('activity.items', { count: formatCount(a.done, lang) }),
+    );
+    if (a.elapsedMs !== null && a.elapsedMs >= 5_000) parts.push(t('activity.since', { time: formatDuration(a.elapsedMs) }));
+    if (a.etaMs !== null) parts.push(t('activity.eta', { time: formatDuration(Math.max(a.etaMs, 1_000)) }));
+    return parts.join(' · ');
+  }
 
   const FILTERS: DiskFilter[] = ['all', 'online', 'network', 'offline'];
 </script>
 
 <section class="catalog">
   {#each ambiguous as a (a.key)}
-    <div class="identify card" role="region" aria-label={t('identify.title', { name: a.label ?? a.mount ?? '' })}>
+    <!-- A disk that looks like more than one of the catalog (F02-AC3), or a network share that
+         answers at another address with the name of one of the catalog (REVIEW D59). -->
+    {@const title = a.network ? t('identify.shareTitle') : t('identify.title', { name: a.label ?? a.mount ?? '' })}
+    <div class="identify card" role="region" aria-label={title}>
       <div class="identify-text">
-        <h2>{t('identify.title', { name: a.label ?? a.mount ?? '' })}</h2>
-        <p class="mono muted">{[a.mount, a.fsType, a.capacity !== null ? formatBytes(a.capacity, lang) : null].filter(Boolean).join(' · ')}</p>
-        <p>{t('identify.question')}</p>
+        <h2>{title}</h2>
+        <p class="mono muted">
+          {a.network ? a.path : [a.mount, a.fsType, a.capacity !== null ? formatBytes(a.capacity, lang) : null].filter(Boolean).join(' · ')}
+        </p>
+        <p>{t(a.network ? 'identify.shareQuestion' : 'identify.question')}</p>
       </div>
       <ul class="candidates">
         {#each a.candidates as c (c.volumeId)}
           <li>
-            <button class="primary small" onclick={() => identify(a, c.volumeId)}>{t('identify.isThis', { name: c.name })}</button>
+            <button class="primary small" onclick={() => identify(a, c.volumeId)}>
+              {t(a.network ? 'identify.shareIsThis' : 'identify.isThis', { name: c.name })}
+            </button>
             <span class="muted">
-              {[c.location ? t('catalog.location', { location: c.location }) : null, c.capacity !== null ? formatBytes(c.capacity, lang) : null, c.lastSeenAt !== null ? t('catalog.lastSeen', { when: when(c.lastSeenAt) }) : null]
+              {[
+                a.network && c.path ? t('identify.shareBefore', { path: c.path }) : null,
+                c.location ? t('catalog.location', { location: c.location }) : null,
+                c.capacity !== null ? formatBytes(c.capacity, lang) : null,
+                c.lastSeenAt !== null ? t('catalog.lastSeen', { when: when(c.lastSeenAt) }) : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </span>
           </li>
         {/each}
-        <li><button class="small" onclick={() => identify(a, null)}>{t('identify.another')}</button></li>
+        <li><button class="small" onclick={() => identify(a, null)}>{t(a.network ? 'identify.shareAnother' : 'identify.another')}</button></li>
       </ul>
     </div>
   {/each}
@@ -234,21 +283,31 @@
   {:else if cards.length === 0}
     <p class="empty card">{t('catalog.noneInFilter')}</p>
   {:else if view === 'cards'}
-    <div class="grid">
-      {#each cards as v (v.id)}
-        <DiskCard
-          volume={v}
-          onopen={open}
-          {onindex}
-          {oncancel}
-          {onlabels}
-          onexplore={explore}
-          onignore={ignore}
-          {onremove}
-          onhealth={health}
-        />
-      {/each}
-    </div>
+    {#each groups as g (g.key)}
+      {@const detail = groupDetail(g)}
+      <section class="disk-group" aria-label={groupTitle(g)}>
+        <h2 class="group-head">
+          <Icon name={g.kind === 'server' ? 'network' : 'disks'} size={14} />
+          <span class="group-title">{groupTitle(g)}</span>
+          {#if detail}<span class="group-detail">{detail}</span>{/if}
+        </h2>
+        <div class="grid">
+          {#each g.volumes as v (v.id)}
+            <DiskCard
+              volume={v}
+              onopen={open}
+              {onindex}
+              {oncancel}
+              {onlabels}
+              onexplore={explore}
+              onignore={ignore}
+              {onremove}
+              onhealth={health}
+            />
+          {/each}
+        </div>
+      </section>
+    {/each}
   {:else}
     <div class="card list">
       <table class="data">
@@ -262,18 +321,32 @@
             <th>{t('catalog.columns.state')}</th>
           </tr>
         </thead>
-        <tbody>
-          {#each cards as v (v.id)}
+        {#each groups as g (g.key)}
+          {@const detail = groupDetail(g)}
+          <tbody>
+            <tr class="group-row">
+              <th colspan="6" scope="rowgroup">
+                <span class="group-head">
+                  <Icon name={g.kind === 'server' ? 'network' : 'disks'} size={13} />
+                  <span class="group-title">{groupTitle(g)}</span>
+                  {#if detail}<span class="group-detail">{detail}</span>{/if}
+                </span>
+              </th>
+            </tr>
+          {#each g.volumes as v (v.id)}
             {@const used = usedFraction(v.capacity, v.freeSpace)}
+            {@const letter = v.online ? driveLetter(v.mount) : null}
             <tr class:offline={!v.online} aria-label={volumeName(v)}>
               <td>
                 <span class="row-name" style:--sticker={stickerColor(v)}>
                   <span class="sticker" class:ring={!v.online}></span>
                   <button class="link-name" onclick={() => open(v)}>{volumeName(v)}</button>
-                  {#if v.online && v.mount}<span class="letter">{v.mount.replace(/\\$/, '')}</span>{/if}
+                  {#if v.kind === 'network'}
+                    <span class="letter net" title={v.path ?? t('kind.network')}><Icon name="network" size={12} />{#if letter}{letter}{/if}</span>
+                  {:else if letter}<span class="letter">{letter}</span>{/if}
                 </span>
               </td>
-              <td>{v.location ?? t(`kind.${v.kind}`)}</td>
+              <td>{whereLabel(v)}</td>
               <td class="num">
                 {v.capacity !== null && v.freeSpace !== null ? formatBytes(v.capacity - v.freeSpace, lang) : '—'}
                 {#if used !== null}<span class="muted"> · {Math.round(used * 100)}%</span>{/if}
@@ -284,7 +357,7 @@
                 {#if v.job}
                   {t(`job.${v.job.kind}`)}…
                 {:else if !v.online}
-                  {v.lastSeenAt !== null ? t('card.inDrawerSeen', { when: when(v.lastSeenAt) }) : t('card.inDrawer')}
+                  {offlineState(v, when)}
                 {:else if v.lastIndexedAt === null}
                   {t('catalog.neverIndexed')}
                 {:else}
@@ -293,7 +366,8 @@
               </td>
             </tr>
           {/each}
-        </tbody>
+          </tbody>
+        {/each}
       </table>
     </div>
   {/if}
@@ -306,10 +380,13 @@
       {:else}
         <ul>
           {#each activity as a (a.key)}
-            <li class="job-row">
-              <span>{a.label}</span>
-              <span class="track"><span style:width={a.percent !== null ? `${a.percent}%` : '0%'}></span></span>
-              <span class="mono muted">{a.detail ?? (a.percent !== null ? `${a.percent}%` : '…')}</span>
+            <li class="job-row" class:waiting={a.kind === 'waiting' || a.queued}>
+              <span class="job-title">{titleOf(a)}</span>
+              <span class="mono pct">{a.percent !== null ? `${a.percent}%` : '…'}</span>
+              <span class="track" class:indeterminate={a.percent === null && !a.queued && a.kind !== 'waiting'}>
+                <span style:width={a.percent !== null ? `${a.percent}%` : undefined}></span>
+              </span>
+              <span class="mono job-detail">{detailOf(a)}</span>
             </li>
           {/each}
         </ul>
@@ -437,9 +514,44 @@
     grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
     gap: var(--gap);
   }
+  /* REVIEW D64: one physical disk or one server, its cards under a light heading. */
+  .disk-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .group-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    margin: 0;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-2);
+  }
+  .group-title {
+    color: var(--text);
+  }
+  .group-detail {
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    color: var(--text-3);
+  }
   .list {
     padding: 6px 12px;
     overflow-x: auto;
+  }
+  .list .group-row th {
+    padding-top: 14px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+  .list tbody:first-of-type .group-row th {
+    padding-top: 4px;
   }
   .list tr.offline {
     color: var(--text-3);
@@ -482,16 +594,33 @@
   }
   .job-row {
     display: grid;
-    grid-template-columns: 1fr 140px 48px;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 12px;
-    padding: 6px 0;
+    gap: 4px 12px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
   }
-  .job-row .mono {
+  .job-row:first-child {
+    border-top: 0;
+  }
+  .job-title {
+    font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pct {
+    font-size: 12px;
     text-align: right;
+  }
+  .job-detail {
+    grid-column: 1 / -1;
     font-size: 11.5px;
+    color: var(--text-3);
   }
   .track {
+    grid-column: 1 / -1;
     height: 6px;
     background: var(--track);
     border-radius: 3px;
@@ -501,6 +630,21 @@
     display: block;
     height: 100%;
     background: var(--signal);
+  }
+  .waiting .track span {
+    background: var(--text-3);
+  }
+  .track.indeterminate span {
+    width: 30%;
+    animation: slide 1.2s ease-in-out infinite;
+  }
+  @keyframes slide {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(340%);
+    }
   }
   .log-row {
     display: grid;

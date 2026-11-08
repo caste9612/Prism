@@ -12,6 +12,7 @@ Misure ripetibili delle prestazioni di Prism, in **sola lettura** sui dischi rea
 | [2026-11-07-t8-video.md](2026-11-07-t8-video.md) | T8 | Fotogrammi dei video con Media Foundation: copertura dei formati, velocità, robustezza alle ricodifiche (ADR-0013) |
 | [2026-11-07-t5-search.md](2026-11-07-t5-search.md) | T5 | Indice di ricerca in memoria contro FTS5 trigram su C: e su 5,5 milioni di voci (ADR-0010) |
 | [2026-11-07-t10-memory.md](2026-11-07-t10-memory.md) | T10 | NF2 e NF3 con 5,7 milioni di voci: byte per voce, memoria del nucleo e dell'app a regime, memoria dell'analisi del contenuto |
+| [2026-11-08-prints-threads.md](2026-11-08-prints-threads.md) | Rilascio | Impronte delle immagini con 1, 2, 4 e 8 thread su 300 foto (REVIEW D60) |
 
 ## Come ripetere
 

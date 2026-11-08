@@ -33,6 +33,11 @@ fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
             Arc::new(|_: &str| None),
             ProbeTiming::default(),
         )),
+        names: Arc::new(crate::netnames::ServerNames::new(
+            Arc::new(|_| None),
+            Arc::new(|_: &str| Vec::new()),
+            Vec::new(),
+        )),
         notices: Mutex::new(Notices::default()),
         app_id: String::new(),
         search: Arc::new(prism_core::search::live::LiveIndexes::default()),
@@ -188,11 +193,25 @@ fn background_hashing_runs_pauses_and_counts() {
         })
     );
     assert!(app.engine.jobs().is_empty());
+    let waiting = |app: &AppState| {
+        app.volume_views().unwrap()[0]
+            .hashes
+            .as_ref()
+            .unwrap()
+            .waiting
+            .clone()
+    };
+    assert_eq!(waiting(&app).as_deref(), Some("paused"));
+    // What is left, in the whole catalog and on one disk (the screen of another disk: nothing).
+    assert_eq!(app.hashing.pending_files(None), 4);
+    assert_eq!(app.hashing.pending_files(Some(volume)), 4);
+    assert_eq!(app.hashing.pending_files(Some(VolumeId(volume.0 + 1))), 0);
 
     // Resumed but excluded by the user (F21-AC3): still nothing.
     hash_jobs::configure(&app, false, &[volume.0]);
     let _ = hash_jobs::tick(&app);
     assert!(app.engine.jobs().is_empty());
+    assert_eq!(waiting(&app).as_deref(), Some("excluded"));
 
     // Resumed: one background job hashes the volume.
     hash_jobs::configure(&app, false, &[]);
@@ -220,12 +239,41 @@ fn background_hashing_runs_pauses_and_counts() {
     let card = app.volume_views().unwrap();
     let hashes = card[0].hashes.as_ref().unwrap();
     assert_eq!((hashes.total, hashes.hashed, hashes.running), (4, 4, false));
+    assert_eq!((hashes.waiting.as_deref(), hashes.skipped), (None, 0));
     let dups = app.store.read(|c| store::duplicate_files(c, 1)).unwrap();
     assert_eq!(dups.len(), 2, "a.bin and sub/b.bin");
 
     // Nothing left to do: no new job.
     let _ = hash_jobs::tick(&app);
     assert_eq!(app.engine.jobs().len(), 1);
+
+    // A new file and an update of the disk: counted at the next tick, not minutes later.
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    std::fs::write(disk.join("d.bin"), vec![9u8; 100 * 1024]).unwrap();
+    indexer::index(
+        &app.store,
+        &WalkEnumerator::default(),
+        &IndexRequest {
+            volume,
+            path: &disk,
+            relative: &[],
+            target: ReconcileTarget::VolumeRoot,
+            policy: &ExclusionPolicy::with_defaults(),
+        },
+        &CancelToken::new(),
+        &IndexProgress::default(),
+    )
+    .unwrap();
+    app.store
+        .write(move |w| store::set_volume_status(w, volume, VolumeStatus::Indexed))
+        .unwrap();
+    assert!(hash_jobs::tick(&app));
+    assert_eq!(
+        app.hashing.progress(volume).map(|s| (s.total, s.hashed)),
+        Some((5, 4))
+    );
+    // Hashed less than two minutes ago: the new file waits for the next round.
+    assert_eq!(waiting(&app).as_deref(), Some("next"));
 }
 
 // F10/F16 in the app: groups with the copies the rules propose, the last-copy rule, the
@@ -938,5 +986,184 @@ fn paths_of_the_explorer_menu() {
     assert_eq!(
         app.locate_path(r"Q:\elsewhere").unwrap_err().code,
         "not_in_catalog"
+    );
+}
+
+// REVIEW D59: a network share of the catalog is given a new path by hand only when the path is a
+// share path, not another share of the catalog, and answers there.
+#[test]
+fn a_share_moves_to_a_new_path_only_when_it_answers() {
+    use prism_core::model::VolumeKind;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let share = |unc: &str| VolumeInfo {
+        kind: VolumeKind::Network,
+        unc_path: Some(unc.to_owned()),
+        ..VolumeInfo::dev_folder(unc)
+    };
+    let (photos, disk) = {
+        let (a, b) = (
+            share(r"\\192.168.1.65\Photos"),
+            share(r"\\192.168.1.65\Music"),
+        );
+        let c = VolumeInfo::dev_folder(&tmp.path().to_string_lossy());
+        store
+            .write(move |w| {
+                let photos = store::insert_volume(w, &a, VolumeStatus::Indexed)?;
+                store::insert_volume(w, &b, VolumeStatus::Indexed)?;
+                Ok((photos, store::insert_volume(w, &c, VolumeStatus::Indexed)?))
+            })
+            .unwrap()
+    };
+    let app = state(store, true, tmp.path());
+    let code = |r: Result<(), crate::dto::ApiError>| r.unwrap_err().code;
+    assert_eq!(
+        code(app.move_share(photos, r"D:\Photos")),
+        "share_path_invalid"
+    );
+    assert_eq!(code(app.move_share(photos, r"\\nas")), "share_path_invalid");
+    assert_eq!(code(app.move_share(disk, r"\\nas\x")), "volume_not_network");
+    assert_eq!(
+        code(app.move_share(photos, r"\\192.168.1.65\music\")),
+        "share_in_catalog"
+    );
+    // A server that does not exist: checked as unreachable, never saved.
+    let check = app
+        .check_share_path(photos, r"\\prism-no-such-server.invalid\Photos\")
+        .unwrap();
+    assert_eq!(check.path, r"\\prism-no-such-server.invalid\Photos");
+    assert!(!check.reachable);
+    assert_eq!(
+        code(app.move_share(photos, r"\\prism-no-such-server.invalid\Photos")),
+        "share_unreachable"
+    );
+    let v = app
+        .store
+        .read(move |c| store::volume(c, photos))
+        .unwrap()
+        .unwrap();
+    assert_eq!(v.info.unc_path.as_deref(), Some(r"\\192.168.1.65\Photos"));
+}
+
+// REVIEW D64: the partitions of one physical disk and the shares of one server are grouped;
+// the physical disk is remembered for disconnected disks.
+#[test]
+fn volumes_are_grouped_by_physical_disk_and_by_server() {
+    use prism_core::model::VolumeKind;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let share = VolumeInfo {
+        kind: VolumeKind::Network,
+        unc_path: Some(r"\\ZimaOS\Foto".to_owned()),
+        ..VolumeInfo::dev_folder(r"\\ZimaOS\Foto")
+    };
+    let mut c = VolumeInfo::dev_folder(r"C:\");
+    c.fs_serial = Some(1);
+    let mut d = VolumeInfo::dev_folder(r"D:\");
+    d.fs_serial = Some(2);
+    let (nas, c, d) = store
+        .write(move |w| {
+            Ok((
+                store::insert_volume(w, &share, VolumeStatus::Indexed)?,
+                store::insert_volume(w, &c, VolumeStatus::Indexed)?,
+                store::insert_volume(w, &d, VolumeStatus::Indexed)?,
+            ))
+        })
+        .unwrap();
+    let key = "Samsung SSD 990 PRO 2TB|S7KH";
+    store
+        .write(move |w| {
+            store::set_volume_disk(w, c, key)?;
+            store::set_volume_disk(w, d, key)
+        })
+        .unwrap();
+    let app = state(store, true, tmp.path());
+    let views = app.volume_views().unwrap();
+    let view = |id: VolumeId| views.iter().find(|v| v.id == id.0).unwrap();
+    assert_eq!(
+        view(c).group.as_deref(),
+        Some("disk:Samsung SSD 990 PRO 2TB|S7KH")
+    );
+    assert_eq!(view(c).group, view(d).group);
+    assert_eq!(
+        view(d).disk_model.as_deref(),
+        Some("Samsung SSD 990 PRO 2TB")
+    );
+    let nas = view(nas);
+    assert_eq!(nas.group.as_deref(), Some("net:ZIMAOS"));
+    assert_eq!(nas.server.as_deref(), Some("ZimaOS"));
+    assert_eq!(nas.server_name, None, "no name learned for it");
+}
+
+// REVIEW D62: two paths to one file (here a hard link; on a NAS two shares showing one disk)
+// look like two copies in the catalog; deleting "one" would delete the only one: refused before
+// anything is touched.
+#[test]
+fn one_file_under_two_paths_is_not_deleted_as_a_duplicate() {
+    use prism_core::jobs::JobState;
+    use prism_core::model::VolumeKind;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let disk = tmp.path().join("disk");
+    std::fs::create_dir_all(disk.join("other")).unwrap();
+    let file = disk.join("video.mp4");
+    std::fs::write(&file, vec![5u8; 300 * 1024]).unwrap();
+    let link = disk.join("other").join("video.mp4");
+    std::fs::hard_link(&file, &link).unwrap();
+
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let mut info = VolumeInfo::dev_folder(&disk.to_string_lossy());
+    info.kind = VolumeKind::Removable;
+    let detected = DetectedVolume {
+        info: info.clone(),
+        mounts: vec![disk.to_string_lossy().into_owned()],
+        disks: Vec::new(),
+    };
+    let volume: VolumeId = store
+        .write(move |w| store::insert_volume(w, &info, VolumeStatus::New))
+        .unwrap();
+    indexer::index(
+        &store,
+        &WalkEnumerator::default(),
+        &IndexRequest {
+            volume,
+            path: &disk,
+            relative: &[],
+            target: ReconcileTarget::VolumeRoot,
+            policy: &ExclusionPolicy::with_defaults(),
+        },
+        &CancelToken::new(),
+        &IndexProgress::default(),
+    )
+    .unwrap();
+    let app = Arc::new(state(store, true, tmp.path()));
+    app.online().insert(volume, detected);
+    let _ = crate::hash_jobs::tick(&app);
+    let job = app.engine.jobs()[0].id;
+    assert_eq!(app.engine.wait(job).unwrap().state, JobState::Done);
+
+    let view = app
+        .duplicates(&crate::duplicates_views::DupFilterInput::default(), &[])
+        .unwrap();
+    assert_eq!(view.total_groups, 1, "the catalog sees two copies");
+    let other = view.groups[0]
+        .files
+        .iter()
+        .find(|f| f.path.starts_with("other"))
+        .unwrap();
+    assert_eq!(
+        app.delete_duplicates(&[EntryId(other.entry_id)], false, true)
+            .unwrap_err()
+            .code,
+        "same_file"
+    );
+    assert!(file.exists() && link.exists());
+    assert!(
+        app.store
+            .read(|c| store::actions_log(c, 10))
+            .unwrap()
+            .is_empty()
     );
 }

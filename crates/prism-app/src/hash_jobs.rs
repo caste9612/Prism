@@ -1,5 +1,6 @@
-//! Content hashes in the background (F06): a `hash` job per connected, indexed local volume,
-//! run in Windows background mode (F06-AC2) with the lowest job priority, paused by the user
+//! Content hashes in the background (F06): a `hash` job per connected, indexed volume — network
+//! shares included, one per server at a time (REVIEW D58) — run in Windows background mode
+//! (F06-AC2) with the lowest job priority, paused by the user
 //! (tray, F06-AC5) or on battery if the setting asks (F21-AC3). The progress of each volume is
 //! kept here, because counting it on a large catalog takes a few hundred milliseconds.
 
@@ -12,7 +13,7 @@ use std::time::{Duration, Instant};
 use prism_core::hashing;
 use prism_core::jobs::{JobSpec, Priority};
 use prism_core::media;
-use prism_core::model::{VolumeId, VolumeKind, VolumeStatus};
+use prism_core::model::{VolumeId, VolumeStatus};
 use prism_core::store;
 
 use crate::state::{AppState, access_path, job_disks};
@@ -53,6 +54,37 @@ pub struct HashingState {
     excluded: Mutex<HashSet<VolumeId>>,
     status: Mutex<HashMap<VolumeId, (HashStatus, Instant)>>,
     last_run: Mutex<HashMap<VolumeId, Instant>>,
+    /// Files the last complete round could not read: changed while read, or unreadable.
+    skipped: Mutex<HashMap<VolumeId, u64>>,
+}
+
+/// Why the analysis of a volume with files left is not running now (the activity panel says
+/// it instead of a generic wait).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Waiting {
+    /// The user left the volume out of the analysis.
+    Excluded,
+    /// Paused by the user, or on battery.
+    Paused,
+    /// Another job (an indexing, an update, a copy) uses the volume.
+    Busy,
+    /// The files left are those the last round could not read: tried again later.
+    Skipped,
+    /// The next round starts soon.
+    Next,
+}
+
+impl Waiting {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Excluded => "excluded",
+            Self::Paused => "paused",
+            Self::Busy => "busy",
+            Self::Skipped => "skipped",
+            Self::Next => "next",
+        }
+    }
 }
 
 impl HashingState {
@@ -76,34 +108,70 @@ impl HashingState {
         self.status().get(&volume).map(|(s, _)| *s)
     }
 
-    /// Files still without a hash on the volumes counted so far.
-    pub fn pending_files(&self) -> u64 {
+    /// What is still to do on the volumes counted so far, or on `scope` only (the screen of a
+    /// disk shows what is left on that disk).
+    fn pending(&self, scope: Option<VolumeId>, left: impl Fn(&HashStatus) -> u64) -> u64 {
         self.status()
-            .values()
-            .map(|(s, _)| s.total.saturating_sub(s.hashed))
+            .iter()
+            .filter(|(v, _)| scope.is_none_or(|s| **v == s))
+            .map(|(_, (s, _))| left(s))
             .sum()
     }
 
-    /// Images still without a print on the volumes counted so far.
-    pub fn pending_images(&self) -> u64 {
-        self.status()
-            .values()
-            .map(|(s, _)| s.images.saturating_sub(s.printed))
-            .sum()
+    /// Files still without a hash.
+    pub fn pending_files(&self, scope: Option<VolumeId>) -> u64 {
+        self.pending(scope, |s| s.total.saturating_sub(s.hashed))
     }
 
-    /// Videos still without a print on the volumes counted so far.
-    pub fn pending_videos(&self) -> u64 {
-        self.status()
-            .values()
-            .map(|(s, _)| s.videos.saturating_sub(s.videos_printed))
-            .sum()
+    /// Images still without a print.
+    pub fn pending_images(&self, scope: Option<VolumeId>) -> u64 {
+        self.pending(scope, |s| s.images.saturating_sub(s.printed))
+    }
+
+    /// Videos still without a print.
+    pub fn pending_videos(&self, scope: Option<VolumeId>) -> u64 {
+        self.pending(scope, |s| s.videos.saturating_sub(s.videos_printed))
     }
 
     /// Forgets the counts and the runs (after a reset of the catalog).
     pub fn clear(&self) {
         self.status().clear();
         self.last_run().clear();
+        self.skipped().clear();
+    }
+
+    fn skipped(&self) -> MutexGuard<'_, HashMap<VolumeId, u64>> {
+        self.skipped.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Files of the volume the last complete round could not read.
+    pub fn skipped_files(&self, volume: VolumeId) -> u64 {
+        self.skipped().get(&volume).copied().unwrap_or(0)
+    }
+
+    /// Why the analysis of a volume with `left` files without a hash is not running, if it is
+    /// not; `busy` when another job uses the volume.
+    pub fn waiting(
+        &self,
+        volume: VolumeId,
+        left: u64,
+        running: bool,
+        busy: bool,
+    ) -> Option<Waiting> {
+        if running || left == 0 {
+            return None;
+        }
+        Some(if self.is_excluded(volume) {
+            Waiting::Excluded
+        } else if self.should_pause() {
+            Waiting::Paused
+        } else if busy {
+            Waiting::Busy
+        } else if self.skipped_files(volume) >= left {
+            Waiting::Skipped
+        } else {
+            Waiting::Next
+        })
     }
 
     /// Whether hashing must stop now (between two files).
@@ -161,7 +229,14 @@ pub fn tick(state: &Arc<AppState>) -> bool {
             RECHECK
         };
         let before = state.hashing.status().get(&v.id).copied();
-        if before.is_none_or(|(_, at)| at.elapsed() >= every) {
+        // Indexed or updated since it was counted: count now, so the new files are analysed
+        // at the next round instead of minutes later.
+        let indexed_since = before.is_some_and(|(_, at)| {
+            let counted =
+                unix_millis_now() - i64::try_from(at.elapsed().as_millis()).unwrap_or(i64::MAX);
+            v.last_indexed_at.is_some_and(|t| t > counted)
+        });
+        if indexed_since || before.is_none_or(|(_, at)| at.elapsed() >= every) {
             refresh(state, v.id);
             changed |= state.hashing.progress(v.id) != before.map(|(s, _)| s);
         }
@@ -175,9 +250,9 @@ pub fn tick(state: &Arc<AppState>) -> bool {
         .map(|(id, d)| (*id, d.clone()))
         .collect();
     for (id, detected) in online {
-        // Network shares are not read in full in the background: every byte would cross the
-        // network (REVIEW D30). Nor the volumes the user excluded (F21-AC3).
-        if detected.info.kind == VolumeKind::Network || state.hashing.is_excluded(id) {
+        // Network shares too (REVIEW D58), one per server at a time (`job_disks`); not the
+        // volumes the user excluded (F21-AC3).
+        if state.hashing.is_excluded(id) {
             continue;
         }
         let indexed = known.iter().any(|v| {
@@ -224,6 +299,11 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                         return Err(e.to_string());
                     }
                 };
+                if !report.interrupted {
+                    s.hashing
+                        .skipped()
+                        .insert(id, report.changed + report.unreadable);
+                }
                 tracing::info!(
                     volume = id.0,
                     quick = report.quick,
@@ -235,10 +315,19 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                 );
                 // Then the prints of the images (F11), in the same background job.
                 if !report.interrupted {
+                    // Decoding pictures is limited by the processor: a few threads, each in
+                    // background mode like this one (REVIEW D60).
+                    let background =
+                        || std::mem::forget(prism_win::process::BackgroundMode::enter());
+                    let workers = media::Workers {
+                        count: media::print_workers(),
+                        init: &background,
+                    };
                     let prints = media::print_volume(
                         &s.store,
                         id,
                         &root,
+                        &workers,
                         &ctx.cancel,
                         &pause,
                         &ctx.progress,
@@ -299,4 +388,11 @@ pub fn configure(state: &AppState, paused: bool, excluded: &[i64]) {
         .excluded
         .lock()
         .unwrap_or_else(PoisonError::into_inner) = excluded;
+}
+
+/// Milliseconds since 1970, as the catalog stores its times.
+fn unix_millis_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
