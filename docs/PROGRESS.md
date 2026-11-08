@@ -5,12 +5,11 @@
 
 ## Stato attuale
 
-- **Tappa**: T10 — tutto il lavoro che non richiede l'utente è fatto (2026-11-07). Il branch
-  `rewrite` è su GitHub con la CI verde.
-- **Prossimo passo**: la revisione dell'utente, guidata da `docs/REVIEW.md` §0: provare l'app
-  di sviluppo con le checklist (§4), poi chiavi degli aggiornamenti (U7) e firma del codice
-  (U1), prova dell'installer su un PC pulito (U3), merge sul ramo principale e 1.0 (U2).
-- **Bloccanti**: nessuno. Il resto della roadmap richiede l'utente.
+- **Tappa**: T11 — nuova interfaccia (dalla revisione dell'utente del 2026-11-08, ADR-0019).
+  T10 resta completa per la parte autonoma.
+- **Prossimo passo**: costruire la nuova interfaccia "B+C" seguendo la ROADMAP T11 e i disegni
+  approvati; poi l'utente la prova, e si riprende da `docs/REVIEW.md` §0 (U7, U1, U3, U2).
+- **Bloccanti**: nessuno.
 - **Decisioni in sospeso**: Q7 firma del codice (U1), Q11 ramo principale (U2).
 - **Modalità di lavoro** (aggiornata 2026-11-07, ~15:30): autonomia totale **senza soste**
   fino alla 1.0; le decisioni si prendono in autonomia e si registrano in `docs/REVIEW.md`, che
@@ -19,6 +18,14 @@
   rimuove (U6).
 
 ## Diario
+
+### 2026-11-08 — Revisione dell'utente: nuova interfaccia (T11)
+
+- L'utente ha provato l'app di sviluppo e ha bocciato l'interfaccia (aspetto, colori,
+  disposizione). Insieme abbiamo disegnato dei mockup su una tela di claude.ai: tre stili, la
+  versione "B+C", tutte le schermate e le proposte d'icona. Approvati: versione B+C, tutte le
+  schermate, icona "prisma a strati" (ADR-0019, REVIEW D51, D52, U5).
+- Aperta la tappa T11 nella ROADMAP.
 
 ### 2026-11-07 — T10 completata (lavoro autonomo)
 

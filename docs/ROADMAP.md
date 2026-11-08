@@ -174,3 +174,22 @@ F21-AC4.
 
 Stato (2026-11-07): fatto tutto ciò che non richiede l'utente; le voci aperte sono REVIEW U1,
 U2 e U3 (con U7 per gli aggiornamenti). **Verifica utente**: `docs/REVIEW.md` §0 e §4.
+
+## T11 — Nuova interfaccia (dalla revisione dell'utente)
+
+Dalla revisione del 2026-11-08 (REVIEW U5, D51, D52): nuova interfaccia "B+C" disegnata e
+approvata con l'utente (ADR-0019). Si fa prima del merge e della 1.0.
+
+- [ ] Fondamenta: colori e caratteri inclusi (chiaro e scuro), barra in alto, navigazione dal
+      disco, componenti comuni (pulsanti, pillole, barre d'azione, finestre, avvisi)
+- [ ] Catalogo: blocco "Tutto il catalogo", schede compatte con barra per categorie, filtri,
+      vista elenco, dischi nuovi a comparsa, attività in corso, ultime azioni, barra di stato
+- [ ] Schermata del disco con le sue schede; Spazio con mappa e tabella
+- [ ] Duplicati, Simili, Backup, Pulizia, Salute, Tipi di file nel nuovo stile, per disco e
+      per tutto il catalogo
+- [ ] Ricerca (barra in alto e finestra Ctrl+Space), Impostazioni, menu, finestre di conferma,
+      avvisi
+- [ ] Icona "prisma a strati" (app, installer, tray, logo)
+- [ ] Test end-to-end sui nuovi percorsi, checklist di REVIEW §4 aggiornate
+
+**Verifica utente**: provare l'app di sviluppo e confrontarla con i disegni.
