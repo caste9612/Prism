@@ -1,7 +1,8 @@
 # Prism — Roadmap
 
-> Tappe **interne**: ognuna produce qualcosa di completo e verificabile, ma la prima versione
-> pubblica (1.0) esce solo alla fine, con tutte le funzioni della SPEC.
+> Tappe **interne** T0–T11: ognuna ha prodotto qualcosa di completo e verificabile; la prima
+> versione pubblica della riscrittura è uscita alla fine, come **2.0.0** (2026-11-08), con tutte
+> le funzioni della SPEC. Il lavoro dopo la 2.0.0 è in fondo, sezione per versione.
 > Ogni tappa termina con: documentazione aggiornata, controlli verdi (`scripts/check.ps1`) e una
 > **checklist di verifica per l'utente**. Lo stato dettagliato è in `docs/PROGRESS.md`.
 
@@ -16,7 +17,7 @@ Legenda: `[x]` fatto · `[ ]` da fare · `[~]` in corso
 - [x] Regole di lavoro per le sessioni di sviluppo (`CLAUDE.md`)
 - [x] Workspace Cargo (`prism-core`, `prism-win`, `prism-cli`), lint comuni, toolchain fissata
 - [x] Script dei controlli (`scripts/check.ps1`) e CI GitHub Actions (attiva al primo push)
-- [x] Decisioni anticipate per lavorare in autonomia fino alla 1.0 (SPEC §8)
+- [x] Decisioni anticipate per lavorare in autonomia fino al primo rilascio (SPEC §8)
 
 **Verifica utente**: facoltativa, leggere `docs/SPEC.md`. Fatto: esecuzione una tantum di
 `scripts/admin/install-admin-runner.ps1` (2026-11-07).
@@ -80,7 +81,7 @@ Criteri coperti: F01 (AC4 per le parti che arrivano con T4/T5/T9), F02 (AC3 senz
 di scelta per le identità ambigue, REVIEW L7), F03-AC1/AC3, F19-AC1/AC3/AC4, F21-AC1/AC4
 (parziale: manca il reset del catalogo).
 **Sosta di revisione annullata** (decisione dell'utente, 2026-11-07): lo sviluppo prosegue fino
-alla 1.0 e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
+al rilascio e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
 **Verifica utente**: aspetto e usabilità della schermata catalogo; avvio con Windows.
 
 ## T4 — Spazio  `[x]`
@@ -152,7 +153,7 @@ Criteri coperti: F02-AC3, F17-AC1…AC4, F18-AC1/AC2 (AC3 con l'installer, T10),
 F21-AC4.
 **Verifica utente**: checklist T9 in `docs/REVIEW.md` §4.
 
-## T10 — Distribuzione e 1.0
+## T10 — Distribuzione e 2.0.0  `[x]`
 
 - [x] Installer: attività pianificata, menu contestuale, WebView2, disinstallazione (F22),
       identificativo e attivatore delle notifiche (REVIEW L9): costruito e controllato nello
@@ -165,20 +166,22 @@ F21-AC4.
   - [x] NF2 e NF3 misurati con 5,7 milioni di voci (`prism-cli replicate`, `mem-bench`);
         memoria dell'analisi del contenuto ridotta (D48)
   - [x] Memoria durante l'indicizzazione ridotta del 22–28% con un'istantanea compatta (D49);
-        la scrittura senza istantanea resta per dopo la 1.0 (L1)
+        la scrittura senza istantanea resta per una versione successiva (L1)
 - [x] Documentazione per l'utente nel README: funzioni, sicurezza dei file, installazione,
       aggiornamenti, privacy, limiti noti, disinstallazione
-- [ ] Firma del codice con il certificato scelto dall'utente (Q7), ramo principale (Q11)
-- [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali
-- [ ] Merge di `rewrite` sul ramo principale e rilascio 1.0
+- [x] Firma del codice: nessuna per la 2.0.0, come Orbit (REVIEW U1); ramo principale
+      `develop` (Q11)
+- [x] Chiavi degli aggiornamenti e pubblicazione da GitHub Actions (REVIEW D57, U7)
+- [x] Merge di `rewrite` in `develop` (PR #2, #3) e rilascio **2.0.0** (2026-11-08), installato
+      sul PC dell'utente
+- [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali (REVIEW U3)
 
-Stato (2026-11-07): fatto tutto ciò che non richiede l'utente; le voci aperte sono REVIEW U1,
-U2 e U3 (con U7 per gli aggiornamenti). **Verifica utente**: `docs/REVIEW.md` §0 e §4.
+Stato (2026-11-08): pubblicata la 2.0.0; resta la prova su un altro PC (REVIEW U3).
 
-## T11 — Nuova interfaccia (dalla revisione dell'utente)
+## T11 — Nuova interfaccia (dalla revisione dell'utente)  `[x]`
 
 Dalla revisione del 2026-11-08 (REVIEW U5, D51, D52): nuova interfaccia "B+C" disegnata e
-approvata con l'utente (ADR-0019). Si fa prima del merge e della 1.0.
+approvata con l'utente (ADR-0019). Fatta prima del merge e pubblicata con la 2.0.0.
 
 - [x] Fondamenta: colori e caratteri inclusi (chiaro e scuro), barra in alto, navigazione dal
       disco, componenti comuni (pulsanti, pillole, barre d'azione, finestre, avvisi)
@@ -192,5 +195,20 @@ approvata con l'utente (ADR-0019). Si fa prima del merge e della 1.0.
 - [x] Icona "prisma a strati" (app, installer, tray, logo)
 - [x] Test end-to-end sui nuovi percorsi, checklist di REVIEW §4 aggiornate
 
-Stato (2026-11-08): costruita; resta la prova dell'utente sull'app (REVIEW §4, checklist T11).
-**Verifica utente**: provare l'app di sviluppo e confrontarla con i disegni.
+Stato (2026-11-08): pubblicata con la 2.0.0; l'utente la usa sul suo PC.
+
+## Dopo la 2.0.0
+
+Il lavoro segue le richieste dell'utente, direttamente su `develop`; ogni decisione è in
+`docs/REVIEW.md` §1.
+
+### 2.1.0  `[~]`
+
+- [x] Tipo dei dischi: SSD o disco rigido con i giri (F17-AC5, REVIEW D65)
+- [x] RAID e dischi di un NAS ZimaOS, login nel Gestore credenziali di Windows, notifiche
+      (F17-AC6, REVIEW D66), provato nell'app con il NAS dell'utente (U8)
+- [x] Cartelle di rete aggiunte a mano con il loro percorso nell'app (F02-AC5, REVIEW L24)
+- [x] Dimensione del catalogo misurata sul catalogo vero (REVIEW L23); documentazione
+      riallineata al codice
+- [ ] Pubblicazione della 2.1.0 e aggiornamento automatico della 2.0.0 installata
+- [ ] Prova su un altro PC con altri dischi e cartelle di rete (REVIEW U3)

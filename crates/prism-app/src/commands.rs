@@ -448,6 +448,15 @@ pub async fn disk_health(
     blocking(move || s.disk_health(VolumeId(volume_id))).await
 }
 
+/// Adds a network folder to the catalog by its path, after checking that it answers (F02-AC5).
+#[tauri::command]
+pub async fn add_share(app: AppHandle, state: State<'_, Arc<AppState>>, path: String) -> R<i64> {
+    let s = Arc::clone(&state);
+    let id = blocking(move || s.add_share(&path)).await?;
+    emit_volumes(&app);
+    Ok(id.0)
+}
+
 /// The NAS of the catalog and whether Prism has their login (REVIEW D66).
 #[tauri::command]
 pub async fn nas_servers(state: State<'_, Arc<AppState>>) -> R<Vec<NasServerView>> {

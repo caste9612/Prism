@@ -34,6 +34,7 @@
   import { ago, formatBytes, formatCount, formatDuration, usedFraction } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
   import { nav } from '../lib/nav.svelte';
+  import AddShareDialog from './AddShareDialog.svelte';
   import DiskCard from './DiskCard.svelte';
   import Icon from './Icon.svelte';
 
@@ -194,6 +195,7 @@
   }
 
   const FILTERS: DiskFilter[] = ['all', 'online', 'network', 'offline'];
+  let addingShare = $state(false);
 </script>
 
 <section class="catalog">
@@ -280,7 +282,20 @@
       <button class="small" aria-pressed={view === 'cards'} onclick={() => setView('cards')}>{t('catalog.cards')}</button>
       <button class="small" aria-pressed={view === 'list'} onclick={() => setView('list')}>{t('catalog.list')}</button>
     </div>
+    <!-- F02-AC5: a network folder Prism does not find by itself, added with its path. -->
+    <button class="small add-share" title={t('share.addLabel')} aria-label={t('share.addLabel')} onclick={() => (addingShare = true)}>
+      <Icon name="network" size={13} />{t('share.add')}
+    </button>
   </div>
+
+  <AddShareDialog
+    open={addingShare}
+    onclose={() => (addingShare = false)}
+    ondone={(path) => {
+      addingShare = false;
+      onerror(t('share.added', { path }));
+    }}
+  />
 
   {#if shown.length === 0}
     <p class="empty card">{t('catalog.empty')}</p>
@@ -514,6 +529,12 @@
   .sort select {
     width: auto;
     min-height: 28px;
+    background: var(--surface);
+  }
+  .add-share {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     background: var(--surface);
   }
   .grid {

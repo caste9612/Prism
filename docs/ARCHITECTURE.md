@@ -23,7 +23,7 @@
 │  │  ├─ catalog   (volumi, voci, aggregati cartelle)    ├─ jobs     (coda, priorità,    │ │
 │  │  ├─ store     (SQLite: 1 writer + N lettori)         │            annullamento)      │ │
 │  │  ├─ scan      (enumerazione → riconciliazione)       ├─ search   (indice nomi, filtri)│ │
-│  │  ├─ hashing   (BLAKE3, cache invalidabile)           ├─ dupes    (gruppi, regole)    │ │
+│  │  ├─ hashing   (BLAKE3, cache invalidabile)           ├─ duplicates (gruppi, regole)  │ │
 │  │  ├─ media     (impronte immagini/video)              ├─ backup   (verifica, confronto,│ │
 │  │  └─ fileops   (Cestino, copia verificata, registro)  │            copia mancanti)    │ │
 │  └───────────────────────────────────────▲────────────────────────────────────────────┘ │
@@ -47,9 +47,9 @@
 | `prism-core` | Logica di dominio, archivio SQLite, job, ricerca, duplicati, backup. Nessun `unsafe`, nessuna API Win32 diretta: la piattaforma passa da trait (`VolumeSource`, `Enumerator`, `ChangeFeed`, `Recycler`, `HealthProbe`...). Testabile con implementazioni finte. | — |
 | `prism-win` | Implementazioni Windows dei trait: rilevamento e identità dei volumi, lettore MFT, journal USN, SMART, Cestino, avvio non elevato, attività pianificata. Unico crate con `unsafe`, ogni blocco con commento `// SAFETY:`. | `prism-core` |
 | `prism-cli` | Strumento di sviluppo: scansioni, ricerche, benchmark, diagnostica e test manuali senza interfaccia grafica. Non è un prodotto pubblico. | `prism-core`, `prism-win` |
-| `prism-app` | Applicazione Tauri 2: comandi IPC, eventi, finestre, tray, scorciatoia, server della named pipe. Nessuna logica di dominio. *(Arriva in T3.)* | `prism-core`, `prism-win` |
+| `prism-app` | Applicazione Tauri 2: comandi IPC, eventi, finestre, tray, scorciatoia, server della named pipe. Nessuna logica di dominio. | `prism-core`, `prism-win` |
 | `prism-shell` | Piccolo eseguibile **non elevato** invocato dal menu contestuale (`prism-shell analyze "<percorso>"` o `duplicates`): inoltra la richiesta all'istanza attiva via named pipe, oppure avvia l'attività pianificata `Prism` e poi la inoltra (T9). | `prism-win` |
-| `ui/` | Frontend Svelte 5 + Vite + TypeScript. *(Arriva in T3.)* | — |
+| `ui/` | Frontend Svelte 5 + Vite + TypeScript. | — |
 
 ## 3. Modello dati (ADR-0005)
 
@@ -142,21 +142,12 @@ Gestore credenziali di Windows (§9).
 Le chiavi esterne sono attive sulla connessione di scrittura; `entries` non usa cascate (una
 sottostruttura si elimina con una CTE ricorsiva, senza limiti di profondità).
 
-**Tabelle previste nelle tappe successive** (bozza, arriveranno con nuove migrazioni):
-
-```sql
-media_prints (entry_id, kind, size, modified_at, print BLOB)                   -- T8
-health_samples (volume_id, taken_at, status, temperature, power_on_hours, wear, realloc, pending, raw)  -- T9
-jobs (id, kind, volume_id, state, priority, created_at, started_at, finished_at, progress, error, params) -- T6 (REVIEW D10)
-```
-
 Il percorso completo di una voce **non è memorizzato**: si ricostruisce risalendo i
 `parent_id` (o dall'indice in memoria). Questo elimina la ripetizione del percorso in colonne e
 indici, che nel vecchio Prism portava il database a circa 1 KB per file.
 
 Decisioni di dettaglio (unicità per nome esatto, escape dei nomi, date `FILETIME`, metadati
-delle cartelle, aggregati) in ADR-0015. Restano da definire in T2: hard link NTFS (più nomi per
-lo stesso `file_ref`; lo spazio va contato una sola volta) e flussi alternativi (ADS).
+delle cartelle, aggregati) in ADR-0015; hard link NTFS e flussi alternativi (ADS) in §4.1.
 
 ## 4. Pipeline
 
@@ -362,7 +353,7 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   globale (`tauri-plugin-global-shortcut`, default `Ctrl+Space`, nelle impostazioni; se non è
   registrabile l'interfaccia lo dice e propone di cambiarla, la scorciatoia precedente resta
   attiva) e dalla voce *Cerca* del tray. L'interfaccia è la stessa pagina con `?view=search`;
-  nella finestra principale la ricerca è anche una voce del menu laterale.
+  nella finestra principale la ricerca è la casella della barra in alto (ADR-0019).
 
 ### 4.5 Duplicati, simili, backup
 
@@ -494,10 +485,10 @@ Nell'app (`AppState::delete_entries`, comando `delete_entries`) il Cestino si us
 fissi locali; altrove l'eliminazione è definitiva solo con la conferma esplicita
 dell'interfaccia. Le build di **debug** passano sempre una `SandboxGuard`
 (`AppState::deletion_guard`): solo il volume PRISMTEST (riconosciuto dall'etichetta), `%TEMP%`
-e `%LOCALAPPDATA%\PrismDev`; la release non ha guardia. La stessa guardia varrà per ogni
-futura operazione distruttiva dell'app (spostamento, copia verso, sovrascrittura).
+e `%LOCALAPPDATA%\PrismDev`; la release non ha guardia. La stessa guardia vale per ogni
+operazione distruttiva dell'app, compresa la copia verso una destinazione (§4.5).
 
-La regola dell'ultima copia dei duplicati (F16-AC4) e il controllo dell'hash arrivano con T6.
+La regola dell'ultima copia dei duplicati (F16-AC4) e il controllo dell'hash sono in §4.5.
 
 ### 4.8 Pulizia guidata (F09, T4)
 
@@ -561,16 +552,19 @@ Implementazione (`store::Store`, T1):
 
 ## 6. Motore dei job (ADR-0009)
 
-- Tipi: `IndexVolume`, `UpdateVolume`, `HashContent`, `MediaPrints`, `VerifyBackup`,
-  `CompareTrees`, `CopyMissing`, `CleanupScan`, `DeleteEntries`, `PollHealth`.
+- Tipi (`JobSpec::kind`): `index` (prima indicizzazione), `update` (aggiornamento chiesto o al
+  ritorno del disco), `journal` (journal NTFS ogni 15 s), `refresh` (cartelle sorvegliate),
+  `hash` (analisi del contenuto e poi impronte di immagini e video), `copy` (copia dei file
+  mancanti). Verifica e confronto dei backup, pulizia ed eliminazione girano subito nel catalogo
+  senza job (REVIEW D36); salute e NAS sono thread a parte (§9).
 - Priorità: *interattiva* (chiesta dall'utente) > *indicizzazione* > *background*.
 - Al massimo un job pesante per **disco fisico** alla volta, per non far lavorare un HDD in
   parallelo su più fronti.
-- Ogni job ha un token di annullamento, un reporter di avanzamento e un record persistente in
-  `jobs`. All'avvio i job interrotti vengono ripresi (hash, impronte) o annullati in modo pulito
-  (NF4).
-- Eventi verso l'interfaccia, limitati a circa 4 al secondo: `job-updated`, `catalog-changed`
-  (volume, tipo di modifica), `volume-status`, `notification`.
+- Ogni job ha un token di annullamento e un reporter di avanzamento. Il motore è in memoria
+  (nessuna tabella `jobs`, REVIEW D10): un lavoro interrotto si riconosce dallo stato del
+  catalogo e riparte da lì (vedi sotto, NF4).
+- Eventi verso l'interfaccia, limitati a circa 4 al secondo: `jobs-changed`, `volumes-changed`,
+  `settings-changed`, `update-changed`, `search-focus`, `shell-request`.
 
 Implementazione (`prism-core::jobs::JobEngine`, T3): alcuni thread di lavoro prendono il job in
 coda più urgente i cui dischi fisici sono liberi (FIFO a parità di priorità); ogni job riceve
@@ -581,8 +575,47 @@ Il motore è in memoria (REVIEW D10). `should_yield(id)` dice a un job se un job
 aspetta uno dei suoi dischi: i job di background (hash) lo chiedono ogni mezzo secondo e
 cedono il disco invece di far aspettare un'indicizzazione per ore (T6, REVIEW D31). I job di
 background non contano come "disco occupato" per l'app: aggiornamenti dal journal, dalla
-sorveglianza e richieste dell'utente partono comunque (`AppState::foreground_jobs`); il job `journal` non riserva il disco (legge pochi record ogni 15 s), altrimenti l'analisi gli cederebbe il passo a ogni giro. Gli hash
-non hanno bisogno di un record persistente per riprendere (§4.3).
+sorveglianza e richieste dell'utente partono comunque (`AppState::foreground_jobs`); il job
+`journal` non riserva il disco (legge pochi record ogni 15 s), altrimenti l'analisi gli
+cederebbe il passo a ogni giro. Gli hash non hanno bisogno di un record persistente per
+riprendere (§4.3).
+
+### 6.1 Lavori interrotti e quando si rifanno
+
+**Interruzione** (annullamento, Prism chiuso, PC spento, disco scollegato):
+
+- **Indicizzazione e aggiornamento.** La lettura del disco non scrive nulla: interrotta lì, il
+  catalogo resta com'era. La scrittura avviene a lotti, ognuno in una transazione: interrotta
+  a metà, il volume diventa `reindex_needed` (un arresto improvviso lo lascia `indexing`, che
+  l'apertura successiva trasforma in `reindex_needed`). Il catalogo resta consultabile e
+  coerente lotto per lotto; alla prossima occasione (sotto) il volume si rilegge per intero.
+- **Analisi del contenuto e impronte.** Il lavoro fatto si salva a gruppi (ogni 256 file per
+  gli hash, a ogni blocco di file per le impronte): un'interruzione perde al più l'ultimo gruppo. Il giro successivo riparte dai file senza hash valido (un hash
+  vale finché dimensione e data del file sono quelle per cui è stato calcolato); i file già
+  analizzati non si rileggono mai, finché non cambiano.
+- **Copia del backup.** File temporanei `.prism-part`, rinominati solo dopo la verifica: una
+  copia interrotta non lascia file a metà, e rifatta riconosce i file già copiati dal contenuto.
+
+**Quando si rilegge cosa** (`monitor.rs`, `hash_jobs.rs`, `watchers.rs`):
+
+| Cosa | Quando | Quanto lavoro |
+|---|---|---|
+| Rilevamento dei dischi | ogni 2 s | nessuna lettura del contenuto |
+| Aggiornamento di un disco indicizzato | all'avvio di Prism e ogni volta che il disco torna (collegato, NAS acceso), o con *Aggiorna* | NTFS (Prism elevato): dal journal, secondi; se il journal non copre più la posizione salvata, il volume era `reindex_needed` o le modifiche non si applicano una per una, rilettura completa della MFT (secondi anche per milioni di voci). Altri file system e NAS: rilettura completa dell'albero delle cartelle (solo nomi e metadati, non il contenuto: ~45 s per 600.000 voci sul NAS dell'utente) |
+| Journal dei dischi NTFS collegati | ogni 15 s | solo i record nuovi |
+| Cartelle sorvegliate (FAT, exFAT, ReFS, NAS) | dopo ogni gruppo di cambi (fino a 5 s) | solo le cartelle cambiate; oltre 10.000 percorsi in attesa, tutto il volume |
+| Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'ultimo giro | solo i file senza hash valido; cede il disco entro mezzo secondo a un'indicizzazione |
+| Avanzamento dell'analisi sulle schede | ogni 5 minuti (1 mentre gira), subito dopo un'indicizzazione | conteggio nel catalogo |
+| Indici di ricerca | dopo un cambio del catalogo, al massimo ogni 30 s per volume | ricostruzione in memoria del volume (L11) |
+| Salute dei dischi del PC | 10 s dopo l'avvio, poi ogni ora e appena si collega un disco | lettura SMART |
+| NAS ZimaOS | 10 s dopo l'avvio, poi ogni ora (ogni 5 minuti se l'ultima lettura è fallita) | due chiamate al NAS |
+| Spazio libero dei NAS | ogni 30 s (10 s se non risponde) | una chiamata |
+| Aggiornamenti di Prism | un minuto dopo l'avvio, poi ogni 24 ore | il `latest.json` della release |
+
+Prism non riparte mai da zero da solo con l'analisi del contenuto: si rifà per intero solo
+dopo *Rimuovi dal catalogo* o il reset del catalogo (che tolgono gli hash). La rilettura
+completa dell'albero a ogni avvio per i dischi non NTFS e i NAS è il prezzo di non avere un
+journal: senza, Prism non sa che cosa è cambiato mentre era chiuso.
 
 ## 7. Interfaccia e IPC (ADR-0014)
 
@@ -592,7 +625,9 @@ non hanno bisogno di un record persistente per riprendere (§4.3).
 - Lo stato vive nel backend; i componenti si iscrivono agli eventi e rileggono ciò che serve.
 - Gli errori del backend arrivano come **codice + parametri**; l'interfaccia li traduce (i18n).
   Anche le etichette del tray sono fornite dall'interfaccia nella lingua scelta.
-- Liste lunghe virtualizzate; treemap disegnata su canvas.
+- Liste lunghe limitate invece che virtualizzate (200 risultati di ricerca, 300 gruppi di
+  duplicati, 500 file per livello, con i totali di tutto; REVIEW D28, D32, D36); treemap
+  disegnata su canvas.
 
 Implementazione (T3):
 
@@ -604,7 +639,7 @@ Implementazione (T3):
   `AppInfo`, `ApiError` con codice); `commands.rs` sono comandi Tauri sottili che delegano a
   `state.rs` (stato condiviso, invio dei job di indicizzazione) e a `prism-core`/`prism-win`.
 - `monitor.rs`: ogni 2 s rileva i volumi e li confronta con il catalogo (nuovi inseriti con
-  stato `new`, riconosciuti aggiornati, ambigui solo registrati nel log, REVIEW D13); alla
+  stato `new`, riconosciuti aggiornati, ambigui in attesa della scelta dell'utente, REVIEW D43); alla
   riconnessione di un volume indicizzato accoda un aggiornamento (F05-AC2); ogni 15 s applica
   il journal ai volumi NTFS indicizzati e collegati (F05-AC1, job `journal`); inoltra
   all'interfaccia gli eventi `jobs-changed` (al massimo ~4 al secondo) e `volumes-changed`.
@@ -820,8 +855,8 @@ già, e crea la release `v<versione>` sul commit compilato, con le note di
 - Reset del catalogo (F21-AC4): `store::reset_catalog` toglie ogni volume come la rimozione di
   un singolo disco (gli indici di ricerca seguono gli eventi); l'app prima ferma i job, poi
   svuota lo stato in memoria; impostazioni e registro delle azioni restano.
-- In sviluppo, un pannello di debug interno mostra job, code e tempi (sostituisce il monitor
-  egui del vecchio progetto).
+- Nessun pannello di debug nell'app: job, fasi e tempi si vedono nel riquadro *Attività in
+  corso* e nei log (il monitor egui del vecchio progetto non è stato rifatto).
 
 ## 10. Test
 
@@ -834,20 +869,35 @@ dell'interfaccia con backend simulato; benchmark registrati in `docs/benchmarks/
 
 ```
 Prism-next/
-├─ Cargo.toml              workspace, lint comuni
+├─ Cargo.toml  Cargo.lock  rust-toolchain.toml  clippy.toml   workspace, lint comuni
+├─ README.md  LICENSE  CLAUDE.md                               presentazione, MIT, regole di lavoro
 ├─ crates/
-│  ├─ prism-core/          model, names, exclusion, scan (walker), reconcile, indexer,
-│  │                       store (SQLite), sandbox (guardia per i test), cancel
-│  ├─ prism-win/
-│  ├─ prism-cli/
-│  ├─ prism-app/           app Tauri 2: comandi, stato, sorveglianza volumi, tray
-│  └─ prism-shell/         eseguibile del menu di Esplora risorse (T9)
-├─ ui/                     interfaccia Svelte 5 (src/components, src/lib, bindings generati)
-├─ scripts/                check.ps1, script dei test con amministratore
+│  ├─ prism-core/   model, names, exclusion, volumes (riconoscimento), scan (walker),
+│  │                reconcile, changes, refresh, indexer, store (SQLite e migrazioni), jobs,
+│  │                search, space, cleanup, fileops, sandbox, hashing, duplicates, media
+│  │                (immagini e video), backup, health, diagnostics, cancel; tests/ di
+│  │                integrazione e di proprietà
+│  ├─ prism-win/    volumes, mft, usn, ntfs, watch, health (SMART, tipo del disco), trash,
+│  │                shell, shell_menu, pipe, autostart, notify, process, system, net, files,
+│  │                video (Media Foundation), credentials (Gestore credenziali), ioctl;
+│  │                tests/ con amministratore (feature `admin-tests`)
+│  ├─ prism-cli/    strumento di sviluppo: scan, ls, du, stats, check, bench, replicate,
+│  │                mem-bench, search-bench, print-bench
+│  ├─ prism-app/    app Tauri 2: commands, state (+ state_tests), dto, monitor, watchers,
+│  │                netprobe, netnames, shares, identity, hash_jobs, health_state, nas_state,
+│  │                zimaos, backup_state, similar_state, *_views, notices, tray, updates,
+│  │                search_window, shell_requests, diagnostics_state
+│  └─ prism-shell/  eseguibile non elevato del menu di Esplora risorse (F18)
+├─ ui/              interfaccia Svelte 5: src/components, src/lib (logica, simulatore,
+│                   bindings generati, locales), e2e/ (Playwright con il backend simulato),
+│                   e2e-real/ (app vera), screens/ (screenshot del README)
+├─ scripts/         check.ps1, build-installer.ps1, new-update-key.ps1, sandbox-test.ps1,
+│                   make-icons.py, admin/ (runner dei test con amministratore)
 ├─ docs/
-│  ├─ SPEC.md  ARCHITECTURE.md  TESTING.md  ROADMAP.md  PROGRESS.md
-│  ├─ adr/                 decisioni architetturali
-│  └─ benchmarks/          risultati delle misure
-├─ .github/workflows/      CI
-└─ CLAUDE.md               regole di lavoro per le sessioni di sviluppo
+│  ├─ SPEC.md  ARCHITECTURE.md  TESTING.md  ROADMAP.md  PROGRESS.md  REVIEW.md
+│  ├─ adr/          decisioni architetturali
+│  ├─ benchmarks/   risultati delle misure
+│  ├─ releases/     note di ogni versione
+│  └─ screenshots/  immagini del README (`npm run screens`)
+└─ .github/workflows/   ci.yml (controlli), release.yml (rilascio)
 ```

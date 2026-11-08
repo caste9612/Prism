@@ -664,7 +664,15 @@
     "unlike": "Il contenuto è molto diverso: è davvero la stessa cartella?",
     "move": "Usa questo indirizzo",
     "gone": "Non risponde a {path}. Se il NAS ha cambiato indirizzo, puoi indicare quello nuovo.",
-    "change": "Cambia indirizzo…"
+    "change": "Cambia indirizzo…",
+    "add": "Cartella di rete…",
+    "addLabel": "Aggiungi una cartella di rete con il suo percorso",
+    "addTitle": "Aggiungi una cartella di rete",
+    "addIntro": "Una cartella condivisa che Prism non trova da solo: una mappata solo per questa sessione, o una cartella di un altro PC o NAS. Prism la raggiunge con il suo percorso di rete, con o senza lettera.",
+    "addPath": "Percorso di rete",
+    "addNow": "Aggiungi",
+    "adding": "Controllo…",
+    "added": "{path} è nel catalogo: Prism propone di indicizzarla appena risponde."
   },
   "health": {
     "open": "Salute del disco",

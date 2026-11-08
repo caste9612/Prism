@@ -270,6 +270,7 @@ fn main() {
             commands::cancel_job,
             commands::set_labels,
             commands::set_ignored,
+            commands::add_share,
             commands::check_share_path,
             commands::move_share,
             commands::open_volume,

@@ -5,21 +5,41 @@
 
 ## Stato attuale
 
-- **Stato**: **Prism 2.0.0 pubblicato** il 2026-11-08 (release `v2.0.0` su GitHub, aggiornamenti
-  automatici attivi) e **installato sul PC dell'utente**; chiave degli aggiornamenti copiata
-  nella sua cartella delle credenziali. Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: le richieste dell'utente; tipo dei dischi e RAID del NAS ZimaOS (D65, D66)
-  sono su `develop`, da provare nell'app (U8) e da pubblicare con la prossima versione. Prima di
-  avviare l'app di sviluppo va chiusa quella installata (CLAUDE.md). Consigliata una copia della
-  chiave fuori dal PC (REVIEW U7).
+- **Stato**: **Prism 2.0.0 pubblicato** il 2026-11-08 e **installato sul PC dell'utente**;
+  **2.1.0 in pubblicazione** (tipo dei dischi, RAID del NAS ZimaOS, cartelle di rete aggiunte a
+  mano). Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: verificare la release 2.1.0 e l'aggiornamento automatico della 2.0.0
+  installata; poi le richieste dell'utente, che il 2026-11-09 prova Prism su un altro PC con
+  altri dischi e cartelle di rete (U3). Prima di avviare l'app di sviluppo va chiusa quella
+  installata (CLAUDE.md). Consigliata una copia della chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
-- **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); prova su un PC
-  pulito (U3).
+- **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); riduzioni della
+  dimensione del catalogo (L23, l'utente: "non serve" per ora).
 - **Modalità di lavoro** (aggiornata 2026-11-08): autonomia; le decisioni si registrano in
   `docs/REVIEW.md`. Commit e push direttamente su `develop`, niente pull request (CLAUDE.md). Il
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-08 — Dimensione del catalogo, lavori interrotti, documentazione, 2.1.0
+
+- Domande dell'utente: quanto pesa il database e che cosa succede quando un lavoro lungo si
+  interrompe. Misurato su una copia del catalogo installato (`docs/benchmarks/2026-11-08-catalog-size.md`):
+  580 MB per 3,5 milioni di voci, ~120 B per voce più ~165 B per file analizzato; il 17% del
+  catalogo è la seconda copia del NAS in `ZimaOS-HD\.media` (L19). Possibili riduzioni (L23):
+  l'utente ha detto che non servono. Interruzioni e frequenze descritte in ARCHITECTURE §6.1.
+- Revisione di tutta la documentazione (con un agente che ha confrontato documenti e codice):
+  REVIEW §0 e voci superate, ROADMAP (T10 e T11 chiuse, sezione "Dopo la 2.0.0"), CLAUDE.md,
+  SPEC (obiettivi misurati, domande decise), ARCHITECTURE (job reali, tabelle, struttura delle
+  cartelle), TESTING, stato delle ADR 0003, 0009, 0014.
+- Trovato nella revisione: F02-AC5 (cartelle di rete aggiunte a mano) mancava nell'app.
+  Aggiunto *Cartella di rete…* (L24), utile per la prova dell'utente su un altro PC.
+- Client del NAS: legge una risposta fino alla sua lunghezza invece di aspettare la chiusura
+  della connessione (riprovato sul NAS vero).
+- Prova dell'app vera (U8): l'utente ha collegato il NAS nell'app di sviluppo; pilotata poi
+  l'app: RAID sulle tre cartelle, dischi nella scheda *Salute*, cartelle già nel catalogo
+  rifiutate da *Cartella di rete…*.
+- Versione 2.1.0, note in `docs/releases/2.1.0.md`.
 
 ### 2026-11-08 — Tipo dei dischi e RAID del NAS
 

@@ -1,4 +1,5 @@
-//! A network share of the catalog moved to another path, by hand (REVIEW D59): the user types
+//! Network folders added by hand with their path (F02-AC5), and a network share of the catalog
+//! moved to another path, by hand (REVIEW D59): the user types
 //! the new path (`\\192.168.1.57\Photos`), Prism checks that it answers and how much of its top
 //! level matches the catalog, and the user confirms. The volume monitor then finds the share at
 //! its new path and brings it up to date like any share that comes back (F05-AC2).
@@ -8,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use prism_core::model::{Volume, VolumeId, VolumeKind};
+use prism_core::model::{Volume, VolumeId, VolumeInfo, VolumeKind, VolumeStatus};
 use prism_core::names;
 use prism_core::store;
 use prism_core::volumes::{normalize_unc, unc_parts};
@@ -56,13 +57,49 @@ fn top_names(path: PathBuf) -> Option<HashSet<String>> {
     rx.recv_timeout(LIST_TIMEOUT).ok().flatten()
 }
 
+/// A network path as Prism saves it (`\\server\share\…`, backslashes, no final one), or
+/// `share_path_invalid`.
+fn clean_unc(path: &str) -> Result<String, ApiError> {
+    let path = path.trim().trim_end_matches(['\\', '/']).replace('/', "\\");
+    if !path.starts_with(r"\\") || path.starts_with(r"\\?\") || unc_parts(&path).is_none() {
+        return Err(ApiError::new("share_path_invalid", path));
+    }
+    Ok(path)
+}
+
 impl AppState {
+    /// Adds a network folder to the catalog by its path (F02-AC5): one that no drive letter
+    /// points to (a mapping that is not persistent, a folder of another PC or NAS). It must
+    /// answer; the volume monitor then finds it by its path, like every share of the catalog
+    /// (REVIEW D55), and proposes to index it.
+    pub fn add_share(&self, path: &str) -> Result<VolumeId, ApiError> {
+        let path = clean_unc(path)?;
+        let key = normalize_unc(&path);
+        let volumes = self.store.read(store::volumes)?;
+        if volumes
+            .iter()
+            .any(|v| v.info.unc_path.as_deref().map(normalize_unc).as_ref() == Some(&key))
+        {
+            return Err(ApiError::new("share_in_catalog", path));
+        }
+        if top_names(PathBuf::from(&path)).is_none() {
+            return Err(ApiError::new("share_unreachable", path));
+        }
+        let info = VolumeInfo {
+            kind: VolumeKind::Network,
+            unc_path: Some(path.clone()),
+            ..VolumeInfo::dev_folder(&path)
+        };
+        let id = self
+            .store
+            .write(move |w| store::insert_volume(w, &info, VolumeStatus::New))?;
+        tracing::info!(volume = id.0, path = %path, "network folder added by hand");
+        Ok(id)
+    }
+
     /// The share and the cleaned new path, if the change makes sense.
     fn share_target(&self, volume: VolumeId, path: &str) -> Result<(Volume, String), ApiError> {
-        let path = path.trim().trim_end_matches(['\\', '/']).replace('/', "\\");
-        if !path.starts_with(r"\\") || unc_parts(&path).is_none() {
-            return Err(ApiError::new("share_path_invalid", path));
-        }
+        let path = clean_unc(path)?;
         let volumes = self.store.read(store::volumes)?;
         let Some(v) = volumes.iter().find(|v| v.id == volume).cloned() else {
             return Err(ApiError::new("volume_not_found", volume.to_string()));

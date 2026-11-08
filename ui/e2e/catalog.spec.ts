@@ -236,3 +236,28 @@ test('D66: a NAS share shows the RAID it is on and the disks of the RAID', async
   await openDisk(page, 'Windows');
   await expect(page.getByText('Internal disk · WDC WD20EZRZ-00Z5HB0 · HDD 5400 rpm · NTFS')).toBeVisible();
 });
+
+test('F02-AC5: a network folder is added by hand with its path, checked first', async ({ page }) => {
+  await page.getByRole('button', { name: 'Add a network folder by its path' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add a network folder' });
+  const field = dialog.getByLabel('Network path');
+  const add = dialog.getByRole('button', { name: 'Add', exact: true });
+  await expect(add).toBeDisabled();
+  await field.fill('D:\\Foto');
+  await add.click();
+  await expect(dialog.getByRole('alert')).toHaveText('Type a network path like \\\\server\\folder.');
+  await field.fill('\\\\192.168.1.20\\Media\\');
+  await add.click();
+  await expect(dialog.getByRole('alert')).toHaveText('This path already belongs to another folder of the catalog.');
+  await field.fill('\\\\192.168.1.99\\Foto');
+  await add.click();
+  await expect(dialog.getByRole('alert')).toHaveText('The path does not answer.');
+  await field.fill('\\\\192.168.1.22\\Foto');
+  await add.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('alert')).toContainText('\\\\192.168.1.22\\Foto is in the catalog');
+  // Proposed for indexing like a new disk, under its server.
+  const nas = page.getByRole('region', { name: 'NAS 192.168.1.22' });
+  await expect(nas.getByRole('article', { name: 'Foto', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '2 new disks' })).toBeVisible();
+});

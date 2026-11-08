@@ -1021,6 +1021,18 @@ fn a_share_moves_to_a_new_path_only_when_it_answers() {
             .unwrap()
     };
     let app = state(store, true, tmp.path());
+    // F02-AC5: a network folder is added by hand only when it is a network path, not already in
+    // the catalog, and answers; nothing is written otherwise.
+    let add = |path: &str| app.add_share(path).unwrap_err().code;
+    assert_eq!(add(r"D:\Photos"), "share_path_invalid");
+    assert_eq!(add(r"\\?\C:\Photos"), "share_path_invalid");
+    assert_eq!(add(r"\\nas"), "share_path_invalid");
+    assert_eq!(add(r"\\192.168.1.65\photos\"), "share_in_catalog");
+    assert_eq!(
+        add(r"\\prism-no-such-server.invalid\Photos"),
+        "share_unreachable"
+    );
+    assert_eq!(app.store.read(store::volumes).unwrap().len(), 3);
     let code = |r: Result<(), crate::dto::ApiError>| r.unwrap_err().code;
     assert_eq!(
         code(app.move_share(photos, r"D:\Photos")),

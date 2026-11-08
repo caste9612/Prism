@@ -1,6 +1,8 @@
 # ADR-0009 — Motore dei job ed eventi verso l'interfaccia
 
-- **Stato**: Accettata
+- **Stato**: Accettata, con il motore in memoria senza record persistente dei job (REVIEW
+  D10: un lavoro interrotto riparte dallo stato del catalogo, ARCHITECTURE §6.1); gli eventi
+  reali sono in ARCHITECTURE §6
 - **Data**: 2026-11-07
 
 ## Contesto

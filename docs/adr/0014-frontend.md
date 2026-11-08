@@ -1,6 +1,9 @@
 # ADR-0014 — Frontend: Svelte 5, IPC tipizzato, i18n, tema
 
-- **Stato**: Accettata (librerie di i18n e di generazione dei tipi da scegliere in T3)
+- **Stato**: Accettata. Scelte in T3: tipi generati con `ts-rs` e i18n con file JSON propri
+  (REVIEW D11); un solo punto d'ingresso, la finestra di ricerca è la stessa pagina con
+  `?view=search`; liste lunghe limitate invece che virtualizzate (ARCHITECTURE §7); aspetto e
+  navigazione da ADR-0019
 - **Data**: 2026-11-07
 
 ## Contesto

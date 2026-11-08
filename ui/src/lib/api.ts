@@ -49,6 +49,8 @@ export interface Backend {
   cancelJob(id: number): Promise<boolean>;
   setLabels(id: number, labels: LabelsInput): Promise<void>;
   setIgnored(id: number, ignored: boolean): Promise<void>;
+  /** Adds a network folder by its path, after checking that it answers (F02-AC5); its id. */
+  addShare(path: string): Promise<number>;
   /** Whether a network share of the catalog answers at a new path, and how much matches (REVIEW D59). */
   checkSharePath(id: number, path: string): Promise<SharePathView>;
   /** Gives a network share of the catalog its new path, after the user confirmed it. */
@@ -132,6 +134,7 @@ const tauriBackend: Backend = {
   cancelJob: (id) => invoke('cancel_job', { id }),
   setLabels: (id, labels) => invoke('set_labels', { id, labels }),
   setIgnored: (id, ignored) => invoke('set_ignored', { id, ignored }),
+  addShare: (path) => invoke('add_share', { path }),
   checkSharePath: (id, path) => invoke('check_share_path', { id, path }),
   moveShare: (id, path) => invoke('move_share', { id, path }),
   openVolume: (id) => invoke('open_volume', { id }),

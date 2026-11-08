@@ -79,7 +79,8 @@ Download the latest version from the [releases page](https://github.com/caste961
   its name and address.
 - **Name, location and colour** for each disk — "Photos 2019, drawer 2" — shown on its card and
   in every search result.
-- **Network folders** of a NAS or another PC, with or without a drive letter. If the router gives
+- **Network folders** of a NAS or another PC, with or without a drive letter: mapped ones are
+  found by themselves, any other is added with its path (*Network folder…*). If the router gives
   the NAS another address, Prism finds the folders again by the NAS name and asks before changing
   the catalog; or you give it the new address, checked against the catalog first.
 - Updates by themselves: NTFS disks from the change journal while Prism runs, every other disk
@@ -172,7 +173,7 @@ Measured on a Ryzen 9 7950X with an NVMe SSD (details in [docs/benchmarks](docs/
 | Installer | ~6.1 MB |
 | Indexing an NTFS disk through the Master File Table | 1.26 million entries in 5.7 s; 620,000 in 2.1 s |
 | Indexing a NAS folder over the network | 2,000–3,000 entries per second |
-| Catalog on disk | ~120 bytes per file or folder (5.7 million entries: 656 MiB) |
+| Catalog on disk | ~120 bytes per file or folder (5.7 million entries: 656 MiB), plus ~165 bytes per file once its content is analysed: a real catalog of 3.5 million entries with a quarter of the files analysed takes 580 MB, ~870 MB when fully analysed |
 | Search | 1.37 million names: the first 1,000 results in under 1 ms |
 | Memory | ~325 MiB with 5.7 million entries in the catalog, search index included |
 | Picture prints for similar images | ~66 photos per second with 4 threads |

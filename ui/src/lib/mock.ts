@@ -227,6 +227,18 @@ export function mockBackend(): Backend {
       v.status = ignored ? 'ignored' : v.lastIndexedAt ? 'reindex_needed' : 'new';
       emitVolumes();
     },
+    // F02-AC5: a network folder added by hand; it answers at 192.168.1.20–29 or by its name.
+    addShare: async (path) => {
+      const clean = path.trim().replace(/[\\/]+$/, '');
+      if (!/^\\\\[^\\?]+\\[^\\]+/.test(clean)) throw { code: 'share_path_invalid', message: clean };
+      if (volumes.some((v) => v.path?.toLowerCase() === clean.toLowerCase())) throw { code: 'share_in_catalog', message: clean };
+      if (!NAS_ANSWERS.test(clean)) throw { code: 'share_unreachable', message: clean };
+      const server = clean.slice(2).split('\\')[0]!;
+      const id = Math.max(0, ...volumes.map((v) => v.id)) + 1;
+      volumes = [...volumes, volume({ id, name: clean, kind: 'network', fsType: null, mount: clean, path: clean, server, group: `net:${server}`, status: 'new', lastIndexedAt: null, lastSeenAt: Date.now() })];
+      emitVolumes();
+      return id;
+    },
     // The simulated NAS answers at 192.168.1.20–29 or by its name; 3 of the 4 folders at the top
     // match the catalog.
     checkSharePath: async (id, path) => {

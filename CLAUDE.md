@@ -27,22 +27,21 @@ da zero**, pubblicata come 2.0.0; dal 2026-11-08 si lavora direttamente su `deve
   `origin/develop`, senza pull request. Mai force push. Il branch `rewrite` è chiuso (unito in
   `develop` con le PR #2 e #3). Le release partono dal workflow *Release* su `develop`, con
   l'approvazione dell'utente.
-- **Autonomia totale fino alla 1.0, senza soste** (decisione dell'utente, 2026-11-07
-  pomeriggio). Si procede tappa dopo tappa fino all'ultima voce della roadmap che non richiede
-  l'utente. La sosta di revisione di fine T3 è **annullata**: l'utente fa **una sola revisione
-  finale** (sera del 2026-11-07), guidata da `docs/REVIEW.md`. A fine tappa, report in
-  `docs/PROGRESS.md` come sempre, poi si continua subito.
-- **Non terminare il loop** (niente `ScheduleWakeup` con `stop: true`, niente "mi fermo e
-  aspetto l'utente") finché in roadmap resta lavoro fattibile. Se una voce è bloccata, annotala
-  in `docs/REVIEW.md` §3 e passa alla successiva indipendente. Il loop si chiude solo quando tutto
-  ciò che resta richiede l'utente, con `docs/REVIEW.md` completo.
+- **Autonomia** (decisioni dell'utente, 2026-11-07 e 2026-11-08: "procedi in totale
+  autonomia"). Fino alla 2.0.0 si è proceduto tappa dopo tappa senza soste; dopo la 2.0.0 si
+  lavora sulle richieste dell'utente (sezione "Dopo la 2.0.0" di `docs/ROADMAP.md`), sempre in
+  autonomia, con un report in `docs/PROGRESS.md` a ogni passo significativo. Se una voce è
+  bloccata, annotala in `docs/REVIEW.md` §3 e passa alla successiva indipendente.
+- **Rilasci**: numero di versione uguale in `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`,
+  `ui/package.json` e `ui/package-lock.json`, note in `docs/releases/<versione>.md`, poi il
+  workflow *Release* con `publish=true` (l'utente approva l'environment `release`).
 - **Decisioni: si prendono in autonomia e si registrano.** Sia quelle tecniche sia quelle di
   prodotto non ancora prese (punti **[DA CONFERMARE]**, domande aperte del capitolo 8 della SPEC,
   dettagli di interfaccia e di comportamento): scegli l'opzione più prudente e reversibile,
   coerente con SPEC e ADR, e **registrala in `docs/REVIEW.md` §1** (decisione, alternative, come
   cambiarla). Le scelte tecniche importanti restano anche in un'ADR con i dati.
-- **Ciò che richiede davvero l'utente** (certificato di firma Q7, merge sul ramo principale
-  Q11, test su PC pulito, collegamento fisico di dischi, giudizio estetico): prepara tutto il
+- **Ciò che richiede davvero l'utente** (firma del codice se la vorrà, U1; prova su un altro
+  PC; collegamento fisico di dischi; giudizio estetico; approvazione dei rilasci): prepara tutto il
   possibile, elencalo in `docs/REVIEW.md` §2 e prosegui con il resto.
 - **Test per ogni criterio.** Ogni criterio `Fxx-ACn` implementato ha un test che ne cita l'ID,
   oppure una voce nella checklist manuale della tappa (riportata anche in `docs/REVIEW.md` §4).
@@ -75,15 +74,16 @@ sue voci in `docs/REVIEW.md`, aggiungi le tue.
   `%LOCALAPPDATA%\com.prism.catalog`, che lo sviluppo non tocca; prima di avviare l'app di
   sviluppo va chiusa quella installata (stesso identificativo: la seconda istanza passerebbe
   alla prima, e Ctrl+Spazio sarebbe di una sola delle due).
-- **App di sviluppo protetta** (istruzione della supervisione, 2026-11-07 17:35; **priorità
-  alta: fallo come prossimo passo**, prima di altre funzioni). Oggi `prism-app`
-  (`state.rs`, `delete_entries`) passa `None` come guardia a `fileops::delete_entries`, quindi
-  anche la build di debug, che lo sviluppo pilota con i cataloghi dei dischi reali (C:, D:),
-  può eliminare file veri. Correzione: nelle build di **debug** l'app usa sempre una
-  `SandboxGuard` limitata al volume PRISMTEST (riconosciuto dall'etichetta, non dalla lettera),
-  a `%TEMP%` e a `%LOCALAPPDATA%\PrismDev`; solo la **release** passa `None`. Lo stesso vale
-  per ogni futura operazione distruttiva dell'app (spostamento, copia verso, sovrascrittura,
-  T6–T7). Aggiungi un test: dall'app in debug, eliminazione fuori sandbox → rifiutata.
+- **App di sviluppo protetta** (istruzione della supervisione, 2026-11-07; fatto, REVIEW L10):
+  nelle build di **debug** ogni operazione distruttiva dell'app passa da
+  `AppState::deletion_guard`, una `SandboxGuard` limitata al volume PRISMTEST (riconosciuto
+  dall'etichetta, non dalla lettera), a `%TEMP%` e a `%LOCALAPPDATA%\PrismDev`; solo la
+  **release** non ha guardia. Vale per ogni nuova operazione distruttiva (eliminazione,
+  spostamento, copia verso, sovrascrittura), con un test che la prova rifiutata fuori sandbox
+  (`state_tests::debug_build_refuses_deletions_outside_the_sandbox`).
+- **Login e segreti**: le credenziali che l'utente dà (per esempio quelle del NAS) non vanno mai
+  nel repository, nei documenti o nella memoria; i test reali le leggono da variabili d'ambiente
+  (`PRISM_ZIMAOS*`) e il prodotto le tiene nel Gestore credenziali di Windows (REVIEW D66).
 - **Mai azioni distruttive nell'app vera su dischi reali**: pilotando l'app (WebDriver, clic,
   IPC) con cataloghi di dischi reali non si avviano mai eliminazione, pulizia, spostamento o
   copia, nemmeno "per vedere il dialogo". I flussi distruttivi dell'app si provano solo su

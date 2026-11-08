@@ -350,25 +350,57 @@ fn http(
     request.push_str("\r\n");
     request.push_str(body);
     stream.write_all(request.as_bytes()).map_err(unreachable)?;
+    // Read until the answer is complete: a server that keeps the connection open despite
+    // `Connection: close` must not make every request wait for the time limit.
     let mut answer = Vec::new();
-    stream.read_to_end(&mut answer).map_err(unreachable)?;
-    let split = answer
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
+    let mut chunk = [0u8; 16 * 1024];
+    while body_of(&answer).is_none() {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => answer.extend_from_slice(&chunk[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return Err("unreachable".to_owned()),
+        }
+        if answer.len() > MAX_ANSWER {
+            return Err("unsupported".to_owned());
+        }
+    }
+    let (status, content) = body_of(&answer)
+        .or_else(|| until_closed(&answer))
         .ok_or_else(|| "unsupported".to_owned())?;
-    let head = String::from_utf8_lossy(&answer[..split]).to_ascii_lowercase();
-    let status = head
-        .split_whitespace()
-        .nth(1)
-        .and_then(|s| s.parse::<u16>().ok())
-        .ok_or_else(|| "unsupported".to_owned())?;
-    let raw = &answer[split + 4..];
-    let content = if head.contains("transfer-encoding: chunked") {
-        dechunk(raw).ok_or_else(|| "unsupported".to_owned())?
-    } else {
-        raw.to_vec()
-    };
     Ok((status, String::from_utf8_lossy(&content).into_owned()))
+}
+
+/// Larger answers are not from the NAS panel.
+const MAX_ANSWER: usize = 64 << 20;
+
+/// Status line and headers (lower case), and where the body starts.
+fn head_of(answer: &[u8]) -> Option<(u16, String, usize)> {
+    let split = answer.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let head = String::from_utf8_lossy(&answer[..split]).to_ascii_lowercase();
+    let status = head.split_whitespace().nth(1)?.parse::<u16>().ok()?;
+    Some((status, head, split + 4))
+}
+
+/// The status and the body once the answer is complete by its own measure (`Content-Length`,
+/// or the last chunk); `None` while more is due, or when only the end of the connection says it.
+fn body_of(answer: &[u8]) -> Option<(u16, Vec<u8>)> {
+    let (status, head, start) = head_of(answer)?;
+    let raw = &answer[start..];
+    if head.contains("transfer-encoding: chunked") {
+        return dechunk(raw).map(|b| (status, b));
+    }
+    let length = head
+        .lines()
+        .find_map(|l| l.strip_prefix("content-length:"))
+        .and_then(|v| v.trim().parse::<usize>().ok())?;
+    raw.get(..length).map(|b| (status, b.to_vec()))
+}
+
+/// The body of an answer that ends when the server closes the connection.
+fn until_closed(answer: &[u8]) -> Option<(u16, Vec<u8>)> {
+    let (status, _, start) = head_of(answer)?;
+    Some((status, answer[start..].to_vec()))
 }
 
 /// The body of a `Transfer-Encoding: chunked` answer.
@@ -550,6 +582,28 @@ mod tests {
             fetch(&server, &user, "not-the-password").unwrap_err(),
             "login_failed"
         );
+    }
+
+    // An answer is complete by its length or by its last chunk, without waiting for the server
+    // to close the connection.
+    #[test]
+    fn answers_end_by_their_own_measure() {
+        let full = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}";
+        assert_eq!(body_of(full), Some((200, b"{\"a\":1}".to_vec())));
+        assert_eq!(body_of(&full[..full.len() - 1]), None, "one byte still due");
+        let chunked =
+            b"HTTP/1.1 401 Unauthorized\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n";
+        assert_eq!(body_of(chunked), Some((401, b"{}".to_vec())));
+        assert_eq!(body_of(&chunked[..chunked.len() - 7]), None);
+        let open = b"HTTP/1.0 200 OK\r\n\r\nhello";
+        assert_eq!(
+            body_of(open),
+            None,
+            "only the end of the connection says it"
+        );
+        assert_eq!(until_closed(open), Some((200, b"hello".to_vec())));
+        assert_eq!(body_of(b"HTTP/1.1 200"), None);
+        assert_eq!(until_closed(b"<html>"), None);
     }
 
     #[test]

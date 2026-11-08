@@ -1,6 +1,7 @@
 # Prism — Specifica funzionale
 
-> Stato: **bozza v1** (2026-11-07). Fonte: decisioni prese con l'utente il 2026-11-07.
+> Stato: **v1, implementata** e pubblicata con Prism 2.0.0 (2026-11-08); i criteri aggiunti
+> dopo portano la data. Fonte: decisioni prese con l'utente dal 2026-11-07.
 > Ogni funzione ha un ID (`Fxx`) e criteri di accettazione (`Fxx-ACn`) verificabili.
 > I test che coprono un criterio ne citano l'ID nel nome o in un commento.
 > Le parti marcate **[DA CONFERMARE]** sono proposte non ancora validate dall'utente.
@@ -55,8 +56,9 @@ Czkawka/dupeGuru per i duplicati) è il **catalogo offline**: sapere cosa c'è s
   Lingua iniziale = lingua di Windows se supportata, altrimenti inglese.
 - **Tema**: segue il tema chiaro/scuro di Windows, con scelta manuale nelle impostazioni.
 - **Distribuzione**: installer con aggiornamenti automatici. Niente versione portable, winget o
-  Store nella 1.0.
-- **Pubblico**: app pubblica dalla 1.0, che include **tutte** le funzioni di questa specifica.
+  Store.
+- **Pubblico**: app pubblica dalla prima versione della riscrittura (2.0.0, perché le 1.0.x
+  erano del vecchio Prism), che include **tutte** le funzioni di questa specifica.
 
 ## 5. Funzioni
 
@@ -90,7 +92,7 @@ salute SMART se disponibile, avanzamento degli hash.
 - **F02-AC4** *Ignora sempre* memorizza il volume come escluso; si può annullare dalle
   impostazioni.
 - **F02-AC5** Le unità di rete mappate e i percorsi UNC si possono aggiungere al catalogo
-  anche manualmente. Le unità mappate in modo persistente dall'utente sono riconosciute
+  anche manualmente (nell'app: *Cartella di rete…* nella barra del catalogo, REVIEW L24). Le unità mappate in modo persistente dall'utente sono riconosciute
   automaticamente anche se Prism gira come amministratore, e vengono lette tramite il percorso
   UNC (ADR-0016).
 
@@ -105,8 +107,8 @@ salute SMART se disponibile, avanzamento degli hash.
 ### F04 — Indicizzazione
 
 - **F04-AC1** Sui volumi NTFS locali l'indicizzazione legge direttamente la MFT (ADR-0006).
-  Obiettivo: **≥ 1 milione di voci in meno di 30 secondi** su SSD **[obiettivo da validare
-  con il prototipo T2]**.
+  Obiettivo: **≥ 1 milione di voci in meno di 30 secondi** su SSD. **Misurato**: 1,26 milioni di
+  voci in 5,7 s (ADR-0017).
 - **F04-AC2** Sugli altri file system (FAT32, exFAT, ReFS) e sulle unità di rete si usa
   l'enumerazione classica, con gli stessi risultati logici.
 - **F04-AC3** Per ogni voce si memorizzano almeno: nome, cartella madre, file/cartella,
@@ -158,8 +160,8 @@ salute SMART se disponibile, avanzamento degli hash.
   e propone di cambiarla.
 - **F07-AC2** La ricerca trova i nomi per **sottostringa**, senza distinguere maiuscole e
   minuscole: "port" trova "report.pdf".
-- **F07-AC3** Latenza: risultati entro **50 ms (p95)** su un catalogo di 5 milioni di voci
-  **[obiettivo da validare]**.
+- **F07-AC3** Latenza: risultati entro **50 ms (p95)** su un catalogo di 5 milioni di voci.
+  **Misurato**: primi risultati entro 3 ms su 5,5 milioni di voci (ADR-0010).
 - **F07-AC4** I risultati includono i volumi **offline**, marcati come tali, con nome e
   posizione fisica del disco.
 - **F07-AC5** Filtri con sintassi testuale e controlli UI equivalenti:
@@ -183,7 +185,7 @@ salute SMART se disponibile, avanzamento degli hash.
   estensione e per fascia di dimensione, per volume o per l'intero catalogo.
 - **F08-AC4** Treemap e statistiche funzionano anche per i volumi offline.
 - **F08-AC5** L'apertura di una treemap di un volume da 1 milione di voci richiede meno di
-  1 secondo **[obiettivo da validare]**.
+  1 secondo. **Misurato**: 0,48 s su 1,37 milioni di voci (ARCHITECTURE §4.6).
 
 ### F09 — Pulizia guidata
 
@@ -225,13 +227,14 @@ salute SMART se disponibile, avanzamento degli hash.
 - **F11-AC3** I gruppi mostrano anteprime affiancate, risoluzione e dimensione.
 - **F11-AC4** Formati: JPEG, PNG, GIF, WebP, BMP, TIFF e **RAW delle fotocamere** (CR2, CR3,
   NEF, ARW, DNG, ORF, RW2...) tramite l'anteprima JPEG incorporata nel file. HEIC/HEIF e AVIF
-  non sono supportati nella 1.0.
+  non sono supportati.
 
 ### F12 — Video simili
 
 - **F12-AC1** Prism trova video con lo stesso contenuto anche se ricodificati o in risoluzioni
   diverse, tramite un'impronta calcolata su più fotogrammi.
-- **F12-AC2** Formati minimi: MP4/MOV (H.264, H.265), MKV, AVI, WMV **[dipende da ADR-0013]**.
+- **F12-AC2** Formati minimi: MP4/MOV (H.264, H.265), MKV, AVI, WMV, decodificati da Media Foundation (ADR-0013): H.265 solo con l'estensione HEVC
+  di Windows (REVIEW L15).
 - **F12-AC3** Il calcolo delle impronte è un job in background come gli hash (F06).
 
 ### F13 — Verifica backup
@@ -344,27 +347,28 @@ Vale per ogni eliminazione avviata da Prism (duplicati, pulizia, simili).
   catalogo.
 - **F22-AC3** Aggiornamenti automatici: controllo all'avvio e ogni 24 ore, download in
   background, installazione solo dopo conferma dell'utente; pacchetti di aggiornamento firmati.
-- **F22-AC4** Eseguibili e installer firmati con un certificato di firma del codice
-  **[modalità DA DECIDERE]**.
+- **F22-AC4** Eseguibili e installer firmati con un certificato di firma del codice.
+  **Deciso** (REVIEW U1): la 2.0.0 esce senza firma, come Orbit; si aggiunge con
+  `bundle.windows.signCommand` senza toccare il codice.
 
 ## 6. Requisiti non funzionali
 
 | ID | Requisito |
 |---|---|
 | NF1 | **Reattività**: nessun comando dell'interfaccia attende più di 100 ms a causa di un job in background. |
-| NF2 | **Dimensione del catalogo**: obiettivo ≤ 250 byte per voce, indice di ricerca incluso **[da validare]**; il vecchio Prism occupava circa 1 KB per voce. |
-| NF3 | **Memoria**: ≤ 500 MB con 5 milioni di voci nel catalogo **[da validare]**. |
+| NF2 | **Dimensione del catalogo**: obiettivo ≤ 250 byte per voce, indice di ricerca incluso; il vecchio Prism occupava circa 1 KB per voce. **Misurato**: ~120 B per voce senza l'analisi del contenuto (l'indice di ricerca è in memoria, D26), ~250 B con il contenuto di tutti i file analizzato (catalogo vero dell'utente, `docs/benchmarks/2026-11-08-catalog-size.md`): al limite. |
+| NF3 | **Memoria**: ≤ 500 MB con 5 milioni di voci nel catalogo. **Misurato**: ~325 MiB con 5,7 milioni di voci, indice di ricerca compreso (`docs/benchmarks/2026-11-07-t10-memory.md`). |
 | NF4 | **Affidabilità**: un crash o lo spegnimento durante un job non corrompono il catalogo; all'avvio successivo i job interrotti vengono ripresi o annullati in modo pulito. |
 | NF5 | **Sicurezza**: nessuna operazione su percorsi arbitrari passati dall'interfaccia; CSP restrittiva; nessun contenuto remoto nella webview (ADR-0003). |
-| NF6 | **Privacy**: nessuna telemetria nella 1.0; l'unica connessione verso Internet è il controllo degli aggiornamenti; in rete locale Prism parla solo con i NAS di cui l'utente ha dato il login (F17-AC6). Il catalogo resta sul PC. |
+| NF6 | **Privacy**: nessuna telemetria; l'unica connessione verso Internet è il controllo degli aggiornamenti; in rete locale Prism parla solo con i NAS di cui l'utente ha dato il login (F17-AC6). Il catalogo resta sul PC. |
 | NF7 | **Accessibilità**: navigazione completa da tastiera, contrasto adeguato in entrambi i temi, etichette per gli screen reader. |
 | NF8 | **Testabilità**: ogni criterio di accettazione ha almeno un test automatico, oppure una voce nella checklist di verifica manuale della tappa. |
 
-## 7. Fuori ambito della 1.0
+## 7. Fuori ambito
 
 - Export CSV/JSON (rimosso).
 - Rilevamento dei dischi sovrapposti (rimosso).
-- Monitor egui separato (sostituito da un pannello di debug interno, solo in sviluppo).
+- Monitor egui separato (rimosso; per la diagnosi ci sono i log e il pacchetto diagnostico, F20).
 - Cronologia dello spazio nel tempo, avvisi generici (disco pieno, backup vecchio), hardlink
   al posto dell'eliminazione, anteprima file, ricerche salvate e tag, riga di comando pubblica
   (la CLI esiste solo come strumento di sviluppo).
@@ -380,9 +384,9 @@ Vale per ogni eliminazione avviata da Prism (duplicati, pulizia, simili).
 | Q3 | ~~Quando calcolare gli hash~~ — **decisa** (2026-11-07): sempre, a priorità minima (F06-AC2). | — |
 | Q4 | ~~Categorie della pulizia~~ — **decisa** (2026-11-07): temporanei, cartelle vuote, grandi e vecchi, cache browser/app (F09). | — |
 | Q5 | ~~Formati immagine aggiuntivi~~ — **decisa** (2026-11-07): solo RAW delle fotocamere (F11-AC4). | — |
-| Q6 | Video simili: Media Foundation o ffmpeg (ADR-0013). | T8 |
-| Q7 | Firma del codice: certificato scelto e acquistato dall'utente prima della 1.0; il progetto è predisposto per aggiungerla con una configurazione. | T10 |
+| Q6 | ~~Video simili: Media Foundation o ffmpeg~~ — **decisa** (2026-11-07): Media Foundation (ADR-0013, REVIEW D39). | — |
+| Q7 | ~~Firma del codice~~ — **decisa** (2026-11-08, REVIEW U1): nessuna per la 2.0.0, come Orbit; il progetto è predisposto per aggiungerla con una configurazione. | — |
 | Q8 | ~~Licenza~~ — **decisa** (2026-11-07): MIT, open source, repository pubblico. | — |
-| Q9 | ~~Telemetria~~ — **decisa** (2026-11-07): nessuna nella 1.0 (NF6). | — |
+| Q9 | ~~Telemetria~~ — **decisa** (2026-11-07): nessuna (NF6). | — |
 | Q10 | ~~Avvio con Windows di default~~ — **decisa** (2026-11-07): attivo (F19-AC3). | — |
-| Q11 | Ramo principale finale (oggi sul remoto c'è solo `develop`). | T10 |
+| Q11 | ~~Ramo principale finale~~ — **deciso** (2026-11-08): `develop`, dove è stato unito `rewrite` e da cui partono le release. | — |

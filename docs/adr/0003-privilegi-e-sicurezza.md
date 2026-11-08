@@ -1,6 +1,8 @@
 # ADR-0003 — Esecuzione sempre elevata, avvio senza UAC, superficie d'attacco ridotta
 
-- **Stato**: Accettata (alcuni dettagli da verificare con prototipi, indicati sotto)
+- **Stato**: Accettata. Prototipi fatti (esiti sotto). Note successive: la 2.0.0 esce senza
+  firma del codice (REVIEW U1); i percorsi scelti dall'utente si scrivono e si controllano nel
+  backend invece di arrivare da dialoghi nativi (REVIEW D36, D59, L24)
 - **Data**: 2026-11-07
 
 ## Contesto

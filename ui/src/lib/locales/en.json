@@ -664,7 +664,15 @@
     "unlike": "The content is very different: is it really the same folder?",
     "move": "Use this address",
     "gone": "It does not answer at {path}. If the NAS changed its address, you can give the new one.",
-    "change": "Change address…"
+    "change": "Change address…",
+    "add": "Network folder…",
+    "addLabel": "Add a network folder by its path",
+    "addTitle": "Add a network folder",
+    "addIntro": "A shared folder Prism does not find by itself: one mapped only for this session, or a folder of another PC or NAS. Prism reaches it by its network path, with or without a drive letter.",
+    "addPath": "Network path",
+    "addNow": "Add",
+    "adding": "Checking…",
+    "added": "{path} is in the catalog: Prism proposes to index it as soon as it answers."
   },
   "health": {
     "open": "Health of the disk",
