@@ -7,7 +7,9 @@ export const card = (page: Page, name: string) => page.getByRole('article', { na
 
 export async function openCatalog(page: Page) {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Disks', level: 1 })).toBeVisible();
+  // The first load of a page compiles the interface in the development server: on a busy PC it
+  // can take more than the default 5 s (a run failed so while the installed Prism was indexing).
+  await expect(page.getByRole('heading', { name: 'Disks', level: 1 })).toBeVisible({ timeout: 20_000 });
 }
 
 /** Opens the screen of a disk from its card, on a tab (the first one, Space, if none). */

@@ -6,10 +6,10 @@
 ## Stato attuale
 
 - **Stato**: **Prism 2.0.0 pubblicato** il 2026-11-08 (release `v2.0.0` su GitHub, aggiornamenti
-  automatici attivi). Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: installare la 2.0.0 sul PC dell'utente (installer già in `Downloads`, serve
-  il suo clic UAC) e fare la copia di sicurezza della chiave degli aggiornamenti
-  (`~\.tauri\prism-updater.key` e la sua password); poi le richieste dell'utente.
+  automatici attivi) e **installato sul PC dell'utente**; chiave degli aggiornamenti copiata
+  nella sua cartella delle credenziali. Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: le richieste dell'utente. Prima di avviare l'app di sviluppo va chiusa
+  quella installata (CLAUDE.md). Consigliata una copia della chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
 - **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); prova su un PC
   pulito (U3).
@@ -68,6 +68,10 @@
   decisions*, scorciatoie); screenshot orizzontali 1440×900 in una cornice da finestra; NAS
   simulato rinominato "NAS Media"; nel catalogo i gruppi di dischi si affiancano quando ci
   stanno (D64).
+- La 2.0.0 pubblicata è installata sul PC dell'utente: attività `\Prism`, voci del menu di
+  Esplora risorse e catalogo nuovo verificati (REVIEW U3). Chiave degli aggiornamenti copiata,
+  e password spostata, nella cartella delle credenziali dell'utente su sua richiesta; verificato
+  che la chiave si apre (REVIEW U7).
 
 ### 2026-11-08 — Versione 2.0.0, icona ovunque, prova dell'app vera
 
