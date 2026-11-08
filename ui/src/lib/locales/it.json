@@ -703,7 +703,9 @@
     "files": "file",
     "health": "salute",
     "healthNa": "n/d",
-    "search": "Cerca in questo disco…"
+    "search": "Cerca in questo disco…",
+    "unreachable": "Non raggiungibile",
+    "unreachableSeen": "Non raggiungibile · vista {when}"
   },
   "whole": {
     "title": "Tutto il catalogo",
@@ -725,7 +727,21 @@
     "copy": "Copia verso {name}",
     "hash": "Analisi del contenuto · {name}",
     "none": "Nessuna attività in corso.",
-    "paused": "L'analisi del contenuto è in pausa."
+    "paused": "L'analisi del contenuto è in pausa.",
+    "phase": {
+      "scanning": "lettura del disco",
+      "writing": "salvataggio nel catalogo",
+      "copying": "copia",
+      "hashQuick": "lettura rapida",
+      "hashFull": "lettura completa",
+      "prints": "impronte delle immagini",
+      "videoPrints": "impronte dei video"
+    },
+    "of": "{done} di {total}",
+    "items": "{count} elementi",
+    "since": "da {time}",
+    "eta": "circa {time} alla fine",
+    "waiting": "in attesa del prossimo giro · {count} file ancora da leggere"
   },
   "lastActions": {
     "title": "Ultime azioni",

@@ -162,7 +162,7 @@
     padding: 10px 28px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     position: relative;
     z-index: 20;
   }
@@ -205,6 +205,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 240px;
   }
   .scope {
     font-family: var(--font);
@@ -216,6 +217,7 @@
   }
   .search {
     flex: 1 1 320px;
+    min-width: 180px;
     max-width: 640px;
     margin: 0 auto;
     display: flex;
@@ -253,6 +255,20 @@
     align-items: center;
     gap: 10px;
     margin-left: auto;
+    flex: none;
+  }
+  .pill {
+    white-space: nowrap;
+  }
+  /* Narrow windows: the shortcut hint and the scope chip give way to the search box. */
+  @media (max-width: 1120px) {
+    .search kbd,
+    .scope {
+      display: none;
+    }
+    .current {
+      max-width: 160px;
+    }
   }
   .settings {
     width: 36px;

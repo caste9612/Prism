@@ -703,7 +703,9 @@
     "files": "files",
     "health": "health",
     "healthNa": "n/a",
-    "search": "Search in this disk…"
+    "search": "Search in this disk…",
+    "unreachable": "Not reachable",
+    "unreachableSeen": "Not reachable · seen {when}"
   },
   "whole": {
     "title": "Whole catalog",
@@ -725,7 +727,21 @@
     "copy": "Copy to {name}",
     "hash": "Content analysis · {name}",
     "none": "Nothing running.",
-    "paused": "The content analysis is paused."
+    "paused": "The content analysis is paused.",
+    "phase": {
+      "scanning": "reading the disk",
+      "writing": "saving to the catalog",
+      "copying": "copying",
+      "hashQuick": "quick read",
+      "hashFull": "full read",
+      "prints": "prints of the images",
+      "videoPrints": "prints of the videos"
+    },
+    "of": "{done} of {total}",
+    "items": "{count} items",
+    "since": "for {time}",
+    "eta": "about {time} left",
+    "waiting": "waiting for the next round · {count} files still to read"
   },
   "lastActions": {
     "title": "Last actions",

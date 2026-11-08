@@ -226,6 +226,32 @@ fn background_hashing_runs_pauses_and_counts() {
     // Nothing left to do: no new job.
     let _ = hash_jobs::tick(&app);
     assert_eq!(app.engine.jobs().len(), 1);
+
+    // A new file and an update of the disk: counted at the next tick, not minutes later.
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    std::fs::write(disk.join("d.bin"), vec![9u8; 100 * 1024]).unwrap();
+    indexer::index(
+        &app.store,
+        &WalkEnumerator::default(),
+        &IndexRequest {
+            volume,
+            path: &disk,
+            relative: &[],
+            target: ReconcileTarget::VolumeRoot,
+            policy: &ExclusionPolicy::with_defaults(),
+        },
+        &CancelToken::new(),
+        &IndexProgress::default(),
+    )
+    .unwrap();
+    app.store
+        .write(move |w| store::set_volume_status(w, volume, VolumeStatus::Indexed))
+        .unwrap();
+    assert!(hash_jobs::tick(&app));
+    assert_eq!(
+        app.hashing.progress(volume).map(|s| (s.total, s.hashed)),
+        Some((5, 4))
+    );
 }
 
 // F10/F16 in the app: groups with the copies the rules propose, the last-copy rule, the

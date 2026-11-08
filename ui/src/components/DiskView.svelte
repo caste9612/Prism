@@ -4,7 +4,7 @@
   import type { Settings } from '../lib/bindings/Settings';
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { backend, errorMessage } from '../lib/api';
-  import { diskQuery, hashPercent, primaryAction, stickerColor, volumeName } from '../lib/catalog';
+  import { diskQuery, driveLetter, hashPercent, primaryAction, stickerColor, volumeName } from '../lib/catalog';
   import { ago, formatBytes, formatCount, usedFraction } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
   import { DISK_TABS, nav, type DiskTab } from '../lib/nav.svelte';
@@ -48,13 +48,13 @@
     volume.capacity !== null && volume.freeSpace !== null ? volume.capacity - volume.freeSpace : null,
   );
   const action = $derived(primaryAction(volume));
-  const letter = $derived(volume.mount ? volume.mount.replace(/\\$/, '') : null);
+  const letter = $derived(driveLetter(volume.mount));
   const when = (ms: number) => {
     const a = ago(ms);
     return a.key === 'time.justNow' ? t(a.key) : t(a.key, { count: a.count });
   };
   const subtitle = $derived(
-    [volume.location?.trim() || t(`kind.${volume.kind}`), volume.fsType, volume.online ? null : t('card.inDrawer')]
+    [volume.location?.trim() || t(`kind.${volume.kind}`), volume.fsType, volume.online ? null : t(volume.kind === 'network' ? 'card.unreachable' : 'card.inDrawer')]
       .filter(Boolean)
       .join(' · '),
   );

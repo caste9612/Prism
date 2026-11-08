@@ -127,8 +127,24 @@ test usano sempre `PRISM_TEST_VOLUME` e mai una lettera fissa.
 - Le build di **debug** usano il manifest `asInvoker`: partono dalla shell di sviluppo non
   elevata (senza MFT/USN, si usa il walker). Solo le build di **release** richiedono
   l'amministratore (ADR-0003).
-- I flussi end-to-end si eseguono anche sull'app vera, pilotando WebView2 via WebDriver
-  (`tauri-driver` + `msedgedriver`), oltre che nel browser con IPC simulato.
+- I flussi end-to-end si eseguono anche sull'app vera: **prova prima di ogni rilascio**
+  (`ui/e2e-real/`, T11). L'app di sviluppo si avvia con la porta di debug di WebView2 aperta
+  in locale e Playwright vi si collega (al posto di `tauri-driver` + `msedgedriver`):
+
+  ```powershell
+  schtasks /run /tn PrismDevAdminTests   # monta il disco PRISMTEST (e rifà i test elevati, §4)
+  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9333'
+  .\target\debug\prism.exe               # build di debug: eliminazioni solo nella sandbox
+  npm --prefix ui run e2e:real
+  ```
+
+  Sui dischi veri la prova solo legge e naviga: ogni schermata e scheda del primo disco
+  indicizzato, "Tutto il catalogo", ricerca, impostazioni (lingua e tema rimessi come prima),
+  e controlla che nessuna schermata sia più larga della finestra con i nomi veri. Le operazioni
+  sui file (duplicato nel Cestino, pulizia di una cartella vuota, verifica e copia di backup)
+  avvengono solo sul volume con etichetta PRISMTEST, in `prism-real-test`, creata e tolta dalla
+  prova, con i risultati controllati sul disco; anche il menu di Esplora risorse
+  (`prism-shell.exe analyze`) e le etichette (rimesse come prima).
 - Per i controlli visivi lo sviluppo cattura screenshot della finestra e li esamina; il giudizio
   estetico finale resta all'utente (revisione finale, `docs/REVIEW.md`).
 - In T3 l'app vera è stata provata così (dalla shell elevata): screenshot della finestra

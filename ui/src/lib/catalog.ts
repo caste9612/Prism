@@ -28,7 +28,15 @@ export function newVolumePrompts(volumes: VolumeView[], dismissed: Set<number>):
 export function displayName(v: VolumeView, kindLabel: string): string {
   const labelled = [v.userName, v.osLabel].some((n) => n !== null && n.trim() !== '');
   if (labelled || v.mount === null) return v.name;
-  return `${kindLabel} (${v.mount.replace(/\\$/, '')})`;
+  // A network share reached by its path (no letter): its share name, "Network drive (Foto)".
+  const shown = driveLetter(v.mount) ?? v.mount.replace(/\\+$/, '').split('\\').pop() ?? v.mount;
+  return `${kindLabel} (${shown})`;
+}
+
+/** The drive letter of a mount, "X:", or null for a network path or a folder. */
+export function driveLetter(mount: string | null): string | null {
+  const m = mount === null ? null : /^([A-Za-z]:)\\?$/.exec(mount);
+  return m ? m[1]!.toUpperCase() : null;
 }
 
 /** [`displayName`] in the current language. */
@@ -99,9 +107,17 @@ export function hashPercent(h: { total: number; hashed: number }): number {
 export type DiskFilter = 'all' | 'online' | 'network' | 'offline';
 export type DiskSort = 'location' | 'name' | 'used';
 
+/** Network shares stay under "Network" when the server does not answer: they are not in a drawer. */
 function group(v: VolumeView): 'online' | 'network' | 'offline' {
-  if (!v.online) return 'offline';
-  return v.kind === 'network' ? 'network' : 'online';
+  if (v.kind === 'network') return 'network';
+  return v.online ? 'online' : 'offline';
+}
+
+/** The state of a disk that is not connected: in the drawer, or a share whose server is off. */
+export function offlineState(v: Pick<VolumeView, 'kind' | 'lastSeenAt'>, when: (ms: number) => string): string {
+  const network = v.kind === 'network';
+  if (v.lastSeenAt === null) return t(network ? 'card.unreachable' : 'card.inDrawer');
+  return t(network ? 'card.unreachableSeen' : 'card.inDrawerSeen', { when: when(v.lastSeenAt) });
 }
 
 /** How many disks each filter shows (ignored disks are never shown, F02-AC4). */

@@ -92,7 +92,8 @@ describe('catalog screen', () => {
     const bare = { ...c!, userName: null, osLabel: '', name: 'C:\\', mount: 'C:\\' };
     expect(displayName(bare, 'Internal disk')).toBe('Internal disk (C:)');
     const unc = { ...bare, name: '\\\\nas\\share', mount: '\\\\nas\\share' };
-    expect(displayName(unc, 'Network drive')).toBe('Network drive (\\\\nas\\share)');
+    // A share reached by its path shows the share name (T11: shares found without a letter).
+    expect(displayName(unc, 'Network drive')).toBe('Network drive (share)');
   });
 
   // F01-AC3: indexing and updates show on the card; automatic background updates do not.

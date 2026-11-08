@@ -88,7 +88,7 @@ export function mockBackend(): Backend {
   let update: UpdateView = {
     enabled: true,
     checking: false,
-    available: '1.0.1',
+    available: '2.0.1',
     notes: 'Fixes for the backup check.',
     ready: true,
     error: null,
@@ -135,7 +135,7 @@ export function mockBackend(): Backend {
   };
 
   return {
-    appInfo: async (): Promise<AppInfo> => ({ version: '0.1.0', elevated: true, dataDir: '(simulated)', dev: true, shortcutError: null }),
+    appInfo: async (): Promise<AppInfo> => ({ version: '2.0.0', elevated: true, dataDir: '(simulated)', dev: true, shortcutError: null }),
     volumes: async () => withJobs(),
     jobs: async () => jobs.map((j) => ({ ...j })),
     indexVolume: async (id) => {
@@ -259,7 +259,7 @@ export function mockBackend(): Backend {
         { name: 'logs/prism.2026-11-06.log', size: 48_213 },
         { name: 'logs/prism.2026-11-07.log', size: 120_544 },
       ],
-      system: 'Prism 0.1.0 (development build)\nWindows 11 Pro 25H2 (build 26300)\nAdministrator: yes\nCatalog: 5 disks, 2,054,075 entries, 410 MB',
+      system: 'Prism 2.0.0 (development build)\nWindows 11 Pro 25H2 (build 26300)\nAdministrator: yes\nCatalog: 5 disks, 2,054,075 entries, 410 MB',
       destination: 'C:\\Users\\me\\Downloads',
     }),
     exportDiagnostics: async () => 'C:\\Users\\me\\Downloads\\prism-diagnostics-20261107-193010.zip',

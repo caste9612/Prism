@@ -6,6 +6,7 @@
   import type { LargeFileView } from '../lib/bindings/LargeFileView';
   import type { SpaceFolderView } from '../lib/bindings/SpaceFolderView';
   import type { VolumeView } from '../lib/bindings/VolumeView';
+  import { untrack } from 'svelte';
   import { backend, errorMessage } from '../lib/api';
   import { volumeName } from '../lib/catalog';
   import { ago, formatBytes, formatCount } from '../lib/format';
@@ -56,9 +57,33 @@
     }
   }
 
+  // Load again only when the disk or the folder asked for changes: the volume object is
+  // replaced at every refresh of the catalog, and must not send the map back to the root.
+  const volumeId = $derived(volume.id);
   $effect(() => {
-    void load(folderId);
+    void volumeId;
+    const start = folderId;
+    untrack(() => void load(start));
   });
+
+  // After an update of the disk the folder on screen is read again, staying where it is (the
+  // root if the folder is gone).
+  const indexedAt = $derived(volume.lastIndexedAt);
+  let seenIndexedAt: number | null | undefined;
+  $effect(() => {
+    const stamp = indexedAt;
+    if (seenIndexedAt !== undefined && stamp !== seenIndexedAt) untrack(() => void reload());
+    seenIndexedAt = stamp;
+  });
+  async function reload() {
+    const here = view?.folderId ?? folderId;
+    try {
+      view = await backend.spaceFolder(volume.id, here);
+      if (mode === 'largest') void loadLargest();
+    } catch {
+      await load(null);
+    }
+  }
 
   function show(next: 'items' | 'largest') {
     mode = next;
@@ -147,7 +172,14 @@
 
     {#if mode === 'items'}
       {#if view}
-        <table class="data" aria-label={t('space.contents')}>
+        <table class="data fixed" aria-label={t('space.contents')}>
+          <colgroup>
+            <col />
+            <col class="c-size" />
+            <col class="c-pct" />
+            <col class="c-files" />
+            {#if volume.online}<col class="c-acts" />{/if}
+          </colgroup>
           <thead>
             <tr>
               <th>{t('space.name')}</th>
@@ -190,7 +222,13 @@
     {:else if largest === null}
       <p class="muted">{t('space.loading')}</p>
     {:else}
-      <table class="data" aria-label={t('space.largest')}>
+      <table class="data fixed" aria-label={t('space.largest')}>
+        <colgroup>
+          <col />
+          <col class="c-size" />
+          <col class="c-date" />
+          {#if volume.online}<col class="c-acts" />{/if}
+        </colgroup>
         <thead>
           <tr>
             <th>{t('space.name')}</th>
@@ -233,7 +271,7 @@
     align-items: flex-start;
   }
   .map-card {
-    flex: 999 1 560px;
+    flex: 999 1 520px;
     min-width: 0;
     padding: 14px;
     display: flex;
@@ -302,11 +340,25 @@
     font-size: 11.5px;
     color: var(--text-2);
   }
-  .legend li,
-  .name-cell {
+  .legend li {
     display: flex;
     align-items: center;
     gap: 7px;
+  }
+  .name-cell .swatch {
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 7px;
+  }
+  .name-cell .name {
+    display: inline-block;
+    vertical-align: middle;
+    max-width: calc(100% - 20px);
+  }
+  .name-cell .stack {
+    display: inline-flex;
+    vertical-align: middle;
+    max-width: calc(100% - 20px);
   }
   .swatch {
     width: 9px;
@@ -315,9 +367,10 @@
     flex: none;
   }
   .side {
-    flex: 1 1 340px;
-    max-width: 460px;
+    flex: 1 1 420px;
+    max-width: 520px;
     min-width: 0;
+    overflow: hidden;
     padding: 14px;
     display: flex;
     flex-direction: column;
@@ -328,7 +381,34 @@
   }
   .name-cell {
     min-width: 0;
-    max-width: 220px;
+  }
+  /* Fixed columns: long names are cut with "…" instead of widening the table. */
+  table.fixed {
+    table-layout: fixed;
+  }
+  table.fixed td,
+  table.fixed th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  table.fixed td.acts {
+    text-overflow: clip;
+  }
+  .c-size {
+    width: 86px;
+  }
+  .c-pct {
+    width: 44px;
+  }
+  .c-files {
+    width: 68px;
+  }
+  .c-date {
+    width: 88px;
+  }
+  .c-acts {
+    width: 64px;
   }
   .name {
     white-space: nowrap;

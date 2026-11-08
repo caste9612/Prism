@@ -20,6 +20,24 @@
 
 ## Diario
 
+### 2026-11-08 — Versione 2.0.0, icona ovunque, prova dell'app vera
+
+- Versione **2.0.0** (scelta dall'utente: le release 1.0.x pubblicate sono del vecchio Prism).
+- Icona: l'eseguibile di sviluppo aveva ancora quella vecchia, perché `tauri-build` non guarda i
+  file delle icone; ora `build.rs` li guarda. L'icona delle notifiche (release) si riscrive
+  quando cambia.
+- Nuova **prova dell'app vera** prima di un rilascio (`ui/e2e-real/`, TESTING §4bis): 13 controlli
+  su catalogo, schede del disco, ricerca, menu di Esplora risorse, etichette, impostazioni, e le
+  operazioni sui file del solo disco PRISMTEST. Test elevati rifatti con il runner: verdi.
+- Difetti trovati e corretti grazie alla prova: la mappa tornava alla radice a ogni
+  aggiornamento in sottofondo (L18); i file nuovi si analizzavano fino a 5 minuti dopo un
+  aggiornamento (D54); con nomi lunghi la tabella accanto alla mappa allargava la schermata
+  (D56).
+- Su segnalazione dell'utente: riquadro *Attività in corso* con fase, conteggi, tempo trascorso e
+  stima (D53); finestra minima 960 × 640 e interfaccia che si adatta (D56).
+- NAS dell'utente: le condivisioni senza lettera mappata ora si riconoscono dal percorso di rete
+  (D55); indicizzata ZimaOS-HD (537.009 file in 4 minuti, via rete); limite L19.
+
 ### 2026-11-08 — Merge su develop (U2, parte)
 
 - Su richiesta dell'utente `rewrite` va su `develop` (ramo predefinito del repository) con una

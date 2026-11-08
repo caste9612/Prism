@@ -39,3 +39,13 @@ export function usedFraction(capacity: number | null, free: number | null): numb
   if (capacity === null || free === null || capacity <= 0) return null;
   return Math.min(1, Math.max(0, (capacity - free) / capacity));
 }
+
+/** A length of time, short: "40 s", "12 min", "1 h 05 min" (the same in both languages). */
+export function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  return `${h} h ${String(m % 60).padStart(2, '0')} min`;
+}

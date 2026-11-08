@@ -124,6 +124,18 @@ fn f10_groups_with_filters() {
             .len(),
         1
     );
+    // A path with more than one level, as "Find duplicates here" passes it (F18-AC1).
+    let nested = DupFilter {
+        folder: Some(r"BACKUP\mare".into()),
+        ..DupFilter::default()
+    };
+    assert_eq!(
+        cat.store
+            .read(|c| groups(c, &online, &nested))
+            .unwrap()
+            .len(),
+        1
+    );
     let elsewhere = DupFilter {
         folder: Some("musica".into()),
         ..DupFilter::default()

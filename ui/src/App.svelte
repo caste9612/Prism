@@ -245,7 +245,7 @@
 
   <footer class="statusbar mono">
     <span><span class="dot" class:on={online > 0}></span> {t('statusbar.online', { count: online })}</span>
-    <span>{settings.hashingPaused ? t('statusbar.hashingPaused') : t('statusbar.hashing')}</span>
+    <span class="optional">{settings.hashingPaused ? t('statusbar.hashingPaused') : t('statusbar.hashing')}</span>
     {#if info}<span class="push">Prism {info.version}{info.dev ? ` · ${t('statusbar.dev')}` : ''}</span>{/if}
   </footer>
 
@@ -289,7 +289,9 @@
   .statusbar {
     display: flex;
     gap: 20px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    overflow: hidden;
     padding: 6px 28px;
     background: var(--surface);
     border-top: 1px solid var(--border);
@@ -298,6 +300,15 @@
   }
   .statusbar .push {
     margin-left: auto;
+  }
+  .statusbar > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  @media (max-width: 1120px) {
+    .statusbar .optional {
+      display: none;
+    }
   }
   .dot {
     display: inline-block;

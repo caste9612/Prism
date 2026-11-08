@@ -1,3 +1,9 @@
+<script lang="ts" module>
+  import { ActivityTracker as Tracker } from '../lib/activity';
+  // Kept across visits of the screen, so the speed of a job is measured over its whole run.
+  const activityTracker = new Tracker();
+</script>
+
 <script lang="ts">
   // Home screen = disk catalog (F01, ADR-0019): the "whole catalog" block, the disks as compact
   // cards (or a list) with filters, the disks Prism cannot tell apart (F02-AC3), the jobs in
@@ -8,17 +14,19 @@
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import { backend, errorMessage } from '../lib/api';
   import { batchActions } from '../lib/actions';
+  import type { ActivityRow } from '../lib/activity';
   import { categories } from '../lib/categories.svelte';
   import {
     catalogCards,
+    driveLetter,
     filterCounts,
-    hashPercent,
+    offlineState,
     stickerColor,
     volumeName,
     type DiskFilter,
     type DiskSort,
   } from '../lib/catalog';
-  import { ago, formatBytes, formatCount, usedFraction } from '../lib/format';
+  import { ago, formatBytes, formatCount, formatDuration, usedFraction } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
   import { nav } from '../lib/nav.svelte';
   import DiskCard from './DiskCard.svelte';
@@ -132,25 +140,31 @@
     return v ? volumeName(v) : null;
   };
 
-  // Jobs in progress: indexing, updates and copies, plus the content analysis of each disk.
-  const activity = $derived([
-    ...jobs
-      .filter((j) => (j.kind === 'index' || j.kind === 'update' || j.kind === 'copy') && (j.state === 'running' || j.state === 'queued'))
-      .map((j) => ({
-        key: `job-${j.id}`,
-        label: t(`activity.${j.kind}`, { name: nameOf(j.volumeId) ?? '' }),
-        percent: j.state === 'queued' ? null : j.total > 0 ? Math.floor((j.done / j.total) * 100) : null,
-        detail: j.state === 'queued' ? t('job.queued') : null,
-      })),
-    ...shown
-      .filter((v) => v.hashes && v.hashes.running && v.hashes.hashed < v.hashes.total)
-      .map((v) => ({
-        key: `hash-${v.id}`,
-        label: t('activity.hash', { name: volumeName(v) }),
-        percent: hashPercent(v.hashes!),
-        detail: null,
-      })),
-  ]);
+  // Jobs in progress (indexing, updates, copies, content analysis) with their phase, since when
+  // and how long is left; disks whose analysis waits for its next round are listed too.
+  let now = $state(Date.now());
+  $effect(() => {
+    const timer = setInterval(() => (now = Date.now()), 5_000);
+    return () => clearInterval(timer);
+  });
+  const activity = $derived(activityTracker.rows(jobs, shown, now));
+  const titleOf = (a: ActivityRow) =>
+    t(`activity.${a.kind === 'waiting' ? 'hash' : a.kind}`, { name: nameOf(a.volumeId) ?? '' });
+  function detailOf(a: ActivityRow): string {
+    if (a.queued) return t('job.queued');
+    if (a.kind === 'waiting') return t('activity.waiting', { count: formatCount(a.total - a.done, lang) });
+    const amount = (n: number) => (a.kind === 'copy' ? formatBytes(n, lang) : formatCount(n, lang));
+    const parts: string[] = [];
+    if (a.phase) parts.push(t(`activity.phase.${a.phase}`));
+    parts.push(
+      a.total > 0
+        ? t('activity.of', { done: amount(a.done), total: amount(a.total) })
+        : t('activity.items', { count: formatCount(a.done, lang) }),
+    );
+    if (a.elapsedMs !== null && a.elapsedMs >= 5_000) parts.push(t('activity.since', { time: formatDuration(a.elapsedMs) }));
+    if (a.etaMs !== null) parts.push(t('activity.eta', { time: formatDuration(Math.max(a.etaMs, 1_000)) }));
+    return parts.join(' · ');
+  }
 
   const FILTERS: DiskFilter[] = ['all', 'online', 'network', 'offline'];
 </script>
@@ -270,7 +284,7 @@
                 <span class="row-name" style:--sticker={stickerColor(v)}>
                   <span class="sticker" class:ring={!v.online}></span>
                   <button class="link-name" onclick={() => open(v)}>{volumeName(v)}</button>
-                  {#if v.online && v.mount}<span class="letter">{v.mount.replace(/\\$/, '')}</span>{/if}
+                  {#if v.online && driveLetter(v.mount)}<span class="letter">{driveLetter(v.mount)}</span>{/if}
                 </span>
               </td>
               <td>{v.location ?? t(`kind.${v.kind}`)}</td>
@@ -284,7 +298,7 @@
                 {#if v.job}
                   {t(`job.${v.job.kind}`)}…
                 {:else if !v.online}
-                  {v.lastSeenAt !== null ? t('card.inDrawerSeen', { when: when(v.lastSeenAt) }) : t('card.inDrawer')}
+                  {offlineState(v, when)}
                 {:else if v.lastIndexedAt === null}
                   {t('catalog.neverIndexed')}
                 {:else}
@@ -306,10 +320,13 @@
       {:else}
         <ul>
           {#each activity as a (a.key)}
-            <li class="job-row">
-              <span>{a.label}</span>
-              <span class="track"><span style:width={a.percent !== null ? `${a.percent}%` : '0%'}></span></span>
-              <span class="mono muted">{a.detail ?? (a.percent !== null ? `${a.percent}%` : '…')}</span>
+            <li class="job-row" class:waiting={a.kind === 'waiting' || a.queued}>
+              <span class="job-title">{titleOf(a)}</span>
+              <span class="mono pct">{a.percent !== null ? `${a.percent}%` : '…'}</span>
+              <span class="track" class:indeterminate={a.percent === null && !a.queued && a.kind !== 'waiting'}>
+                <span style:width={a.percent !== null ? `${a.percent}%` : undefined}></span>
+              </span>
+              <span class="mono job-detail">{detailOf(a)}</span>
             </li>
           {/each}
         </ul>
@@ -482,16 +499,33 @@
   }
   .job-row {
     display: grid;
-    grid-template-columns: 1fr 140px 48px;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 12px;
-    padding: 6px 0;
+    gap: 4px 12px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
   }
-  .job-row .mono {
+  .job-row:first-child {
+    border-top: 0;
+  }
+  .job-title {
+    font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pct {
+    font-size: 12px;
     text-align: right;
+  }
+  .job-detail {
+    grid-column: 1 / -1;
     font-size: 11.5px;
+    color: var(--text-3);
   }
   .track {
+    grid-column: 1 / -1;
     height: 6px;
     background: var(--track);
     border-radius: 3px;
@@ -501,6 +535,21 @@
     display: block;
     height: 100%;
     background: var(--signal);
+  }
+  .waiting .track span {
+    background: var(--text-3);
+  }
+  .track.indeterminate span {
+    width: 30%;
+    animation: slide 1.2s ease-in-out infinite;
+  }
+  @keyframes slide {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(340%);
+    }
   }
   .log-row {
     display: grid;

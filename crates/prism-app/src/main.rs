@@ -88,8 +88,10 @@ fn notification_app_id(app: &tauri::App, data_dir: &Path) -> String {
     }
     let id = app.config().identifier.clone();
     let icon = data_dir.join("prism.png");
-    if !icon.exists()
-        && let Err(e) = std::fs::write(&icon, include_bytes!("../icons/128x128.png"))
+    // Written again when it differs, so an update that changes the icon changes it here too.
+    let bytes: &[u8] = include_bytes!("../icons/128x128.png");
+    if std::fs::read(&icon).ok().as_deref() != Some(bytes)
+        && let Err(e) = std::fs::write(&icon, bytes)
     {
         tracing::warn!(error = %e, "cannot save the notification icon");
     }

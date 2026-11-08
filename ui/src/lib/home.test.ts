@@ -2,9 +2,21 @@ import { describe, expect, it } from 'vitest';
 import type { ActionView } from './bindings/ActionView';
 import { BATCH_GAP_MS, batchActions } from './actions';
 import { barParts } from './categories.svelte';
-import { catalogCards, diskQuery, filterCounts, knownLocations, LABEL_COLORS, stickerColor } from './catalog';
+import { catalogCards, diskQuery, displayName, driveLetter, filterCounts, knownLocations, LABEL_COLORS, offlineState, stickerColor } from './catalog';
 import { sampleVolumes } from './mock';
 import { setLanguage, t } from './i18n.svelte';
+
+describe('network shares reached by their path', () => {
+  it('a letter only for drive letters; the share name in the name', () => {
+    expect(driveLetter('x:\\')).toBe('X:');
+    expect(driveLetter('D:')).toBe('D:');
+    expect(driveLetter('\\\\192.168.1.65\\Small-Storage')).toBeNull();
+    expect(driveLetter(null)).toBeNull();
+    const nas = { ...sampleVolumes(0)[3]!, userName: null, osLabel: null, mount: '\\\\192.168.1.65\\Small-Storage\\' };
+    expect(displayName(nas, 'Network drive')).toBe('Network drive (Small-Storage)');
+    expect(displayName({ ...nas, mount: 'X:\\' }, 'Network drive')).toBe('Network drive (X:)');
+  });
+});
 
 // The catalog of the B+C interface (ADR-0019): last actions, filters, order, colours, bars.
 
@@ -78,6 +90,16 @@ describe('catalog cards', () => {
   it('locations already used are suggested once each, sorted', () => {
     const v = sampleVolumes(0).map((x, i) => ({ ...x, location: ['ufficio', 'cassetto 2', 'Ufficio', null, ' '][i] ?? null }));
     expect(knownLocations(v)).toEqual(['cassetto 2', 'ufficio']);
+  });
+
+  it('a network share whose server is off stays under Network and is "not reachable"', () => {
+    const off = volumes.map((v) => (v.kind === 'network' ? { ...v, online: false } : v));
+    expect(filterCounts(off)).toEqual({ all: 5, online: 3, network: 1, offline: 1 });
+    setLanguage('en');
+    const when = () => '2 h ago';
+    expect(offlineState({ kind: 'network', lastSeenAt: 1 }, when)).toBe('Not reachable · seen 2 h ago');
+    expect(offlineState({ kind: 'external', lastSeenAt: 1 }, when)).toBe('In the drawer · seen 2 h ago');
+    expect(offlineState({ kind: 'stick', lastSeenAt: null }, when)).toBe('In the drawer');
   });
 
   it('a search limited to one disk', () => {

@@ -13,9 +13,12 @@
   const lang = $derived(language());
   let health = $state<DiskHealthView | null>(null);
   let loaded = $state(false);
+  // Read again only when the disk or its connection changes, not at every refresh of the catalog.
+  const volumeId = $derived(volume.id);
+  const volumeOnline = $derived(volume.online);
   $effect(() => {
-    const id = volume.id;
-    const online = volume.online;
+    const id = volumeId;
+    const online = volumeOnline;
     loaded = false;
     health = null;
     if (!online) {

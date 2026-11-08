@@ -161,7 +161,14 @@ pub fn tick(state: &Arc<AppState>) -> bool {
             RECHECK
         };
         let before = state.hashing.status().get(&v.id).copied();
-        if before.is_none_or(|(_, at)| at.elapsed() >= every) {
+        // Indexed or updated since it was counted: count now, so the new files are analysed
+        // at the next round instead of minutes later.
+        let indexed_since = before.is_some_and(|(_, at)| {
+            let counted =
+                unix_millis_now() - i64::try_from(at.elapsed().as_millis()).unwrap_or(i64::MAX);
+            v.last_indexed_at.is_some_and(|t| t > counted)
+        });
+        if indexed_since || before.is_none_or(|(_, at)| at.elapsed() >= every) {
             refresh(state, v.id);
             changed |= state.hashing.progress(v.id) != before.map(|(s, _)| s);
         }
@@ -299,4 +306,11 @@ pub fn configure(state: &AppState, paused: bool, excluded: &[i64]) {
         .excluded
         .lock()
         .unwrap_or_else(PoisonError::into_inner) = excluded;
+}
+
+/// Milliseconds since 1970, as the catalog stores its times.
+fn unix_millis_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }

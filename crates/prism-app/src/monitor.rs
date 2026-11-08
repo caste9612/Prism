@@ -16,9 +16,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use prism_core::model::{VolumeId, VolumeKind, VolumeStatus};
+use prism_core::model::{Volume, VolumeId, VolumeKind, VolumeStatus};
 use prism_core::store;
-use prism_core::volumes::{self, DetectedVolume, VolumeMatch, VolumeSource, match_volumes};
+use prism_core::volumes::{
+    self, DetectedVolume, VolumeMatch, VolumeSource, match_volumes, normalize_unc,
+};
 use prism_win::volumes::WinVolumeSource;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -107,6 +109,37 @@ fn volume_monitor(app: &AppHandle, state: &Arc<AppState>) {
     }
 }
 
+/// The network shares of the catalog that no drive letter points to now — a mapping not
+/// restored at sign-in, or one that only another session sees (Prism runs elevated, ADR-0016):
+/// they are looked for by their network path, so a share is connected whenever its server
+/// answers, with or without a letter.
+pub(crate) fn known_shares(known: &[Volume], detected: &[DetectedVolume]) -> Vec<DetectedVolume> {
+    let mapped: Vec<String> = detected
+        .iter()
+        .filter_map(|d| d.info.unc_path.as_deref())
+        .map(normalize_unc)
+        .collect();
+    known
+        .iter()
+        .filter(|v| v.info.kind == VolumeKind::Network && v.status != VolumeStatus::Ignored)
+        .filter_map(|v| {
+            let unc = v.info.unc_path.clone()?;
+            if unc.is_empty() || mapped.contains(&normalize_unc(&unc)) {
+                return None;
+            }
+            let mut info = v.info.clone();
+            info.capacity = None;
+            info.free_space = None;
+            info.last_mount = Some(unc.clone());
+            Some(DetectedVolume {
+                info,
+                mounts: vec![unc],
+                disks: Vec::new(),
+            })
+        })
+        .collect()
+}
+
 /// Network shares are connected only when their server answers; their capacity and free space
 /// come from the probe. Local volumes pass unchanged.
 fn apply_probe(detected: Vec<DetectedVolume>, net: &NetProbe) -> Vec<DetectedVolume> {
@@ -135,7 +168,11 @@ fn apply_probe(detected: Vec<DetectedVolume>, net: &NetProbe) -> Vec<DetectedVol
 }
 
 fn detect_once(app: &AppHandle, state: &AppState) -> Result<(), String> {
-    let detected = WinVolumeSource.detect().map_err(|e| e.to_string())?;
+    let mut detected = WinVolumeSource.detect().map_err(|e| e.to_string())?;
+    if let Ok(known) = state.store.read(store::volumes) {
+        let shares = known_shares(&known, &detected);
+        detected.extend(shares);
+    }
     let detected = apply_probe(detected, &state.net);
     let (changed, came_back) = apply_detection(state, detected)?;
     // F05-AC2: an indexed volume that comes back is brought up to date.
@@ -324,5 +361,63 @@ fn job_relay(app: &AppHandle, state: &AppState) {
         {
             let _ = app.emit("volumes-changed", ());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::known_shares;
+    use prism_core::model::{Volume, VolumeId, VolumeInfo, VolumeKind, VolumeLabels, VolumeStatus};
+    use prism_core::volumes::DetectedVolume;
+
+    fn share(id: i64, unc: &str, status: VolumeStatus) -> Volume {
+        Volume {
+            id: VolumeId(id),
+            info: VolumeInfo {
+                kind: VolumeKind::Network,
+                fs_type: None,
+                fs_serial: None,
+                volume_guid: None,
+                unc_path: Some(unc.to_owned()),
+                os_label: None,
+                capacity: Some(1),
+                free_space: Some(1),
+                bus: None,
+                last_mount: Some(format!(
+                    r"{}:\",
+                    char::from(b'W' + u8::try_from(id).unwrap())
+                )),
+            },
+            labels: VolumeLabels::default(),
+            status,
+            first_seen_at: 0,
+            last_seen_at: None,
+            last_indexed_at: None,
+            usn: None,
+        }
+    }
+
+    // A share mapped to a letter now is not added twice; one that no letter points to is looked
+    // for by its network path; an ignored one is not.
+    #[test]
+    fn known_shares_without_a_letter_are_looked_for_by_their_path() {
+        let known = vec![
+            share(1, r"\\nas\Foto", VolumeStatus::Indexed),
+            share(2, r"\\NAS\archivio", VolumeStatus::New),
+            share(3, r"\\nas\vecchio", VolumeStatus::Ignored),
+        ];
+        let mapped = DetectedVolume {
+            info: VolumeInfo {
+                unc_path: Some(r"\\NAS\foto\".to_owned()),
+                ..known[0].info.clone()
+            },
+            mounts: vec![r"X:\".to_owned()],
+            disks: Vec::new(),
+        };
+        let found = known_shares(&known, &[mapped]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].mounts, vec![r"\\NAS\archivio".to_owned()]);
+        assert_eq!(found[0].info.last_mount.as_deref(), Some(r"\\NAS\archivio"));
+        assert_eq!(found[0].info.capacity, None, "the probe says how big it is");
     }
 }
