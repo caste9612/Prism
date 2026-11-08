@@ -58,7 +58,9 @@
       "free": "Libero",
       "files": "File",
       "state": "Stato"
-    }
+    },
+    "files_one": "1 file",
+    "folders_one": "1 cartella"
   },
   "kind": {
     "internal": "Disco interno",
@@ -194,7 +196,8 @@
       "diagnostics": "Diagnostica",
       "catalog": "Catalogo",
       "about": "Informazioni su Prism"
-    }
+    },
+    "resetDone_one": "Catalogo azzerato: 1 disco tolto."
   },
   "language": {
     "en": "English",
@@ -272,7 +275,8 @@
     "actions": "Azioni",
     "files": "{count} file",
     "folders": "Cartelle",
-    "filesColumn": "File"
+    "filesColumn": "File",
+    "files_one": "1 file"
   },
   "category": {
     "images": "Immagini",
@@ -419,7 +423,9 @@
     "justNow": "proprio ora",
     "minutes": "{count} min fa",
     "hours": "{count} ore fa",
-    "days": "{count} giorni fa"
+    "days": "{count} giorni fa",
+    "hours_one": "1 ora fa",
+    "days_one": "1 giorno fa"
   },
   "duplicates": {
     "title": "Duplicati",
@@ -485,7 +491,10 @@
     "chipDrop": "da togliere",
     "chipKeep": "tieni",
     "barPermanent": "Alcune sono su dischi senza Cestino: lì l'eliminazione è definitiva.",
-    "barRecycle": "Vanno nel Cestino. Il contenuto viene riletto prima di agire."
+    "barRecycle": "Vanno nel Cestino. Il contenuto viene riletto prima di agire.",
+    "copies_one": "1 copia",
+    "selected_one": "1 copia selezionata · {size}",
+    "confirmTitle_one": "Eliminare 1 copia ({size})?"
   },
   "backup": {
     "title": "Backup",
@@ -558,7 +567,8 @@
     "emptyLevel": "Niente qui con questi filtri.",
     "coveredOf": "di {name} ha una copia",
     "filesWord": "file",
-    "copyBoxHint": "Ogni file viene riletto e confrontato con l'originale prima di prendere il nome vero."
+    "copyBoxHint": "Ogni file viene riletto e confrontato con l'originale prima di prendere il nome vero.",
+    "files_one": "1 file"
   },
   "similar": {
     "title": "Simili",
@@ -589,7 +599,9 @@
     "thresholdLabel": "Somiglianza",
     "thresholdHint": "ridimensionate, ricompresse, piccoli ritocchi",
     "noDelete": "Da qui non si elimina nulla: le immagini simili non sono copie identiche.",
-    "groupDiff": "differiscono fino a {value} su 64"
+    "groupDiff": "differiscono fino a {value} su 64",
+    "summary_one": "1 gruppo di immagini simili",
+    "summaryVideos_one": "1 gruppo di video simili"
   },
   "identify": {
     "title": "Quale disco è {name}?",
@@ -703,7 +715,8 @@
     "similar": "Simili",
     "groups": "gruppi",
     "backup": "Backup",
-    "verify": "verifica un backup"
+    "verify": "verifica un backup",
+    "disks_one": "disco"
   },
   "activity": {
     "title": "Attività in corso",
@@ -721,7 +734,10 @@
     "deleted": "{count} eliminati",
     "from": "da {name}",
     "skipped": "{count} lasciati al loro posto",
-    "failed": "{count} non riusciti"
+    "failed": "{count} non riusciti",
+    "deleted_one": "1 eliminato",
+    "skipped_one": "1 lasciato al suo posto",
+    "failed_one": "1 non riuscito"
   },
   "disk": {
     "used": "Usato",
@@ -749,6 +765,7 @@
     "online": "{count} collegati · aggiornati automaticamente",
     "hashing": "analisi del contenuto a priorità minima",
     "hashingPaused": "analisi del contenuto in pausa",
-    "dev": "build di sviluppo"
+    "dev": "build di sviluppo",
+    "online_one": "1 collegato · aggiornato automaticamente"
   }
 }

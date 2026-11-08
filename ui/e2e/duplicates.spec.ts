@@ -101,9 +101,9 @@ test('F16-AC4: keeping only copies on disconnected disks needs a second confirma
 test('F16-AC2: copies on a disk without Recycle Bin are deleted permanently, after saying so', async ({ page }) => {
   await openDuplicates(page);
   await filters(page).getByRole('button', { name: 'Videos', exact: true }).click();
-  await expect(page.getByRole('region', { name: /copies selected/ })).toContainText('disks without a Recycle Bin');
+  await expect(page.getByRole('region', { name: /cop(y|ies) selected/ })).toContainText('disks without a Recycle Bin');
   await page.getByRole('button', { name: /Delete selected copies/ }).click();
-  const confirm = page.getByRole('dialog', { name: 'Delete 1 copies (4.2 GB)?' });
+  const confirm = page.getByRole('dialog', { name: 'Delete 1 copy (4.2 GB)?' });
   await expect(confirm).toContainText('they will be deleted permanently');
   await confirm.getByRole('button', { name: 'Cancel' }).click();
   await expect(confirm).toBeHidden();

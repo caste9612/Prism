@@ -45,7 +45,7 @@ test('F13-AC4: missing files by folder, with search', async ({ page }) => {
   await expect(page.getByText('3 files · 13.1 MB')).toBeVisible();
   await page.getByRole('textbox', { name: 'Search in the paths' }).fill('vacanza');
   await page.getByRole('textbox', { name: 'Search in the paths' }).press('Enter');
-  await expect(page.getByText('1 files · 5.2 MB')).toBeVisible();
+  await expect(page.getByText('1 file · 5.2 MB')).toBeVisible();
 });
 
 test('F13-AC5, F15-AC2/AC5: copy of the missing files with preview and outcome', async ({ page }) => {

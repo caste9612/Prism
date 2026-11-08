@@ -4,6 +4,7 @@ import { BATCH_GAP_MS, batchActions } from './actions';
 import { barParts } from './categories.svelte';
 import { catalogCards, diskQuery, filterCounts, knownLocations, LABEL_COLORS, stickerColor } from './catalog';
 import { sampleVolumes } from './mock';
+import { setLanguage, t } from './i18n.svelte';
 
 // The catalog of the B+C interface (ADR-0019): last actions, filters, order, colours, bars.
 
@@ -99,5 +100,19 @@ describe('coloured bars of the cards', () => {
   it('nothing when the used space or the categories are unknown', () => {
     expect(barParts(null, [{ category: 'videos', bytes: 1 }])).toEqual([]);
     expect(barParts(0.5, [])).toEqual([]);
+  });
+});
+
+describe('singular texts', () => {
+  it('a count of one uses the singular form when there is one', () => {
+    setLanguage('it');
+    expect(t('time.hours', { count: 1 })).toBe('1 ora fa');
+    expect(t('time.hours', { count: 3 })).toBe('3 ore fa');
+    expect(t('catalog.folders', { count: '1' })).toBe('1 cartella');
+    // Without a singular form the plural text is used as it is.
+    expect(t('search.results', { count: 1 })).toBe('Risultati: 1');
+    setLanguage('en');
+    expect(t('time.days', { count: 1 })).toBe('1 day ago');
+    expect(t('duplicates.confirmTitle', { count: 1, size: '4 GB' })).toBe('Delete 1 copy (4 GB)?');
   });
 });

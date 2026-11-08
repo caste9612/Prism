@@ -44,9 +44,18 @@ export function interpolate(text: string, params?: Record<string, string | numbe
   );
 }
 
-/** The translation of `key` in the current language. */
+/**
+ * The translation of `key` in the current language. With `count` equal to 1 the singular form
+ * `key_one` is used when the dictionary has it ("1 hour ago", not "1 hours ago").
+ */
 export function t(key: string, params?: Record<string, string | number>): string {
-  const text = lookup(dictionaries[current], key) ?? lookup(en, key) ?? key;
+  const one = params?.count === 1 || params?.count === '1';
+  const dict = dictionaries[current];
+  const text =
+    (one ? (lookup(dict, `${key}_one`) ?? lookup(en, `${key}_one`)) : undefined) ??
+    lookup(dict, key) ??
+    lookup(en, key) ??
+    key;
   return interpolate(text, params);
 }
 

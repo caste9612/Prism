@@ -58,7 +58,9 @@
       "free": "Free",
       "files": "Files",
       "state": "State"
-    }
+    },
+    "files_one": "1 file",
+    "folders_one": "1 folder"
   },
   "kind": {
     "internal": "Internal disk",
@@ -194,7 +196,8 @@
       "diagnostics": "Diagnostics",
       "catalog": "Catalog",
       "about": "About Prism"
-    }
+    },
+    "resetDone_one": "Catalog reset: 1 disk removed."
   },
   "language": {
     "en": "English",
@@ -272,7 +275,8 @@
     "actions": "Actions",
     "files": "{count} files",
     "folders": "Folders",
-    "filesColumn": "Files"
+    "filesColumn": "Files",
+    "files_one": "1 file"
   },
   "category": {
     "images": "Images",
@@ -419,7 +423,9 @@
     "justNow": "just now",
     "minutes": "{count} min ago",
     "hours": "{count} h ago",
-    "days": "{count} days ago"
+    "days": "{count} days ago",
+    "hours_one": "1 h ago",
+    "days_one": "1 day ago"
   },
   "duplicates": {
     "title": "Duplicates",
@@ -485,7 +491,10 @@
     "chipDrop": "to remove",
     "chipKeep": "keep",
     "barPermanent": "Some are on disks without a Recycle Bin: there they are deleted for good.",
-    "barRecycle": "They go to the Recycle Bin. The content is read again before acting."
+    "barRecycle": "They go to the Recycle Bin. The content is read again before acting.",
+    "copies_one": "1 copy",
+    "selected_one": "1 copy selected · {size}",
+    "confirmTitle_one": "Delete 1 copy ({size})?"
   },
   "backup": {
     "title": "Backup",
@@ -558,7 +567,8 @@
     "emptyLevel": "Nothing here with these filters.",
     "coveredOf": "of {name} has a copy",
     "filesWord": "files",
-    "copyBoxHint": "Every file is read back and compared with the original before it takes its real name."
+    "copyBoxHint": "Every file is read back and compared with the original before it takes its real name.",
+    "files_one": "1 file"
   },
   "similar": {
     "title": "Similar",
@@ -589,7 +599,9 @@
     "thresholdLabel": "Similarity",
     "thresholdHint": "resized, recompressed, small edits",
     "noDelete": "Nothing is deleted from here: similar images are not identical copies.",
-    "groupDiff": "differ by up to {value} of 64"
+    "groupDiff": "differ by up to {value} of 64",
+    "summary_one": "1 group of similar images",
+    "summaryVideos_one": "1 group of similar videos"
   },
   "identify": {
     "title": "Which disk is {name}?",
@@ -703,7 +715,8 @@
     "similar": "Similar",
     "groups": "groups",
     "backup": "Backup",
-    "verify": "check a backup"
+    "verify": "check a backup",
+    "disks_one": "disk"
   },
   "activity": {
     "title": "In progress",
@@ -721,7 +734,10 @@
     "deleted": "{count} deleted",
     "from": "from {name}",
     "skipped": "{count} left in place",
-    "failed": "{count} failed"
+    "failed": "{count} failed",
+    "deleted_one": "1 deleted",
+    "skipped_one": "1 left in place",
+    "failed_one": "1 failed"
   },
   "disk": {
     "used": "Used",
@@ -749,6 +765,7 @@
     "online": "{count} connected · updated automatically",
     "hashing": "content analysis at the lowest priority",
     "hashingPaused": "content analysis paused",
-    "dev": "development build"
+    "dev": "development build",
+    "online_one": "1 connected · updated automatically"
   }
 }

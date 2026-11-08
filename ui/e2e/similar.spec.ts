@@ -38,7 +38,7 @@ test('F11-AC1: the similarity threshold and the disk filter', async ({ page }) =
   await expect(page.getByText('3 groups of similar images')).toBeVisible();
   await expect(page.getByRole('article', { name: 'ricevuta.tif' })).toBeVisible();
   await page.getByRole('combobox', { name: 'Disk' }).selectOption({ label: 'NAS Big-Storage' });
-  await expect(page.getByText('1 groups of similar images')).toBeVisible();
+  await expect(page.getByText('1 group of similar images')).toBeVisible();
   await slider.fill('0');
   await expect(page.getByText('No similar images with this setting.')).toBeVisible();
 });
@@ -46,7 +46,7 @@ test('F11-AC1: the similarity threshold and the disk filter', async ({ page }) =
 test('F12-AC1: similar videos with length, resolution and previews', async ({ page }) => {
   await openSimilar(page);
   await page.getByRole('tab', { name: 'Videos' }).click();
-  await expect(page.getByText('1 groups of similar videos')).toBeVisible();
+  await expect(page.getByText('1 group of similar videos')).toBeVisible();
   const group = page.getByRole('article', { name: 'Vacanze 2019.mp4' });
   await expect(group).toContainText('2 videos');
   await expect(group).toContainText('12:34 · 1920×1080 · 4.2 GB');
