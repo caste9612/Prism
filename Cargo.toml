@@ -1,0 +1,53 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+authors = ["caste9612"]
+repository = "https://github.com/caste9612/Prism"
+publish = false
+
+[workspace.dependencies]
+prism-core = { path = "crates/prism-core" }
+prism-win = { path = "crates/prism-win" }
+
+# Third-party (keep the list short; every addition is justified in the PR/commit)
+clap = { version = "4.6", features = ["derive"] }
+crossbeam-channel = "0.5"
+# Image decoding for the similar images (F11-AC4); only the formats the SPEC names.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff"] }
+blake3 = "1.8"
+memchr = "2.7"
+notify = { version = "8.2", default-features = false }
+regex = "1.13"
+proptest = "1.12"
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache"] }
+tempfile = "3"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Daily log files kept for 14 days (F20-AC1).
+tracing-appender = "0.2"
+# COM interfaces (unelevated shell, ADR-0003); same version as the one Tauri already uses.
+windows = "0.62"
+windows-sys = "0.61"
+
+# Shared lints (ADR-0002). Crates opt in with `[lints] workspace = true`.
+[workspace.lints.rust]
+unsafe_code = "deny" # allowed only in prism-win, where every block needs a SAFETY comment
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[profile.release]
+lto = true
+codegen-units = 1

@@ -1,0 +1,196 @@
+# Prism — Roadmap
+
+> Tappe **interne**: ognuna produce qualcosa di completo e verificabile, ma la prima versione
+> pubblica (1.0) esce solo alla fine, con tutte le funzioni della SPEC.
+> Ogni tappa termina con: documentazione aggiornata, controlli verdi (`scripts/check.ps1`) e una
+> **checklist di verifica per l'utente**. Lo stato dettagliato è in `docs/PROGRESS.md`.
+
+Legenda: `[x]` fatto · `[ ]` da fare · `[~]` in corso
+
+## T0 — Fondamenta  `[x]`
+
+- [x] Branch `rewrite` nello stesso repository, in una cartella separata (worktree)
+- [x] Specifica funzionale con criteri di accettazione (`docs/SPEC.md`)
+- [x] Architettura (`docs/ARCHITECTURE.md`) e ADR 0001–0014
+- [x] Strategia di test e regole di sicurezza (`docs/TESTING.md`)
+- [x] Regole di lavoro per le sessioni di sviluppo (`CLAUDE.md`)
+- [x] Workspace Cargo (`prism-core`, `prism-win`, `prism-cli`), lint comuni, toolchain fissata
+- [x] Script dei controlli (`scripts/check.ps1`) e CI GitHub Actions (attiva al primo push)
+- [x] Decisioni anticipate per lavorare in autonomia fino alla 1.0 (SPEC §8)
+
+**Verifica utente**: facoltativa, leggere `docs/SPEC.md`. Fatto: esecuzione una tantum di
+`scripts/admin/install-admin-runner.ps1` (2026-11-07).
+
+## T1 — Catalogo di base (core, senza privilegi)  `[x]`
+
+- [x] Schema SQLite e migrazioni; test di migrazione
+- [x] Archivio: thread scrittore + pool di lettori (ADR-0008)
+- [x] Modello volumi/voci, ricostruzione percorsi, `dir_stats` incrementali
+- [x] `ExclusionPolicy` unica (F04-AC5) con le esclusioni di default decise (Q2)
+- [x] `WalkEnumerator` parallelo senza `metadata()` per file
+- [x] `Reconciler` unico; test di proprietà "aggiornamento = reindicizzazione" (F05-AC3)
+- [x] `SandboxGuard` per le operazioni distruttive (TESTING S2)
+- [x] CLI: `scan`, `ls`, `du`, `stats` su un catalogo di sviluppo (più `volumes`, `check`,
+      `bench`)
+- [x] Benchmark in sola lettura su C: e D: e confronto con il vecchio Prism (tempo, dimensione
+      del catalogo per voce): `docs/benchmarks/2026-11-07-t1-walker.md`
+
+Criteri coperti: F01-AC5, F04-AC2..AC7, F05-AC3, F05-AC4 (riferimenti simulati), NF2 (prima
+misura: 108–129 B per voce senza indice di ricerca), NF4 (parziale).
+**Verifica utente**: lanciare il benchmark su altri dischi, se si vuole.
+
+## T2 — Windows: volumi, MFT, USN  `[x]` (due ottimizzazioni rimandate, REVIEW L1/L2)
+
+- [x] Rilevamento volumi e identità (ADR-0004, ADR-0016); unità di rete e UNC (anche da
+      processo elevato, via `HKCU\Network`); test elevato del cambio di lettera (F02-AC3)
+- [x] Runner amministratore e disco virtuale di test (TESTING §4): configurato dall'utente e
+      verificato (`schtasks /run` senza UAC, test elevati passati sul volume PRISMTEST)
+- [x] Prototipo lettore MFT, misure su VHDX e su C:/D: (sola lettura); decisione go/no-go:
+      **go** (ADR-0017; C: 5,7 s contro 14,3 s del walker)
+- [~] `MftEnumerator` completo: fatti frammentazione della `$MFT`, record di estensione
+      (`$ATTRIBUTE_LIST`), hard link, ADS, file compressi e sparsi (T10), confronto con il
+      walker sul disco di test; resta `$MFT` con `$ATTRIBUTE_LIST` nel record 0, che non si
+      riproduce sul disco di test (REVIEW L2: si usa il walker)
+- [x] Istantanea `ScanTree` compatta: fatta in T10 (REVIEW D49; picco 223 B per voce con la
+      MFT, 174 con il walker)
+- [x] Journal USN: lettura, posizione salvata, gestione journal non valido, recupero dei
+      singoli file e applicazione tramite il `Reconciler` (più bersagli, cartelle non elencate),
+      con test di equivalenza simulati e reali (ADR-0018)
+- [x] Sorveglianza cartelle per i volumi non NTFS (`notify`, aggiornamento mirato dei
+      sottoalberi, test end-to-end e di proprietà su disco)
+
+Criteri coperti: F02-AC3, F02-AC5, F04-AC1, F05-AC1/AC2/AC3/AC4.
+**Verifica utente**: collegare/scollegare un disco esterno.
+
+## T3 — Motore dei job e app minima  `[x]`
+
+- [x] Motore dei job (ADR-0009) con priorità e annullamento (la ripresa arriva con i job di
+      background in T6, REVIEW D10)
+- [x] `prism-app` Tauri 2: manifest elevato, istanza singola, tray, chiusura nel tray
+- [x] Prototipi (ADR-0003, esiti nell'ADR): WebView2 elevata, attività pianificata (avvio con
+      Windows, F19-AC3), apertura non elevata tramite la shell
+- [x] Frontend Svelte 5: struttura, i18n EN/IT, tema, tipi generati, IPC
+- [x] Schermata catalogo (F01), disco nuovo (F02), etichette (F03), impostazioni di base (F21)
+- [x] Rifiniture del monitor: sonda delle unità di rete (REVIEW L5), sorveglianza cartelle per
+      i volumi non NTFS (L6), job automatici nascosti dalle schede
+- [x] Notifica di sistema per i dischi nuovi a finestra nascosta (REVIEW L8, D19)
+- [x] Test e2e con IPC simulato (Playwright, `ui/e2e/`)
+
+Criteri coperti: F01 (AC4 per le parti che arrivano con T4/T5/T9), F02 (AC3 senza la finestra
+di scelta per le identità ambigue, REVIEW L7), F03-AC1/AC3, F19-AC1/AC3/AC4, F21-AC1/AC4
+(parziale: manca il reset del catalogo).
+**Sosta di revisione annullata** (decisione dell'utente, 2026-11-07): lo sviluppo prosegue fino
+alla 1.0 e l'utente fa una sola revisione finale con `docs/REVIEW.md`.
+**Verifica utente**: aspetto e usabilità della schermata catalogo; avvio con Windows.
+
+## T4 — Spazio  `[x]`
+
+- [x] Treemap su canvas con navigazione, elenco dei più grandi (F08)
+- [x] Statistiche per tipo, estensione e fascia di dimensione (F08-AC3)
+- [x] Eliminazione sicura di base (ADR-0012, F16-AC1/2/3/5/6): Cestino, verifica sul disco,
+      registro delle azioni; l'ultima copia dei duplicati (F16-AC4) arriva con T6
+- [x] Pulizia guidata (F09): temporanei, cartelle vuote, grandi e vecchi, cache dei browser
+- [x] Guardia sandbox nelle build di debug dell'app (istruzione della supervisione, REVIEW S1)
+
+Criteri coperti: F08-AC1/AC2/AC3/AC4/AC5, F09-AC1/AC2/AC3/AC4, F16-AC1/AC2/AC3/AC5/AC6.
+**Verifica utente**: leggibilità della treemap; prova di pulizia sul disco di test (REVIEW §4).
+
+## T5 — Ricerca  `[x]`
+
+- [x] Benchmark e decisione sull'indice di ricerca (ADR-0010: indice in memoria)
+- [x] Parser dei filtri avanzati con errori espliciti (F07-AC5/AC6); motore con ordinamento e
+      conteggio limitato; indici mantenuti in background
+- [x] Finestra di ricerca globale con scorciatoia configurabile (F07-AC1)
+- [x] Risultati offline con nome e posizione del disco (F07-AC4)
+- [x] Voce *Cerca* nel menu del tray (F19-AC2, rimandata da T3)
+
+Criteri coperti: F07-AC1/AC2/AC3/AC4/AC5/AC6/AC7, F19-AC2 (parte *Cerca*).
+**Verifica utente**: la scorciatoia Ctrl+Space da altri programmi; leggibilità dei risultati.
+
+## T6 — Hash e duplicati  `[x]`
+
+- [x] Job di hash in background a priorità minima, in modalità background di Windows, che cede
+      il disco alle indicizzazioni; pausa, sospensione a batteria opzionale, dischi esclusi (F06,
+      F21-AC3)
+- [x] Gruppi di duplicati online e offline, schermata con filtri (F10)
+- [x] Regole di selezione (F10-AC3)
+- [x] Eliminazione sicura completa: Cestino, riverifica, ultima copia, registro azioni (F16)
+- [x] Stato dei job e Pausa/Riprendi hash nel menu del tray (F19-AC2, rimandata da T3)
+
+Criteri coperti: F06-AC1…AC6, F10-AC1…AC5, F16-AC3/AC4, F19-AC2, F21-AC3.
+**Verifica utente**: checklist T6 in `docs/REVIEW.md` §4 (eliminazione solo sul disco di test).
+
+## T7 — Backup  `[x]`
+
+- [x] Verifica backup anche con destinazioni offline (F13)
+- [x] Confronto tra dischi o cartelle (F14)
+- [x] Copia dei file mancanti verificata, annullabile, riprendibile (F15)
+
+Criteri coperti: F13-AC1…AC5, F14-AC1…AC3, F15-AC1…AC5.
+**Verifica utente**: checklist T7 in `docs/REVIEW.md` §4 (copie solo verso il disco di test).
+
+## T8 — Media  `[x]`
+
+- [x] Immagini simili con indice per distanza di Hamming, inclusi i RAW (F11)
+- [x] Prototipi e decisione per i video (ADR-0013, accettata: Media Foundation), poi video
+      simili (F12)
+
+Criteri coperti: F11-AC1…AC4, F12-AC1…AC3 (F12-AC2 con i codec di Windows: HEVC solo con
+l'estensione dello Store, REVIEW L15).
+**Verifica utente**: checklist T8 in `docs/REVIEW.md` §4.
+
+## T9 — Integrazione con il sistema  `[x]`
+
+- [x] SMART con storia e notifiche (F17)
+- [x] `prism-shell` e menu contestuale di Esplora risorse (F18): la registrazione delle voci
+      si chiama dall'installer (T10)
+- [x] Diagnostica: log a rotazione, pacchetto diagnostico (F20)
+- [x] Finestra di scelta per le identità ambigue dei volumi (F02-AC3, REVIEW L7) e reset del
+      catalogo con conferma (F21-AC4), rimandati da T3
+
+Criteri coperti: F02-AC3, F17-AC1…AC4, F18-AC1/AC2 (AC3 con l'installer, T10), F20-AC1…AC3,
+F21-AC4.
+**Verifica utente**: checklist T9 in `docs/REVIEW.md` §4.
+
+## T10 — Distribuzione e 1.0
+
+- [x] Installer: attività pianificata, menu contestuale, WebView2, disinstallazione (F22),
+      identificativo e attivatore delle notifiche (REVIEW L9): costruito e controllato nello
+      script generato; l'installazione si prova su un PC pulito (REVIEW U3)
+- [x] Aggiornamenti automatici firmati (F22-AC3): controllo, download in sottofondo,
+      installazione su conferma, manifest firmato da `build-installer.ps1`; chiavi e luogo di
+      pubblicazione dall'utente (REVIEW U7)
+- [x] Prestazioni finali: NF2 (byte per voce) e NF3 (memoria con 5 milioni di voci) misurati
+      sull'app; memoria durante l'indicizzazione (REVIEW L1)
+  - [x] NF2 e NF3 misurati con 5,7 milioni di voci (`prism-cli replicate`, `mem-bench`);
+        memoria dell'analisi del contenuto ridotta (D48)
+  - [x] Memoria durante l'indicizzazione ridotta del 22–28% con un'istantanea compatta (D49);
+        la scrittura senza istantanea resta per dopo la 1.0 (L1)
+- [x] Documentazione per l'utente nel README: funzioni, sicurezza dei file, installazione,
+      aggiornamenti, privacy, limiti noti, disinstallazione
+- [ ] Firma del codice con il certificato scelto dall'utente (Q7), ramo principale (Q11)
+- [ ] Test su un PC Windows pulito; passaggio completo delle checklist manuali
+- [ ] Merge di `rewrite` sul ramo principale e rilascio 1.0
+
+Stato (2026-11-07): fatto tutto ciò che non richiede l'utente; le voci aperte sono REVIEW U1,
+U2 e U3 (con U7 per gli aggiornamenti). **Verifica utente**: `docs/REVIEW.md` §0 e §4.
+
+## T11 — Nuova interfaccia (dalla revisione dell'utente)
+
+Dalla revisione del 2026-11-08 (REVIEW U5, D51, D52): nuova interfaccia "B+C" disegnata e
+approvata con l'utente (ADR-0019). Si fa prima del merge e della 1.0.
+
+- [x] Fondamenta: colori e caratteri inclusi (chiaro e scuro), barra in alto, navigazione dal
+      disco, componenti comuni (pulsanti, pillole, barre d'azione, finestre, avvisi)
+- [x] Catalogo: blocco "Tutto il catalogo", schede compatte con barra per categorie, filtri,
+      vista elenco, dischi nuovi a comparsa, attività in corso, ultime azioni, barra di stato
+- [x] Schermata del disco con le sue schede; Spazio con mappa e tabella
+- [x] Duplicati, Simili, Backup, Pulizia, Salute, Tipi di file nel nuovo stile, per disco e
+      per tutto il catalogo
+- [x] Ricerca (barra in alto e finestra Ctrl+Space), Impostazioni, menu, finestre di conferma,
+      avvisi
+- [x] Icona "prisma a strati" (app, installer, tray, logo)
+- [x] Test end-to-end sui nuovi percorsi, checklist di REVIEW §4 aggiornate
+
+Stato (2026-11-08): costruita; resta la prova dell'utente sull'app (REVIEW §4, checklist T11).
+**Verifica utente**: provare l'app di sviluppo e confrontarla con i disegni.

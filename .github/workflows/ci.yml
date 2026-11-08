@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [rewrite, develop, main]
+  pull_request:
+
+jobs:
+  rust:
+    name: Rust checks (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Keep the version in sync with rust-toolchain.toml
+      - name: Install toolchain
+        run: rustup toolchain install 1.92.0 --profile minimal --component rustfmt,clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+      # `cargo test -p prism-app` regenerates the TypeScript bindings (ts-rs); the committed
+      # copies must match the Rust types.
+      - name: Generated bindings are up to date
+        shell: bash
+        run: |
+          git status --porcelain -- ui/src/lib/bindings
+          test -z "$(git status --porcelain -- ui/src/lib/bindings)"
+
+  ui:
+    name: UI checks
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Tests
+        run: npm test
+
+      - name: End-to-end tests (simulated backend)
+        run: |
+          npx playwright install chromium --only-shell
+          npm run e2e
+
+      - name: Build
+        run: npm run build

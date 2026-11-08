@@ -1,87 +1,119 @@
 # Prism
 
-**A disk analyzer and duplicate finder for Windows.**
+**A catalog of all your disks for Windows — even the disconnected ones.**
 
-[![Latest release](https://img.shields.io/github/v/release/caste9612/Prism?style=flat-square&color=4fc3f7)](https://github.com/caste9612/Prism/releases/latest)
-![Platform: Windows](https://img.shields.io/badge/platform-Windows-4c8dff?style=flat-square)
-[![License: MIT](https://img.shields.io/badge/license-MIT-7c5cff?style=flat-square)](LICENSE)
+Prism indexes every drive you own (internal, external, USB sticks, network shares) and keeps
+the catalog available when the drive is unplugged. On top of the catalog it offers instant
+search, disk-space analysis, exact and similar duplicates, backup verification and disk
+health monitoring.
 
-With many drives, local and on the network, I didn't know where the space went, which files were duplicates
-and whether a backup really held everything. Prism indexes the drives once and then only what changes. It
-shows the space as a treemap, finds duplicates by content and compares a drive with its backup, listing what
-is missing.
+> **Status:** this is the new Prism, rewritten from scratch and being finished. The releases
+> published so far (1.0.0 and 1.0.1) are the previous version; the first release of the new one
+> will be announced here.
 
-![Prism's dashboard with the indexed drives and the scan progress](docs/screenshots/dashboard.webp)
+## What Prism does
 
-## Download
+- **Disks** — every disk you connect appears in the catalog and is indexed in the background
+  (NTFS volumes are read through the Master File Table: about a million files in a few
+  seconds). Name the disk, note where it is kept, give it a colour. Disconnected disks stay in
+  the catalog with the data of their last indexing, and Prism recognizes a disk even when its
+  drive letter changes.
+- **Search** — `Ctrl+Space` from anywhere opens the search window. Results come from all
+  disks, connected or not, as you type; filters for type, size, date, disk, connected or not,
+  files or folders (e.g. `report size:>1MB ext:pdf`).
+- **Space** — a map of what takes space on a disk or folder, the largest files and statistics
+  by file type, also for disconnected disks.
+- **Cleanup** — space you can recover on the connected disks (temporary files, caches, empty
+  folders, large old files), with a confirmation before anything is removed.
+- **Duplicates** — identical files across all your disks, found by content. Prism analyses
+  the content of the connected disks in the background, at low priority; in *Settings* you can
+  pause it, also only while on battery, or leave a disk out.
+- **Similar** — photos, pictures and videos that look the same even if resized, re-encoded or
+  slightly retouched.
+- **Backup** — check that the files of a disk or folder have a copy somewhere else, compare two
+  disks or folders, and copy what is missing (every copy is read back and verified).
+- **Health** — the SMART data of your disks (temperature, wear, errors), with a notice when a
+  disk gets worse.
+- **Explorer menu** — right-click a folder or a drive: *Analyze with Prism* and *Find
+  duplicates here*.
 
-Download `Prism.exe` from the [latest release](https://github.com/caste9612/Prism/releases/latest) and run it:
-Prism is portable, there is nothing to install.
+Prism runs in the notification area: closing the window keeps it working in the background;
+*Quit* in the menu of its icon closes it.
 
-- **Windows** with WebView2, which comes with Windows 11.
-- The index is a local SQLite database in `%APPDATA%\com.prism.diskanalyzer\`; the logs are in
-  `%LOCALAPPDATA%\Prism\logs`.
+## Your files are safe
 
-## What it does
+- Nothing is deleted, moved or overwritten without your explicit confirmation.
+- Deleted files go to the Recycle Bin unless you choose otherwise, and Prism checks every file
+  again on the disk right before removing it: if it changed since the analysis, it is skipped.
+- Copies never overwrite an existing file and are verified by reading them back.
+- Prism only reads your disks to build the catalog.
 
-**Scanning**
-- Local and network drives are scanned in parallel; after the first pass only the changed files are read
-  again. On the author's PC that is about 25,000–30,000 files a second on a local SSD and 500–1,000 on a
-  network drive.
-- At startup Prism rescans only the drives it already knows, and a drive monitor queues them again when they
-  come back online.
+## Installation
 
-**Search**
-- Full-text search over the index (SQLite FTS5), with filters that can be typed:
+Requirements: Windows 11, 64-bit.
 
-  | Filter | Example | Finds |
-  |---|---|---|
-  | `size:` | `size:>100MB` | files larger than 100 MB |
-  | `ext:` | `ext:pdf,docx` | these extensions |
-  | `type:` | `type:image` | a category: image, video, audio, document, archive |
-  | `path:` | `path:Documents` | paths that contain the text |
+1. Run `Prism_<version>_x64-setup.exe`. Windows asks for administrator permission: Prism
+   needs it to read the Master File Table and the change journal of NTFS disks, which makes
+   indexing and updates fast.
+2. If the Microsoft Edge WebView2 runtime is missing, the installer downloads it.
+3. Prism starts with Windows, hidden in the notification area, without asking for permission
+   each time (a scheduled task with the highest privileges). You can turn this off in
+   *Settings*.
 
-- **Quick Search** opens from anywhere with `Ctrl+Space`, with buttons for the file types.
+The interface is in English and Italian (it follows Windows; you can change it in
+*Settings*), with a light and a dark theme.
 
-![Prism's quick search with the file type filters](docs/screenshots/search.webp)
+## Updates
 
-**Duplicates**
-- Duplicate files found by content hash (BLAKE3, first a partial hash, then the full one) and similar images
-  by perceptual hash, with the space each group wastes and deletion in batches, after a confirmation.
+Release builds check for a new version one minute after starting and then once a day. A new
+version is downloaded in the background; *Settings › Updates* shows it, and it is installed
+only when you choose *Install and restart*. Packages are signed, and a package with a wrong
+signature is never installed.
 
-**Space usage**
-- A folder tree and an interactive treemap of the space in use, with the distribution by file type and
-  extension.
+## Privacy
 
-**Backup check**
-- Checks whether every file on one drive is also on another, and lists the missing ones grouped by folder,
-  with their size and a search box.
+- No telemetry. The only connection Prism makes is the update check.
+- The catalog stays on your PC, in `%LOCALAPPDATA%\com.prism.catalog` (the logs, kept for 14
+  days, are in its `logs` folder).
+- A diagnostic package is created only when you ask for it (*Settings › Diagnostics*); you see
+  its content before saving it, and it is up to you whether to send it to anyone.
 
-![Prism checking a backup drive: the share of files found and the missing ones](docs/screenshots/backup.webp)
+## Known limitations
 
-The complete guide is in [docs/FEATURES.md](docs/FEATURES.md).
+- Videos in HEVC (H.265) format are compared only if Windows has the *HEVC Video Extensions*
+  from the Microsoft Store.
+- Network drives are indexed and searched, but their content is not analysed in the background
+  (every byte would cross the network): they take no part in duplicates and similar images, and
+  backup checks compare their files by name, size and date.
+- Disks connected by USB often do not pass their health data to Windows.
 
-## Build from source
+## Uninstall
 
-```bash
-git clone https://github.com/caste9612/Prism.git
-cd Prism
-npm install
-npm run tauri dev      # development, with hot reload
-npm run tauri build    # release build
+Use *Settings › Apps › Installed apps › Prism › Uninstall*. The Explorer menu entries and the
+start-up task are removed. The uninstaller asks whether to delete the application data: leave
+the box empty to keep the catalog, and a new installation will find it again.
+
+## Documentation
+
+| Document | Content |
+|---|---|
+| [docs/SPEC.md](docs/SPEC.md) | Functional specification with acceptance criteria |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture |
+| [docs/adr/](docs/adr/README.md) | Architecture decision records |
+| [docs/TESTING.md](docs/TESTING.md) | Test strategy and data-safety rules |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones |
+| [docs/PROGRESS.md](docs/PROGRESS.md) | Development log |
+| [docs/REVIEW.md](docs/REVIEW.md) | Decisions taken during development, open items, how to try the app |
+| [docs/benchmarks/](docs/benchmarks/README.md) | Performance measurements |
+
+Project documents are written in Italian.
+
+## Development
+
+Requirements: Windows 11 x64, Rust (the version is pinned in `rust-toolchain.toml`), Node.js
+for the interface.
+
+```powershell
+.\scripts\check.ps1             # format check, clippy, tests (Rust, interface, end-to-end)
+.\scripts\build-installer.ps1   # release build and installer (see ARCHITECTURE §8.1)
 ```
-
-You need Node 18 or later, Rust 1.75 or later and the
-[Tauri prerequisites](https://tauri.app/start/prerequisites/). Tests: `npm run check`, `npm test` and
-`cargo test`.
-
-The design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the Tauri commands and events in
-[docs/API.md](docs/API.md), the setup and the conventions in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), the
-version history in [docs/CHANGELOG.md](docs/CHANGELOG.md).
-
-Built with Tauri 2, SvelteKit, TypeScript, Tailwind CSS and D3.js on the front end, and Rust with jwalk,
-rayon, rusqlite and blake3 behind it.
-
-## License
-
-[MIT](LICENSE)

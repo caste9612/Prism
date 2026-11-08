@@ -1,0 +1,19 @@
+[package]
+name = "prism-shell"
+description = "Small non-elevated helper started by the Explorer menu: forwards the request to Prism"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "prism-shell"
+path = "src/main.rs"
+
+[dependencies]
+prism-win.workspace = true
+
+[lints]
+workspace = true
