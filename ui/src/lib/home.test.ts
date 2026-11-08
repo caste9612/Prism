@@ -52,8 +52,8 @@ describe('cards grouped by physical disk and by server (D64)', () => {
       ['server', ['NAS Big-Storage']],
       ['disk', ['Backup Foto']],
     ]);
-    expect(groupTitle(groups[0]!)).toBe('Samsung SSD 990 PRO 2TB · NVMe');
-    expect(groupTitle(groups[2]!)).toBe('NAS nas.local · nas');
+    expect(groupTitle(groups[0]!)).toBe('WDC WD20EZRZ-00Z5HB0 · SATA');
+    expect(groupTitle(groups[2]!)).toBe('NAS DISKSTATION · 192.168.1.20');
     // A disk whose physical disk is not known yet stands alone, under its kind.
     const lone = diskGroups([{ ...sampleVolumes(0)[0]!, group: null, diskModel: null }]);
     expect(lone.map((g) => g.kind)).toEqual(['single']);

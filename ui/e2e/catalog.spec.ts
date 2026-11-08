@@ -141,32 +141,32 @@ test('F02-AC3: a disk that looks like two catalog disks waits for the user to sa
 });
 
 test('D63/D64: disks grouped by physical disk and by server; network folders with their icon', async ({ page }) => {
-  const samsung = page.getByRole('region', { name: 'Samsung SSD 990 PRO 2TB · NVMe' });
-  await expect(samsung).toContainText('2 partitions');
-  // The health of the disk, from its first partition that has it (the mock gives Data its own).
-  await expect(samsung).toContainText('health needs attention 38 °C');
-  await expect(samsung.getByRole('article')).toHaveCount(2);
-  await expect(samsung.getByRole('article', { name: 'Windows' })).toBeVisible();
-  await expect(samsung.getByRole('article', { name: 'Data' })).toBeVisible();
-  const nas = page.getByRole('region', { name: 'NAS nas.local · nas' });
+  const disk = page.getByRole('region', { name: 'WDC WD20EZRZ-00Z5HB0 · SATA' });
+  await expect(disk).toContainText('2 partitions');
+  // The health of the disk, once in the heading.
+  await expect(disk).toContainText('health needs attention 38 °C');
+  await expect(disk.getByRole('article')).toHaveCount(2);
+  await expect(disk.getByRole('article', { name: 'Windows' })).toBeVisible();
+  await expect(disk.getByRole('article', { name: 'Data' })).toBeVisible();
+  const nas = page.getByRole('region', { name: 'NAS DISKSTATION · 192.168.1.20' });
   await expect(nas).toContainText('1 folder');
   const share = nas.getByRole('article', { name: 'NAS Big-Storage' });
-  await expect(share).toContainText('NAS · nas.local');
+  await expect(share).toContainText('NAS · DISKSTATION');
   await expect(share.locator('.letter.net')).toContainText('Y:');
   await expect(page.getByRole('region', { name: 'WD Elements 25A2 · USB' }).getByRole('article', { name: 'Backup Foto' })).toBeVisible();
   // The same groups in the list.
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const list = page.locator('table.data');
-  await expect(list.getByRole('rowheader').first()).toContainText('Samsung SSD 990 PRO 2TB');
-  await expect(list.getByRole('row', { name: 'NAS Big-Storage' })).toContainText('NAS · nas.local');
+  await expect(list.getByRole('rowheader').first()).toContainText('WDC WD20EZRZ-00Z5HB0');
+  await expect(list.getByRole('row', { name: 'NAS Big-Storage' })).toContainText('NAS · DISKSTATION');
   await page.getByRole('button', { name: 'Cards', exact: true }).click();
 });
 
 test('D59: a network folder with a known name at another address waits for the user', async ({ page }) => {
   const panel = page.getByRole('region', { name: 'A network folder at a new address?' });
-  await expect(panel).toContainText('\\\\192.168.1.57\\Big-Storage');
+  await expect(panel).toContainText('\\\\192.168.1.21\\Big-Storage');
   await expect(panel).toContainText('router gives the NAS another address');
-  await expect(panel).toContainText('before at \\\\nas\\Big-Storage');
+  await expect(panel).toContainText('before at \\\\192.168.1.20\\Big-Storage');
   await expect(panel.getByRole('button', { name: 'It is another folder' })).toBeVisible();
   await panel.getByRole('button', { name: 'Yes, it is NAS Big-Storage' }).click();
   await expect(panel).toHaveCount(0);
@@ -179,9 +179,9 @@ test('D59: a network folder gets a new address by hand, checked first', async ({
   await page.getByRole('button', { name: 'Actions for NAS Big-Storage' }).click();
   await page.getByRole('menu', { name: 'Actions for NAS Big-Storage' }).getByRole('menuitem', { name: 'Change network address…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Network address' });
-  await expect(dialog).toContainText('In the catalog it is \\\\nas\\Big-Storage.');
+  await expect(dialog).toContainText('In the catalog it is \\\\192.168.1.20\\Big-Storage.');
   const field = dialog.getByRole('textbox', { name: 'New network path' });
-  await expect(field).toHaveValue('\\\\nas\\Big-Storage');
+  await expect(field).toHaveValue('\\\\192.168.1.20\\Big-Storage');
   const use = dialog.getByRole('button', { name: 'Use this address' });
   await expect(use).toBeDisabled();
   // Not a network path.
@@ -194,21 +194,22 @@ test('D59: a network folder gets a new address by hand, checked first', async ({
   await expect(dialog.getByRole('status')).toHaveText('This path does not answer.');
   await expect(use).toBeDisabled();
   // One that answers, with most of the catalog there.
-  await field.fill('\\\\nas2\\Big-Storage\\');
+  await field.fill('\\\\192.168.1.21\\Big-Storage\\');
   await dialog.getByRole('button', { name: 'Check' }).click();
   await expect(dialog.getByRole('status')).toHaveText('It answers: 3 of the 4 main folders and files of the catalog are here too.');
   await use.click();
   await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'Actions for NAS Big-Storage' }).click();
   await page.getByRole('menu', { name: 'Actions for NAS Big-Storage' }).getByRole('menuitem', { name: 'Change network address…' }).click();
-  await expect(page.getByRole('dialog', { name: 'Network address' })).toContainText('In the catalog it is \\\\nas2\\Big-Storage.');
+  await expect(page.getByRole('dialog', { name: 'Network address' })).toContainText('In the catalog it is \\\\192.168.1.21\\Big-Storage.');
 });
 
 test('F17-AC1/AC2: the health of a disk with its values and history', async ({ page }) => {
-  await expect(card(page, 'Windows').getByRole('button', { name: 'Good 42 °C' })).toBeVisible();
+  // Windows and Data are on the same disk: the same health on both cards.
+  await expect(card(page, 'Windows').getByRole('button', { name: 'Needs attention 38 °C' })).toBeVisible();
   await card(page, 'Data').getByRole('button', { name: /Needs attention/ }).click();
   await expect(page.getByRole('heading', { name: 'Data', level: 1 })).toBeVisible();
-  const health = page.getByRole('region', { name: 'Health of WDC WD10EZEX-08WN4A0' });
+  const health = page.getByRole('region', { name: 'Health of WDC WD20EZRZ-00Z5HB0' });
   await expect(health).toContainText('Needs attention');
   await expect(health).toContainText('Some damaged sectors have been replaced with spare ones.');
   await expect(page.getByText('Replaced sectors').first()).toBeVisible();
