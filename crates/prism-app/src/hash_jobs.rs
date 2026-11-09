@@ -41,6 +41,10 @@ const RECHECK: Duration = Duration::from_secs(300);
 const RECHECK_RUNNING: Duration = Duration::from_secs(60);
 /// And hashed again at most this often (a journal update every 15 s must not restart it).
 const RERUN: Duration = Duration::from_secs(120);
+/// When the only files left are those the last round could not read (in use, changing,
+/// unreadable): tried again this often. Seen in a diagnostic package: three files always open
+/// made a round every 2 minutes all day, each doing nothing.
+const RERUN_SKIPPED: Duration = Duration::from_secs(30 * 60);
 /// How often a running hash job asks whether an indexing waits for its disk.
 const YIELD_CHECK: Duration = Duration::from_millis(500);
 
@@ -206,6 +210,13 @@ pub fn refresh(state: &AppState, volume: VolumeId) {
     }
 }
 
+/// Whether the only work left on a volume is the files its last complete round could not read
+/// (`skipped`): every image and video has its print.
+fn only_skipped_left(s: &HashStatus, skipped: u64) -> bool {
+    let left = s.total.saturating_sub(s.hashed);
+    left > 0 && skipped >= left && s.images <= s.printed && s.videos <= s.videos_printed
+}
+
 /// Called every 30 s: counts the progress of the volumes that need it and queues a hash job
 /// where there is work and nothing else runs on the volume. Returns whether some progress
 /// changed (the cards are refreshed).
@@ -258,12 +269,19 @@ pub fn tick(state: &Arc<AppState>) -> bool {
         let indexed = known.iter().any(|v| {
             v.id == id && matches!(v.status, VolumeStatus::Indexed) && v.last_indexed_at.is_some()
         });
-        let pending = state.hashing.progress(id).is_some_and(|s| s.pending());
+        let progress = state.hashing.progress(id);
+        let pending = progress.is_some_and(|s| s.pending());
+        let rerun =
+            if progress.is_some_and(|s| only_skipped_left(&s, state.hashing.skipped_files(id))) {
+                RERUN_SKIPPED
+            } else {
+                RERUN
+            };
         let recent = state
             .hashing
             .last_run()
             .get(&id)
-            .is_some_and(|t| t.elapsed() < RERUN);
+            .is_some_and(|t| t.elapsed() < rerun);
         if !indexed || !pending || recent || !state.engine.active_for(id).is_empty() {
             // Another job on the volume (an indexing, or hashes already running).
             continue;
@@ -395,4 +413,33 @@ fn unix_millis_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Files that stay unreadable (open, changing) do not make a round every 2 minutes; new files
+    // or images without a print do.
+    #[test]
+    fn rounds_with_only_unreadable_files_left_wait_longer() {
+        let s = HashStatus {
+            total: 100,
+            hashed: 97,
+            images: 10,
+            printed: 10,
+            videos: 0,
+            videos_printed: 0,
+        };
+        assert!(only_skipped_left(&s, 3));
+        assert!(!only_skipped_left(&s, 2), "a new file to read");
+        assert!(
+            !only_skipped_left(&HashStatus { printed: 9, ..s }, 3),
+            "an image to print"
+        );
+        assert!(
+            !only_skipped_left(&HashStatus { hashed: 100, ..s }, 3),
+            "nothing left"
+        );
+    }
 }

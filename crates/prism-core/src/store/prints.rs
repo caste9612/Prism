@@ -86,7 +86,8 @@ fn states(conn: &Connection, volume: VolumeId, table: &str) -> Result<Vec<PrintS
         "SELECT e.id, e.parent_id, e.name, e.size, e.modified_at, \
                 p.entry_id IS NOT NULL AND p.size = e.size AND p.modified_at IS e.modified_at \
          FROM entries e LEFT JOIN {table} p ON p.entry_id = e.id \
-         WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 ORDER BY e.id"
+         WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 AND {LOCAL_CONTENT} ORDER BY e.id",
+        LOCAL_CONTENT = super::hashes::LOCAL_CONTENT
     ))?;
     let rows = stmt.query_map([volume.0], |r| {
         Ok(PrintState {

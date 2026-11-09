@@ -135,6 +135,8 @@ struct State {
     jobs: VecDeque<Entry>,
     busy_disks: HashSet<String>,
     stopping: bool,
+    /// Worker threads.
+    workers: usize,
 }
 
 /// Finished jobs kept for the interface.
@@ -175,12 +177,16 @@ impl JobEngine {
     /// Starts `workers` worker threads (at least 1).
     #[must_use]
     pub fn start(workers: usize) -> Self {
+        let workers = workers.max(1);
         let shared = Arc::new(Shared {
-            state: Mutex::new(State::default()),
+            state: Mutex::new(State {
+                workers,
+                ..State::default()
+            }),
             wake: Condvar::new(),
             events: Mutex::new(Vec::new()),
         });
-        let workers = (0..workers.max(1))
+        let workers = (0..workers)
             .filter_map(|i| {
                 let shared = Arc::clone(&shared);
                 std::thread::Builder::new()
@@ -264,19 +270,50 @@ impl JobEngine {
             .collect()
     }
 
-    /// Whether running job `id` should stop to let a more urgent queued job use one of its
-    /// disks: a background job (hashes) gives way to indexing instead of making it wait hours.
+    /// Whether running job `id` should stop to let a more urgent queued job run: a background
+    /// job (hashes) gives way to indexing instead of making it wait hours. It gives way when the
+    /// waiting job needs one of its disks, or when every worker is busy and the waiting job
+    /// could otherwise start: then only the most recently started of the less urgent jobs
+    /// gives way (seen on a PC with many disks: four analyses held every worker and the journal
+    /// updates waited for hours).
     #[must_use]
     pub fn should_yield(&self, id: JobId) -> bool {
         let state = self.shared.lock();
         let Some(me) = state.jobs.iter().find(|e| e.info.id == id) else {
             return false;
         };
-        state.jobs.iter().any(|e| {
-            e.info.state == JobState::Queued
-                && e.info.priority < me.info.priority
-                && e.disks.iter().any(|d| me.disks.contains(d))
-        })
+        let waiting: Vec<&Entry> = state
+            .jobs
+            .iter()
+            .filter(|e| e.info.state == JobState::Queued && e.info.priority < me.info.priority)
+            .collect();
+        if waiting
+            .iter()
+            .any(|e| e.disks.iter().any(|d| me.disks.contains(d)))
+        {
+            return true;
+        }
+        let running: Vec<&Entry> = state
+            .jobs
+            .iter()
+            .filter(|e| e.info.state == JobState::Running)
+            .collect();
+        if running.len() < state.workers {
+            return false;
+        }
+        // A waiting job that could start if a worker were free (its disks are not busy, or busy
+        // only with this job).
+        let startable = waiting.iter().any(|e| {
+            e.disks
+                .iter()
+                .all(|d| !state.busy_disks.contains(d) || me.disks.contains(d))
+        });
+        let newest_less_urgent = running
+            .iter()
+            .filter(|e| waiting.iter().any(|w| w.info.priority < e.info.priority))
+            .max_by_key(|e| (e.info.started_at, e.info.id))
+            .map(|e| e.info.id);
+        startable && newest_less_urgent == Some(id)
     }
 
     /// Receives a snapshot whenever a job is queued, starts or finishes. Progress is read with
@@ -388,6 +425,15 @@ fn worker(shared: &Shared) {
                     Ok(()) => e.info.state = JobState::Done,
                     Err(_) if ctx.cancel.is_cancelled() => e.info.state = JobState::Cancelled,
                     Err(msg) => {
+                        // In the log too: a failed automatic job leaves no other trace (seen in
+                        // a diagnostic package: a volume needed reindexing and nothing said why).
+                        tracing::warn!(
+                            job = e.info.id.0,
+                            kind = %e.info.kind,
+                            volume = ?e.info.volume.map(|v| v.0),
+                            error = %msg,
+                            "job failed"
+                        );
                         e.info.state = JobState::Failed;
                         e.info.error = Some(msg.clone());
                     }
@@ -581,6 +627,57 @@ mod tests {
         assert_eq!(engine.wait(update).unwrap().state, JobState::Done);
         assert_eq!(engine.wait(same).unwrap().state, JobState::Done);
         assert!(!engine.should_yield(JobId(9999)));
+    }
+
+    // When background jobs hold every worker, a more urgent job on other disks (or on none, like
+    // a journal update) does not wait for them: the most recently started one gives way.
+    #[test]
+    fn background_jobs_free_a_worker_when_all_are_busy() {
+        let engine = Arc::new(JobEngine::start(2));
+        let (started_tx, started_rx) = crossbeam_channel::unbounded::<&str>();
+        let (yielded_tx, yielded_rx) = crossbeam_channel::unbounded::<&str>();
+        let mut background = Vec::new();
+        for (name, disk) in [("first", "disk0"), ("second", "disk1")] {
+            let (e, s, y) = (Arc::clone(&engine), started_tx.clone(), yielded_tx.clone());
+            background.push(engine.submit(spec(
+                name,
+                Priority::Background,
+                &[disk],
+                Box::new(move |ctx| {
+                    s.send(name).unwrap();
+                    while !e.should_yield(ctx.id) && !ctx.cancel.is_cancelled() {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    y.send(name).unwrap();
+                    Ok(())
+                }),
+            )));
+            // Started one after the other, so "second" is the newest.
+            assert_eq!(
+                started_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+                name
+            );
+        }
+        // Workers busy but nothing more urgent waits: nobody gives way.
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(yielded_rx.try_recv().is_err());
+        let journal = engine.submit(spec(
+            "journal",
+            Priority::Indexing,
+            &[],
+            Box::new(|_| Ok(())),
+        ));
+        assert_eq!(
+            yielded_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            "second",
+            "the newest gives way"
+        );
+        assert_eq!(engine.wait(journal).unwrap().state, JobState::Done);
+        assert!(yielded_rx.try_recv().is_err(), "only one gives way");
+        engine.cancel(background[0]);
+        for id in background {
+            let _ = engine.wait(id);
+        }
     }
 
     #[test]

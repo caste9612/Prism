@@ -5,12 +5,11 @@
 
 ## Stato attuale
 
-- **Stato**: **Prism 2.0.0 pubblicato** il 2026-11-08 e **installato sul PC dell'utente**;
-  **2.1.0 in pubblicazione** (tipo dei dischi, RAID del NAS ZimaOS, cartelle di rete aggiunte a
-  mano). Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: verificare la release 2.1.0 e l'aggiornamento automatico della 2.0.0
-  installata; poi le richieste dell'utente, che il 2026-11-09 prova Prism su un altro PC con
-  altri dischi e cartelle di rete (U3). Prima di avviare l'app di sviluppo va chiusa quella
+- **Stato**: pubblicate la **2.0.0** e la **2.1.0** (2026-11-08); la 2.1.0 è installata su un
+  PC aziendale dell'utente. **2.1.1 in pubblicazione**: correzioni dal pacchetto diagnostico di
+  quel PC (REVIEW L25). Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: verificare la release 2.1.1 e l'aggiornamento automatico delle copie
+  installate; poi le richieste dell'utente. Prima di avviare l'app di sviluppo va chiusa quella
   installata (CLAUDE.md). Consigliata una copia della chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
 - **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); riduzioni della
@@ -20,6 +19,16 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-09 — 2.1.1 dal pacchetto diagnostico di un altro PC
+
+- La 2.1.0 è uscita il 2026-11-08 (release `v2.1.0`, approvata dall'utente). L'utente l'ha
+  installata su un PC aziendale (9,15 milioni di voci, due file server Windows) e ha mandato il
+  pacchetto diagnostico della giornata.
+- Dal log: riletture complete ripetute di una cartella di rete da 3,2 milioni di voci, thread
+  del motore tutti occupati dalle analisi, giri di analisi a vuoto ogni 2 minuti, file di
+  OneDrive solo nel cloud trattati come illeggibili, C: rimasto da rileggere senza traccia, un
+  controllo degli aggiornamenti fallito e non ripetuto. Tutto corretto nella 2.1.1 (REVIEW L25).
 
 ### 2026-11-08 — Dimensione del catalogo, lavori interrotti, documentazione, 2.1.0
 

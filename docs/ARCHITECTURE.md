@@ -573,7 +573,10 @@ parte, uno in esecuzione riceve la richiesta di stop; un job che va in panico ri
 `subscribe` notifica i cambi di stato; l'avanzamento si legge con `jobs()` a frequenza limitata.
 Il motore è in memoria (REVIEW D10). `should_yield(id)` dice a un job se un job più urgente
 aspetta uno dei suoi dischi: i job di background (hash) lo chiedono ogni mezzo secondo e
-cedono il disco invece di far aspettare un'indicizzazione per ore (T6, REVIEW D31). I job di
+cedono il disco invece di far aspettare un'indicizzazione per ore (T6, REVIEW D31); quando
+tutti i thread sono occupati e un job più urgente potrebbe partire, cede il posto il job meno
+urgente partito per ultimo (REVIEW L25: con molti dischi quattro analisi tenevano tutti i
+thread e gli aggiornamenti dal journal aspettavano ore). Un job fallito finisce anche nel log. I job di
 background non contano come "disco occupato" per l'app: aggiornamenti dal journal, dalla
 sorveglianza e richieste dell'utente partono comunque (`AppState::foreground_jobs`); il job
 `journal` non riserva il disco (legge pochi record ogni 15 s), altrimenti l'analisi gli
@@ -603,14 +606,15 @@ riprendere (§4.3).
 | Rilevamento dei dischi | ogni 2 s | nessuna lettura del contenuto |
 | Aggiornamento di un disco indicizzato | all'avvio di Prism e ogni volta che il disco torna (collegato, NAS acceso), o con *Aggiorna* | NTFS (Prism elevato): dal journal, secondi; se il journal non copre più la posizione salvata, il volume era `reindex_needed` o le modifiche non si applicano una per una, rilettura completa della MFT (secondi anche per milioni di voci). Altri file system e NAS: rilettura completa dell'albero delle cartelle (solo nomi e metadati, non il contenuto: ~45 s per 600.000 voci sul NAS dell'utente) |
 | Journal dei dischi NTFS collegati | ogni 15 s | solo i record nuovi |
-| Cartelle sorvegliate (FAT, exFAT, ReFS, NAS) | dopo ogni gruppo di cambi (fino a 5 s) | solo le cartelle cambiate; oltre 10.000 percorsi in attesa, tutto il volume |
-| Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'ultimo giro | solo i file senza hash valido; cede il disco entro mezzo secondo a un'indicizzazione |
+| Cartelle sorvegliate (FAT, exFAT, ReFS, NAS) | dopo ogni gruppo di cambi (fino a 5 s) | solo le cartelle cambiate; quando Windows perde notifiche o i percorsi in attesa sono più di 10.000, tutto il volume, ma non prima di 30 minuti dalla rilettura completa precedente né di 10 volte quanto è durata (al massimo 6 ore; REVIEW L25) |
+| Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'ultimo giro (30 minuti se restano solo file in uso o illeggibili) | solo i file senza hash valido, mai quelli solo nel cloud (OneDrive) o offline; cede il disco, o un posto di lavoro quando sono tutti occupati, entro mezzo secondo a un lavoro più urgente |
 | Avanzamento dell'analisi sulle schede | ogni 5 minuti (1 mentre gira), subito dopo un'indicizzazione | conteggio nel catalogo |
 | Indici di ricerca | dopo un cambio del catalogo, al massimo ogni 30 s per volume | ricostruzione in memoria del volume (L11) |
 | Salute dei dischi del PC | 10 s dopo l'avvio, poi ogni ora e appena si collega un disco | lettura SMART |
 | NAS ZimaOS | 10 s dopo l'avvio, poi ogni ora (ogni 5 minuti se l'ultima lettura è fallita) | due chiamate al NAS |
 | Spazio libero dei NAS | ogni 30 s (10 s se non risponde) | una chiamata |
-| Aggiornamenti di Prism | un minuto dopo l'avvio, poi ogni 24 ore | il `latest.json` della release |
+| Disco NTFS collegato rimasto `reindex_needed` | dopo 30 minuti, senza aspettare il prossimo avvio | rilettura della MFT |
+| Aggiornamenti di Prism | un minuto dopo l'avvio, poi ogni 24 ore (dopo un'ora se il controllo è fallito) | il `latest.json` della release |
 
 Prism non riparte mai da zero da solo con l'analisi del contenuto: si rifà per intero solo
 dopo *Rimuovi dal catalogo* o il reset del catalogo (che tolgono gli hash). La rilettura

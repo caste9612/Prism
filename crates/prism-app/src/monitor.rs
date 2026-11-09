@@ -132,6 +132,7 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
 fn volume_monitor(app: &AppHandle, state: &Arc<AppState>) {
     let mut last_journal = Instant::now();
     let mut watchers = Watchers::default();
+    let mut needs_reindex: HashMap<VolumeId, Instant> = HashMap::new();
     loop {
         if let Err(e) = detect_once(app, state) {
             tracing::warn!(error = %e, "volume detection failed");
@@ -139,7 +140,7 @@ fn volume_monitor(app: &AppHandle, state: &Arc<AppState>) {
         watchers.sync(state);
         if last_journal.elapsed() >= JOURNAL_EVERY {
             last_journal = Instant::now();
-            journal_tick(state);
+            journal_tick(state, &mut needs_reindex);
         }
         std::thread::sleep(DETECT_EVERY);
     }
@@ -423,8 +424,12 @@ fn announce_new_volumes(app: &AppHandle, state: &AppState) {
     }
 }
 
+/// How long a connected NTFS volume stays `reindex_needed` before Prism reads it again by
+/// itself (seen in a diagnostic package: C: stayed so for hours, not updated by the journal).
+const REINDEX_AFTER: Duration = Duration::from_secs(30 * 60);
+
 /// F05-AC1: while Prism runs, indexed NTFS volumes are updated from their change journal.
-fn journal_tick(state: &AppState) {
+fn journal_tick(state: &AppState, needs_reindex: &mut HashMap<VolumeId, Instant>) {
     if !state.elevated {
         return; // the journal needs administrator rights (development builds)
     }
@@ -453,6 +458,37 @@ fn journal_tick(state: &AppState) {
             let _ = state.submit_index(id, IndexKind::Journal);
         }
     }
+    // A connected NTFS volume left needing a reindex (a journal update failed or was stopped)
+    // is read again from its MFT, which takes seconds, instead of waiting for the next start of
+    // Prism; not at once, so a disk the user just stopped is not restarted under their eyes.
+    let stale: Vec<VolumeId> = {
+        let online = state.online();
+        known
+            .iter()
+            .filter(|v| v.status == VolumeStatus::ReindexNeeded && v.last_indexed_at.is_some())
+            .filter(|v| online.get(&v.id).is_some_and(is_local_ntfs))
+            .map(|v| v.id)
+            .collect()
+    };
+    needs_reindex.retain(|id, _| stale.contains(id));
+    for id in stale {
+        let since = *needs_reindex.entry(id).or_insert_with(Instant::now);
+        if since.elapsed() >= REINDEX_AFTER && state.foreground_jobs(id).is_empty() {
+            tracing::info!(volume = id.0, "reading again a volume that needs it");
+            if state.submit_index(id, IndexKind::Update).is_ok() {
+                needs_reindex.insert(id, Instant::now());
+            }
+        }
+    }
+}
+
+/// A connected local NTFS volume (one with a change journal Prism reads).
+fn is_local_ntfs(d: &DetectedVolume) -> bool {
+    d.info.kind != VolumeKind::Network
+        && d.info
+            .fs_type
+            .as_deref()
+            .is_some_and(|f| f.eq_ignore_ascii_case("NTFS"))
 }
 
 fn job_relay(app: &AppHandle, state: &AppState) {

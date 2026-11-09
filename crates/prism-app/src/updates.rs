@@ -19,6 +19,7 @@ use crate::dto::ApiError;
 
 const FIRST_CHECK: Duration = Duration::from_secs(60);
 const EVERY: Duration = Duration::from_secs(24 * 3600);
+const RETRY: Duration = Duration::from_secs(3600);
 
 /// Public key of the update signatures and address of the update manifest, when this build
 /// checks for updates.
@@ -160,7 +161,11 @@ pub fn spawn(app: &AppHandle, state: Arc<UpdateState>) {
         tokio_sleep(FIRST_CHECK).await;
         loop {
             check_once(&app, &state).await;
-            tokio_sleep(EVERY).await;
+            // A check that failed (no network yet, a proxy, GitHub busy) is tried again within
+            // the hour instead of the next day (seen in a diagnostic package: the only check of
+            // the day failed a minute after the start).
+            let failed = state.view().error.is_some();
+            tokio_sleep(if failed { RETRY } else { EVERY }).await;
         }
     });
 }

@@ -11,8 +11,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use prism_core::jobs::JobId;
 use prism_core::model::{VolumeId, VolumeInfo, VolumeKind, VolumeStatus};
 use prism_core::names;
 use prism_win::watch::FolderWatcher;
@@ -21,6 +22,31 @@ use crate::state::{AppState, access_path, auto_update};
 
 /// Beyond this many pending paths a refresh re-reads the whole volume.
 const MAX_PENDING: usize = 10_000;
+
+/// A full re-read asked by a watcher (notifications lost, too many changes) waits at least this
+/// long after the previous one…
+const RESCAN_MIN_GAP: Duration = Duration::from_secs(30 * 60);
+/// …and ten times what the previous one took…
+const RESCAN_GAP_FACTOR: u32 = 10;
+/// …but never more than this. Seen on a busy company file server: Windows lost notifications
+/// every few minutes, and a share of 3.2 million entries was read again in full every 7
+/// minutes for hours (6 minutes each), keeping the server busy and the content analysis of its
+/// other shares from ever finishing.
+const RESCAN_MAX_GAP: Duration = Duration::from_secs(6 * 3600);
+
+/// How long after a full re-read the next one may start.
+fn rescan_gap(previous_took: Option<Duration>) -> Duration {
+    previous_took.map_or(RESCAN_MIN_GAP, |t| {
+        (t * RESCAN_GAP_FACTOR).clamp(RESCAN_MIN_GAP, RESCAN_MAX_GAP)
+    })
+}
+
+/// How long a finished job took.
+fn job_took(state: &AppState, id: JobId) -> Option<Duration> {
+    let job = state.engine.jobs().into_iter().find(|j| j.id == id)?;
+    let ms = job.finished_at? - job.started_at?;
+    Some(Duration::from_millis(u64::try_from(ms).ok()?))
+}
 
 /// Whether a connected volume is kept up to date by a folder watcher.
 pub fn needs_watcher(info: &VolumeInfo, status: VolumeStatus) -> bool {
@@ -140,6 +166,10 @@ fn watch_loop(
 ) {
     let mut pending: Vec<Vec<String>> = Vec::new();
     let mut rescan = false;
+    // The volume was just read in full when it came back (or indexed): that counts as the
+    // previous full re-read.
+    let mut last_rescan = Instant::now();
+    let mut last_job: Option<JobId> = None;
     while !stop.load(Ordering::Relaxed) {
         if let Some(batch) = watcher.next_batch(Duration::from_secs(1), Duration::from_millis(500))
         {
@@ -156,10 +186,22 @@ fn watch_loop(
             }
         }
         if (rescan || !pending.is_empty()) && state.foreground_jobs(volume).is_empty() {
-            match state.submit_refresh(volume, std::mem::take(&mut pending), rescan) {
-                Ok(_) => rescan = false,
-                Err(e) => {
-                    tracing::debug!(volume = volume.0, code = %e.code, "refresh not queued");
+            // A full re-read only when its time has come; meanwhile the folders seen changing
+            // are still refreshed.
+            let full = rescan
+                && last_rescan.elapsed() >= rescan_gap(last_job.and_then(|j| job_took(state, j)));
+            if full || !pending.is_empty() {
+                match state.submit_refresh(volume, std::mem::take(&mut pending), full) {
+                    Ok(id) if full => {
+                        tracing::info!(volume = volume.0, "full re-read asked by the watcher");
+                        rescan = false;
+                        last_rescan = Instant::now();
+                        last_job = Some(id);
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::debug!(volume = volume.0, code = %e.code, "refresh not queued");
+                    }
                 }
             }
         }
@@ -201,6 +243,25 @@ mod tests {
         );
         assert!(!needs_watcher(&exfat, VolumeStatus::New));
         assert!(!needs_watcher(&share, VolumeStatus::Ignored));
+    }
+
+    // A watcher's full re-reads are spaced by what they cost: at least 30 minutes, ten times the
+    // previous one, at most 6 hours.
+    #[test]
+    fn full_rereads_are_spaced() {
+        let min = |m: u64| Duration::from_secs(m * 60);
+        assert_eq!(rescan_gap(None), min(30));
+        assert_eq!(
+            rescan_gap(Some(Duration::from_secs(5))),
+            min(30),
+            "a small volume"
+        );
+        assert_eq!(
+            rescan_gap(Some(min(6))),
+            min(60),
+            "the company share: 6 minutes"
+        );
+        assert_eq!(rescan_gap(Some(min(90))), min(360));
     }
 
     #[test]

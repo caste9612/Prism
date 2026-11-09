@@ -523,3 +523,51 @@ fn disk_media_roundtrip() {
             .is_err()
     );
 }
+
+// Cloud placeholders (OneDrive "online-only" files) and offline files are never analysed:
+// reading them would download them, or fail. They are not counted as work left either.
+#[test]
+fn cloud_placeholders_are_not_analysed() {
+    let (_dir, store) = temp_store();
+    let v = add_volume(&store, r"C:\placeholders");
+    let first = store.allocate_entry_ids(5);
+    let id = |i: i64| EntryId(first.0 + i);
+    let mut ops = vec![WriteOp::Insert {
+        id: id(0),
+        volume: v,
+        parent: None,
+        name: String::new(),
+        is_dir: true,
+        meta: EntryMeta::default(),
+    }];
+    for (i, attrs) in [(1, 0x20u32), (2, 0x20), (3, 0x0040_0000), (4, 0x1000)] {
+        ops.push(WriteOp::Insert {
+            id: id(i),
+            volume: v,
+            parent: Some(id(0)),
+            name: format!("f{i}.bin"),
+            is_dir: false,
+            meta: EntryMeta {
+                size: 4096,
+                attrs,
+                ..EntryMeta::default()
+            },
+        });
+    }
+    let session = store.session();
+    session.submit(v, ops).unwrap();
+    session.flush().unwrap();
+    let quick = store.read(move |c| quick_work(c, v)).unwrap();
+    assert_eq!(quick, [id(1), id(2)]);
+    let full = store
+        .read(move |c| {
+            let mut ids = Vec::new();
+            full_work(c, v, |e, _, _| ids.push(e))?;
+            Ok(ids)
+        })
+        .unwrap();
+    assert_eq!(full, [id(1), id(2)]);
+    assert_eq!(store.read(move |c| hash_progress(c, v)).unwrap(), (2, 0));
+    let prints = store.read(move |c| print_states(c, v)).unwrap();
+    assert_eq!(prints.len(), 2);
+}

@@ -93,6 +93,11 @@ pub struct HashState {
 /// The quick hash of `e` stored in `h`, if still valid for its size and time.
 const VALID_QUICK: &str =
     "CASE WHEN h.size = e.size AND h.modified_at IS e.modified_at THEN h.quick END";
+/// Files whose content is on the disk: not cloud placeholders (OneDrive and the like) or
+/// offline files. Reading those would download them, or fail: they are never analysed
+/// (attributes `FILE_ATTRIBUTE_OFFLINE` 0x1000, `RECALL_ON_OPEN` 0x40000 and
+/// `RECALL_ON_DATA_ACCESS` 0x400000).
+pub(crate) const LOCAL_CONTENT: &str = "(coalesce(e.attrs, 0) & 4460544) = 0";
 /// The full hash of `e` stored in `h`, if still valid for its size and time.
 const VALID_FULL: &str =
     "CASE WHEN h.size = e.size AND h.modified_at IS e.modified_at THEN h.full END";
@@ -132,7 +137,8 @@ pub fn hash_state(conn: &Connection, entry: EntryId) -> Result<Option<HashState>
 pub fn quick_work(conn: &Connection, volume: VolumeId) -> Result<Vec<EntryId>, StoreError> {
     let mut stmt = conn.prepare_cached(&format!(
         "SELECT e.id FROM entries e LEFT JOIN content_hashes h ON h.entry_id = e.id \
-         WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 AND ({VALID_QUICK}) IS NULL \
+         WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 AND {LOCAL_CONTENT} \
+           AND ({VALID_QUICK}) IS NULL \
            AND e.size IN (SELECT size FROM entries WHERE is_dir = 0 AND size > 0 \
                           GROUP BY size HAVING count(*) > 1) \
          ORDER BY e.size DESC, e.id"
@@ -154,7 +160,8 @@ pub fn full_work(
     let mut stmt = conn.prepare_cached(&format!(
         "SELECT e.id, e.size, {VALID_QUICK} \
          FROM entries e LEFT JOIN content_hashes h ON h.entry_id = e.id \
-         WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 AND ({VALID_FULL}) IS NULL \
+         WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 AND {LOCAL_CONTENT} \
+           AND ({VALID_FULL}) IS NULL \
          ORDER BY e.id"
     ))?;
     let mut rows = stmt.query([volume.0])?;
@@ -193,12 +200,12 @@ pub fn shared_quick(
 /// SQLite errors.
 pub fn hash_progress(conn: &Connection, volume: VolumeId) -> Result<(u64, u64), StoreError> {
     let (files, hashed): (i64, i64) = conn
-        .prepare_cached(
+        .prepare_cached(&format!(
             "SELECT count(*), count(CASE WHEN h.full IS NOT NULL AND h.size = e.size \
                                      AND h.modified_at IS e.modified_at THEN 1 END) \
              FROM entries e LEFT JOIN content_hashes h ON h.entry_id = e.id \
-             WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0",
-        )?
+             WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 AND {LOCAL_CONTENT}"
+        ))?
         .query_row([volume.0], |r| Ok((r.get(0)?, r.get(1)?)))?;
     Ok((from_db(files), from_db(hashed)))
 }
