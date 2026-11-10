@@ -5,19 +5,19 @@
 
 ## Stato attuale
 
-- **Stato**: pubblicate la **2.0.0**, la **2.1.0** (2026-11-08) e la **2.1.1** (2026-11-09); il
-  PC aziendale dell'utente si è aggiornato da solo alla 2.1.1 e ha provato la 2.1.2 e la 2.1.3
-  da installer locali. Su `develop` la **2.1.4**, non ancora pubblicata: comprende la 2.1.2
+- **Stato**: pubblicate la **2.0.0**, la **2.1.0** (2026-11-08), la **2.1.1** (2026-11-09) e
+  la **2.1.4** (2026-11-10). Il PC aziendale dell'utente si è aggiornato da solo alla 2.1.1 e ha
+  provato la 2.1.2, la 2.1.3 e la 2.1.4 da installer locali. La 2.1.4 comprende la 2.1.2
   (journal fermato da record presi per rovinati, REVIEW L26), la 2.1.3 (aggiornamento mirato che
   rileggeva interi sottoalberi, analisi delle cartelle di rete che non avanzavano, L27) e le
   correzioni del quarto pacchetto (analisi fermate da attese di pochi secondi, giri troppo
-  frequenti su C:, L28). La 2.1.2 e la 2.1.3 non si pubblicano. Il lavoro continua direttamente
-  su `develop`.
-- **Prossimo passo**: release 2.1.4 col via libera dell'utente (oppure, se lo preferisce, prima
-  una prova sul PC aziendale con un installer locale); poi un pacchetto diagnostico di una
-  giornata di lavoro con le righe orarie `folder refreshes`. Prima di avviare l'app di sviluppo va
-  chiusa quella installata (CLAUDE.md). Consigliata una copia della chiave fuori dal PC
-  (REVIEW U7).
+  frequenti su C:, L28); il quinto pacchetto la conferma (L29). La 2.1.2 e la 2.1.3 non sono
+  state pubblicate. Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: un pacchetto diagnostico del PC aziendale di una giornata di lavoro intera
+  con la 2.1.4; poi i punti aperti di REVIEW L29 (avanzamento delle analisi lunghe nel pacchetto
+  diagnostico, analisi di una cartella ferma dietro quella di un'altra cartella dello stesso
+  server). Prima di avviare l'app di sviluppo va chiusa quella installata (CLAUDE.md).
+  Consigliata una copia della chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
 - **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); riduzioni della
   dimensione del catalogo (L23, l'utente: "non serve" per ora).
@@ -34,6 +34,10 @@
   interrotta a ogni giro e un giro di analisi ogni 3 minuti su C:. Ora un'analisi cede il suo
   thread solo a un job che aspetta da 30 s, e dopo un giro completo il successivo parte dopo 10
   minuti; ogni ora il log riassume il lavoro degli aggiornamenti delle cartelle (REVIEW L28).
+- Quinto pacchetto, con la 2.1.4 di prova (2 ore e 14 minuti di pomeriggio): nessun errore,
+  l'analisi di `Organ` mai interrotta, un giro su C: ogni 10-11 minuti, gli aggiornamenti di
+  `Organ` 2 secondi di lavoro all'ora. Pubblicata la 2.1.4 col via libera dell'utente (REVIEW
+  L29).
 
 ### 2026-11-10 — 2.1.3: la sorveglianza rilegge solo le cartelle cambiate
 
