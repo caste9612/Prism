@@ -34,6 +34,84 @@ const RESCAN_GAP_FACTOR: u32 = 10;
 /// (REVIEW L27), but a watcher that keeps losing notifications would do the same.
 const RESCAN_MAX_GAP: Duration = Duration::from_secs(6 * 3600);
 
+/// How often the work of the refreshes of a volume goes to the log.
+const ACTIVITY_PERIOD: Duration = Duration::from_secs(3600);
+
+/// What the refreshes of a watched volume cost, logged once an hour: the refreshes of a few
+/// folders log nothing on their own (on a busy network folder they come every few seconds), and
+/// the diagnostic packages must still show the load (REVIEW L28).
+struct Activity {
+    since: Instant,
+    refreshes: u64,
+    paths: u64,
+    /// Time spent by the refresh jobs finished in the period.
+    busy: Duration,
+    /// Refresh jobs not finished when last looked at.
+    running: Vec<JobId>,
+}
+
+impl Activity {
+    fn new() -> Self {
+        Self {
+            since: Instant::now(),
+            refreshes: 0,
+            paths: 0,
+            busy: Duration::ZERO,
+            running: Vec::new(),
+        }
+    }
+
+    fn submitted(&mut self, id: JobId, paths: usize) {
+        self.refreshes += 1;
+        self.paths += paths as u64;
+        self.running.push(id);
+    }
+
+    /// Adds the time of the jobs that finished since the last look.
+    fn collect(&mut self, state: &AppState) {
+        if self.running.is_empty() {
+            return;
+        }
+        let jobs = state.engine.jobs();
+        self.running.retain(|id| {
+            let Some(job) = jobs.iter().find(|j| j.id == *id) else {
+                return false;
+            };
+            if !job.state.is_finished() {
+                return true;
+            }
+            let ms = job
+                .finished_at
+                .zip(job.started_at)
+                .map_or(0, |(end, start)| end - start);
+            self.busy += Duration::from_millis(u64::try_from(ms).unwrap_or(0));
+            false
+        });
+    }
+
+    /// Logs the period when it is over, if anything happened, and starts the next one.
+    fn report(&mut self, volume: VolumeId) {
+        if self.since.elapsed() < ACTIVITY_PERIOD {
+            return;
+        }
+        if self.refreshes > 0 {
+            tracing::info!(
+                volume = volume.0,
+                refreshes = self.refreshes,
+                paths = self.paths,
+                busy_s = self.busy.as_secs(),
+                minutes = self.since.elapsed().as_secs() / 60,
+                "folder refreshes"
+            );
+        }
+        let running = std::mem::take(&mut self.running);
+        *self = Self {
+            running,
+            ..Self::new()
+        };
+    }
+}
+
 /// How long after a full re-read the next one may start.
 fn rescan_gap(previous_took: Option<Duration>) -> Duration {
     previous_took.map_or(RESCAN_MIN_GAP, |t| {
@@ -170,7 +248,10 @@ fn watch_loop(
     // previous full re-read.
     let mut last_rescan = Instant::now();
     let mut last_job: Option<JobId> = None;
+    let mut activity = Activity::new();
     while !stop.load(Ordering::Relaxed) {
+        activity.collect(state);
+        activity.report(volume);
         if let Some(batch) = watcher.next_batch(Duration::from_secs(1), Duration::from_millis(500))
         {
             rescan |= batch.rescan;
@@ -191,14 +272,16 @@ fn watch_loop(
             let full = rescan
                 && last_rescan.elapsed() >= rescan_gap(last_job.and_then(|j| job_took(state, j)));
             if full || !pending.is_empty() {
+                let paths = pending.len();
                 match state.submit_refresh(volume, std::mem::take(&mut pending), full) {
                     Ok(id) if full => {
                         tracing::info!(volume = volume.0, "full re-read asked by the watcher");
                         rescan = false;
                         last_rescan = Instant::now();
                         last_job = Some(id);
+                        activity.submitted(id, paths);
                     }
-                    Ok(_) => {}
+                    Ok(id) => activity.submitted(id, paths),
                     Err(e) => {
                         tracing::debug!(volume = volume.0, code = %e.code, "refresh not queued");
                     }
@@ -262,6 +345,25 @@ mod tests {
             "the company share: 6 minutes"
         );
         assert_eq!(rescan_gap(Some(min(90))), min(360));
+    }
+
+    // The work of the refreshes goes to the log once an hour; the jobs still running are
+    // counted in the next period.
+    #[test]
+    fn refresh_activity_is_summed_by_the_hour() {
+        let mut a = Activity::new();
+        a.submitted(JobId(1), 3);
+        a.submitted(JobId(2), 5);
+        a.report(VolumeId(8));
+        assert_eq!((a.refreshes, a.paths), (2, 8), "not an hour yet");
+        let Some(earlier) = Instant::now().checked_sub(ACTIVITY_PERIOD) else {
+            return; // the PC started less than an hour ago
+        };
+        a.since = earlier;
+        a.report(VolumeId(8));
+        assert_eq!((a.refreshes, a.paths), (0, 0));
+        assert_eq!(a.running, [JobId(1), JobId(2)]);
+        assert!(a.since.elapsed() < ACTIVITY_PERIOD);
     }
 
     #[test]

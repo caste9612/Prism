@@ -289,7 +289,7 @@ fn background_hashing_runs_pauses_and_counts() {
         app.hashing.progress(volume).map(|s| (s.total, s.hashed)),
         Some((5, 4))
     );
-    // Hashed less than two minutes ago: the new file waits for the next round.
+    // Hashed moments ago: the new file waits for the next round.
     assert_eq!(waiting(&app).as_deref(), Some("next"));
 }
 

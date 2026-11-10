@@ -6,15 +6,16 @@
 ## Stato attuale
 
 - **Stato**: pubblicate la **2.0.0**, la **2.1.0** (2026-11-08) e la **2.1.1** (2026-11-09); il
-  PC aziendale dell'utente si è aggiornato da solo alla 2.1.1 e ha provato la 2.1.2 da un
-  installer locale. Su `develop` la **2.1.3**, non ancora pubblicata: comprende la 2.1.2
-  (journal fermato da record presi per rovinati, REVIEW L26) e le correzioni del terzo pacchetto
-  diagnostico (aggiornamento mirato che rileggeva interi sottoalberi, analisi delle cartelle di
-  rete che non avanzavano, REVIEW L27). La 2.1.2 non si pubblica. Il lavoro continua
-  direttamente su `develop`.
-- **Prossimo passo**: l'utente prova sul PC aziendale un installer della 2.1.3 compilato in
-  locale (senza firma degli aggiornamenti); se il pacchetto diagnostico di una giornata di
-  lavoro è pulito, release 2.1.3 col suo via libera. Prima di avviare l'app di sviluppo va
+  PC aziendale dell'utente si è aggiornato da solo alla 2.1.1 e ha provato la 2.1.2 e la 2.1.3
+  da installer locali. Su `develop` la **2.1.4**, non ancora pubblicata: comprende la 2.1.2
+  (journal fermato da record presi per rovinati, REVIEW L26), la 2.1.3 (aggiornamento mirato che
+  rileggeva interi sottoalberi, analisi delle cartelle di rete che non avanzavano, L27) e le
+  correzioni del quarto pacchetto (analisi fermate da attese di pochi secondi, giri troppo
+  frequenti su C:, L28). La 2.1.2 e la 2.1.3 non si pubblicano. Il lavoro continua direttamente
+  su `develop`.
+- **Prossimo passo**: release 2.1.4 col via libera dell'utente (oppure, se lo preferisce, prima
+  una prova sul PC aziendale con un installer locale); poi un pacchetto diagnostico di una
+  giornata di lavoro con le righe orarie `folder refreshes`. Prima di avviare l'app di sviluppo va
   chiusa quella installata (CLAUDE.md). Consigliata una copia della chiave fuori dal PC
   (REVIEW U7).
 - **Bloccanti**: nessuno.
@@ -25,6 +26,14 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-10 — 2.1.4: analisi che non si fermano per attese di pochi secondi
+
+- Quarto pacchetto del PC aziendale, con la 2.1.3 di prova (3 ore e mezza in orario di
+  lavoro): confermate le correzioni della 2.1.3, nessun errore. Restavano l'analisi di `Organ`
+  interrotta a ogni giro e un giro di analisi ogni 3 minuti su C:. Ora un'analisi cede il suo
+  thread solo a un job che aspetta da 30 s, e dopo un giro completo il successivo parte dopo 10
+  minuti; ogni ora il log riassume il lavoro degli aggiornamenti delle cartelle (REVIEW L28).
 
 ### 2026-11-10 — 2.1.3: la sorveglianza rilegge solo le cartelle cambiate
 

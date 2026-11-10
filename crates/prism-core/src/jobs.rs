@@ -10,6 +10,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender};
 
@@ -137,10 +138,19 @@ struct State {
     stopping: bool,
     /// Worker threads.
     workers: usize,
+    /// How long a job waits for a worker before a less urgent one gives its own.
+    worker_grace: Duration,
 }
 
 /// Finished jobs kept for the interface.
 const KEEP_FINISHED: usize = 50;
+
+/// A job waiting for a worker makes a less urgent one give way only after this long: the urgent
+/// jobs that hold the workers are usually short (a journal update, the refresh of a few
+/// folders), and stopping an analysis for a wait of seconds stopped the analysis of a large
+/// network folder 64 times in 3 hours, each restart reading its whole work list again (REVIEW
+/// L28).
+pub const WORKER_GRACE: Duration = Duration::from_secs(30);
 
 struct Shared {
     state: Mutex<State>,
@@ -177,10 +187,18 @@ impl JobEngine {
     /// Starts `workers` worker threads (at least 1).
     #[must_use]
     pub fn start(workers: usize) -> Self {
+        Self::start_with_grace(workers, WORKER_GRACE)
+    }
+
+    /// Like [`JobEngine::start`], with another wait before a less urgent job gives its worker
+    /// (tests).
+    #[must_use]
+    pub fn start_with_grace(workers: usize, worker_grace: Duration) -> Self {
         let workers = workers.max(1);
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 workers,
+                worker_grace,
                 ..State::default()
             }),
             wake: Condvar::new(),
@@ -276,7 +294,8 @@ impl JobEngine {
     /// could otherwise start: then only the most recently started of the less urgent jobs
     /// gives way (seen on a PC with many disks: four analyses held every worker and the journal
     /// updates waited for hours). Background jobs leave a worker free, so this happens only
-    /// while another urgent job holds that worker.
+    /// while another urgent job holds that worker, and only once the waiting job has waited
+    /// [`WORKER_GRACE`].
     #[must_use]
     pub fn should_yield(&self, id: JobId) -> bool {
         let state = self.shared.lock();
@@ -302,8 +321,14 @@ impl JobEngine {
         if running.len() < state.workers {
             return false;
         }
-        // A waiting job that could start if a worker were free (its disks are not busy, or busy
-        // only with this job).
+        // A job that has waited long enough and could start if a worker were free (its disks
+        // are not busy, or busy only with this job).
+        let grace = i64::try_from(state.worker_grace.as_millis()).unwrap_or(i64::MAX);
+        let now = unix_millis_now();
+        let waiting: Vec<&Entry> = waiting
+            .into_iter()
+            .filter(|e| now.saturating_sub(e.info.created_at) >= grace)
+            .collect();
         let startable = waiting.iter().any(|e| {
             e.disks
                 .iter()
@@ -711,7 +736,7 @@ mod tests {
     // disks (or on none, like a journal update) does not wait for the analysis: it gives way.
     #[test]
     fn background_jobs_free_a_worker_when_all_are_busy() {
-        let engine = Arc::new(JobEngine::start(2));
+        let engine = Arc::new(JobEngine::start_with_grace(2, Duration::ZERO));
         let (started_tx, started_rx) = crossbeam_channel::unbounded::<&str>();
         let (yielded_tx, yielded_rx) = crossbeam_channel::unbounded::<&str>();
         let mut background = Vec::new();
@@ -759,6 +784,66 @@ mod tests {
         for id in background {
             let _ = engine.wait(id);
         }
+    }
+
+    // An urgent job that waits for a worker held by another urgent job does not stop an
+    // analysis at once: the other one is usually short. Only after the grace period.
+    #[test]
+    fn a_worker_is_given_only_after_a_wait() {
+        let grace = Duration::from_millis(300);
+        let engine = Arc::new(JobEngine::start_with_grace(2, grace));
+        let (started_tx, started_rx) = crossbeam_channel::unbounded::<()>();
+        let (stop_tx, stop_rx) = crossbeam_channel::unbounded::<()>();
+        let long = {
+            let (s, stop) = (started_tx.clone(), stop_rx.clone());
+            engine.submit(spec(
+                "refresh",
+                Priority::Indexing,
+                &[],
+                Box::new(move |_| {
+                    s.send(()).unwrap();
+                    let _ = stop.recv();
+                    Ok(())
+                }),
+            ))
+        };
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let yielded_at = Arc::new(Mutex::new(None));
+        let analysis = {
+            let (e, s, at) = (Arc::clone(&engine), started_tx, Arc::clone(&yielded_at));
+            engine.submit(spec(
+                "hash",
+                Priority::Background,
+                &["disk0"],
+                Box::new(move |ctx| {
+                    s.send(()).unwrap();
+                    while !e.should_yield(ctx.id) {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    *at.lock().unwrap() = Some(std::time::Instant::now());
+                    Ok(())
+                }),
+            ))
+        };
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let queued = std::time::Instant::now();
+        let journal = engine.submit(spec(
+            "journal",
+            Priority::Indexing,
+            &[],
+            Box::new(|_| Ok(())),
+        ));
+        assert_eq!(engine.wait(journal).unwrap().state, JobState::Done);
+        let at = yielded_at.lock().unwrap().expect("the analysis gave way");
+        // Not at once: the engine counts the wait in milliseconds of the system clock, this
+        // test with a finer one, so the comparison keeps a margin.
+        assert!(
+            at.duration_since(queued) >= grace - Duration::from_millis(50),
+            "not before the grace period"
+        );
+        assert_eq!(engine.wait(analysis).unwrap().state, JobState::Done);
+        stop_tx.send(()).unwrap();
+        assert_eq!(engine.wait(long).unwrap().state, JobState::Done);
     }
 
     #[test]

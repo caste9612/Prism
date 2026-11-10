@@ -39,8 +39,13 @@ impl HashStatus {
 /// runs on it.
 const RECHECK: Duration = Duration::from_secs(300);
 const RECHECK_RUNNING: Duration = Duration::from_secs(60);
-/// And hashed again at most this often (a journal update every 15 s must not restart it).
+/// And hashed again at most this often (a journal update every 15 s must not restart it)…
 const RERUN: Duration = Duration::from_secs(120);
+/// …or this often after a round that did all it could: the files changed since then are left
+/// for later anyway until they have not changed for `SETTLING`. Seen in a diagnostic package: on
+/// a system disk where hundreds of files change every few minutes, a round every 3 minutes all
+/// day, each reading the work list of the whole catalog again (REVIEW L28).
+const RERUN_COMPLETE: Duration = SETTLING;
 /// When the only files left are those the last round could not read (in use, changing,
 /// unreadable): tried again this often. Seen in a diagnostic package: three files always open
 /// made a round every 2 minutes all day, each doing nothing.
@@ -71,6 +76,8 @@ pub struct HashingState {
     last_run: Mutex<HashMap<VolumeId, Instant>>,
     /// What the last complete round could not do.
     skipped: Mutex<HashMap<VolumeId, Skipped>>,
+    /// Volumes whose last round did all it could (not stopped, not failed).
+    complete: Mutex<HashSet<VolumeId>>,
 }
 
 /// What the last complete round of a volume left: files it could not read (changed while read,
@@ -163,6 +170,19 @@ impl HashingState {
         self.status().clear();
         self.last_run().clear();
         self.skipped().clear();
+        self.complete().clear();
+    }
+
+    fn complete(&self) -> MutexGuard<'_, HashSet<VolumeId>> {
+        self.complete.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn set_complete(&self, volume: VolumeId, complete: bool) {
+        if complete {
+            self.complete().insert(volume);
+        } else {
+            self.complete().remove(&volume);
+        }
     }
 
     fn skipped(&self) -> MutexGuard<'_, HashMap<VolumeId, Skipped>> {
@@ -245,6 +265,17 @@ fn only_skipped_left(s: &HashStatus, skipped: Skipped) -> bool {
     files + prints > 0 && skipped.files >= files && skipped.prints >= prints
 }
 
+/// How long after the start of the last round of a volume the next one may start.
+fn rerun_after(s: Option<&HashStatus>, skipped: Skipped, last_complete: bool) -> Duration {
+    if s.is_some_and(|s| only_skipped_left(s, skipped)) {
+        RERUN_SKIPPED
+    } else if last_complete {
+        RERUN_COMPLETE
+    } else {
+        RERUN
+    }
+}
+
 /// Called every 30 s: counts the progress of the volumes that need it and queues a hash job
 /// where there is work and nothing else runs on the volume. Returns whether some progress
 /// changed (the cards are refreshed).
@@ -299,12 +330,12 @@ pub fn tick(state: &Arc<AppState>) -> bool {
         });
         let progress = state.hashing.progress(id);
         let pending = progress.is_some_and(|s| s.pending());
-        let rerun = if progress.is_some_and(|s| only_skipped_left(&s, state.hashing.skipped_of(id)))
-        {
-            RERUN_SKIPPED
-        } else {
-            RERUN
-        };
+        let last_complete = state.hashing.complete().contains(&id);
+        let rerun = rerun_after(
+            progress.as_ref(),
+            state.hashing.skipped_of(id),
+            last_complete,
+        );
         let recent = state
             .hashing
             .last_run()
@@ -348,6 +379,7 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                 let report = match result {
                     Ok(r) => r,
                     Err(e) => {
+                        s.hashing.set_complete(id, false);
                         refresh(&s, id);
                         return Err(e.to_string());
                     }
@@ -432,6 +464,7 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                             skipped_prints = None;
                         }
                     }
+                    s.hashing.set_complete(id, skipped_prints.is_some());
                     s.hashing.skipped().insert(
                         id,
                         Skipped {
@@ -439,6 +472,8 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                             prints: skipped_prints.unwrap_or(0),
                         },
                     );
+                } else {
+                    s.hashing.set_complete(id, false);
                 }
                 refresh(&s, id);
                 Ok(())
@@ -504,6 +539,29 @@ mod tests {
 
     // Seen on C: of a company PC whose catalog was behind: files and images changed since the
     // catalog was updated, nothing else; the round waits until the catalog catches up.
+    #[test]
+    fn the_next_round_waits_longer_after_a_complete_one() {
+        let s = HashStatus {
+            total: 100,
+            hashed: 90,
+            ..HashStatus::default()
+        };
+        let none = Skipped::default();
+        assert_eq!(rerun_after(Some(&s), none, false), RERUN, "stopped: soon");
+        assert_eq!(
+            rerun_after(Some(&s), none, true),
+            RERUN_COMPLETE,
+            "new files since a complete round wait anyway"
+        );
+        assert_eq!(rerun_after(None, none, true), RERUN_COMPLETE);
+        let skipped = Skipped {
+            files: 10,
+            prints: 0,
+        };
+        assert_eq!(rerun_after(Some(&s), skipped, true), RERUN_SKIPPED);
+        assert!(RERUN < RERUN_COMPLETE && RERUN_COMPLETE < RERUN_SKIPPED);
+    }
+
     #[test]
     fn rounds_with_only_changed_prints_left_wait_longer() {
         let s = HashStatus {

@@ -317,7 +317,7 @@ Nell'app (`prism-app/src/hash_jobs.rs`) un thread, 20 s dopo l'avvio e poi ogni 
   sulle schede (`VolumeView.hashes`, F06-AC5);
 - accoda un job `hash` a priorità *background* per ogni volume collegato, indicizzato, con
   lavoro da fare, non escluso dall'utente (F21-AC3) e senza altri job, al massimo ogni 2
-  minuti. I file modificati negli ultimi 10 minuti (o fino a 10 minuti nel futuro, orologio di
+  minuti dopo un giro interrotto e ogni 10 dopo un giro completo (REVIEW L28). I file modificati negli ultimi 10 minuti (o fino a 10 minuti nel futuro, orologio di
   un server avanti) aspettano un giro successivo e contano come saltati: un file riscritto di
   continuo non si ricalcola a ogni giro (REVIEW L27). Anche le unità di rete (REVIEW D58): il loro job occupa la risorsa `net:<server>`,
   quindi le cartelle di uno stesso NAS si leggono una alla volta;
@@ -592,7 +592,9 @@ urgente partito per ultimo (REVIEW L25: con molti dischi quattro analisi tenevan
 thread e gli aggiornamenti dal journal aspettavano ore). I job di background però non prendono
 mai l'ultimo thread (`background_fits`, REVIEW L27): un aggiornamento trova sempre un thread
 libero, e la regola precedente scatta solo mentre quel thread è occupato da un altro lavoro
-urgente. Un job fallito finisce anche nel log. I job di
+urgente, e solo dopo che il job in attesa ha aspettato 30 s (`WORKER_GRACE`, REVIEW L28: i
+lavori urgenti che tengono il thread di solito durano secondi, e fermare l'analisi a ogni
+attesa la faceva ripartire ogni 3 minuti). Un job fallito finisce anche nel log. I job di
 background non contano come "disco occupato" per l'app: aggiornamenti dal journal, dalla
 sorveglianza e richieste dell'utente partono comunque (`AppState::foreground_jobs`); il job
 `journal` non riserva il disco (legge pochi record ogni 15 s), altrimenti l'analisi gli
@@ -624,8 +626,8 @@ riprendere (§4.3).
 | Rilevamento dei dischi | ogni 2 s | nessuna lettura del contenuto |
 | Aggiornamento di un disco indicizzato | all'avvio di Prism e ogni volta che il disco torna (collegato, NAS acceso), o con *Aggiorna* | NTFS (Prism elevato): dal journal, secondi; se il journal non copre più la posizione salvata, il volume era `reindex_needed` o le modifiche non si applicano una per una, rilettura completa della MFT (secondi anche per milioni di voci). Altri file system e NAS: rilettura completa dell'albero delle cartelle (solo nomi e metadati, non il contenuto: ~45 s per 600.000 voci sul NAS dell'utente) |
 | Journal dei dischi NTFS collegati | ogni 15 s | solo i record nuovi |
-| Cartelle sorvegliate (FAT, exFAT, ReFS, NAS) | dopo ogni gruppo di cambi (fino a 5 s) | solo l'elenco delle cartelle cambiate, e per intero le sottocartelle nuove (REVIEW L27); quando Windows perde notifiche o i percorsi in attesa sono più di 10.000, tutto il volume, ma non prima di 30 minuti dalla rilettura completa precedente né di 10 volte quanto è durata (al massimo 6 ore; REVIEW L25) |
-| Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'ultimo giro (30 minuti se restano solo file in uso, illeggibili, cambiati rispetto al catalogo o modificati negli ultimi 10 minuti, e stampe di file cambiati; REVIEW L26, L27) | solo i file senza hash valido, mai quelli solo nel cloud (OneDrive) o offline, né quelli modificati da meno di 10 minuti; le analisi lasciano sempre libero un thread del motore, e cedono il disco, o il thread quando sono tutti occupati, entro mezzo secondo a un lavoro più urgente |
+| Cartelle sorvegliate (FAT, exFAT, ReFS, NAS) | dopo ogni gruppo di cambi (fino a 5 s) | solo l'elenco delle cartelle cambiate, e per intero le sottocartelle nuove (REVIEW L27); ogni ora una riga del log riassume aggiornamenti, percorsi e tempo speso (L28); quando Windows perde notifiche o i percorsi in attesa sono più di 10.000, tutto il volume, ma non prima di 30 minuti dalla rilettura completa precedente né di 10 volte quanto è durata (al massimo 6 ore; REVIEW L25) |
+| Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'inizio dell'ultimo giro se si era interrotto, 10 se era completo (REVIEW L28; 30 minuti se restano solo file in uso, illeggibili, cambiati rispetto al catalogo o modificati negli ultimi 10 minuti, e stampe di file cambiati; REVIEW L26, L27) | solo i file senza hash valido, mai quelli solo nel cloud (OneDrive) o offline, né quelli modificati da meno di 10 minuti; le analisi lasciano sempre libero un thread del motore, e cedono il disco entro mezzo secondo a un lavoro più urgente, il thread quando sono tutti occupati e quel lavoro aspetta da 30 s |
 | Avanzamento dell'analisi sulle schede | ogni 5 minuti (1 mentre gira), subito dopo un'indicizzazione | conteggio nel catalogo |
 | Indici di ricerca | dopo un cambio del catalogo, al massimo ogni 30 s per volume | ricostruzione in memoria del volume (L11) |
 | Salute dei dischi del PC | 10 s dopo l'avvio, poi ogni ora e appena si collega un disco | lettura SMART |
