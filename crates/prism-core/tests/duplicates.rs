@@ -54,6 +54,7 @@ fn setup() -> (Sandbox, TestCatalog, VolumeId) {
         &cat.store,
         volume,
         sb.root(),
+        None,
         &CancelToken::new(),
         &|| false,
         &HashProgress::default(),

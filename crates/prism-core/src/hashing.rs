@@ -9,17 +9,20 @@
 //!
 //! Every hash is saved with the size and modification time read from the disk right after the
 //! file was read; if they no longer match the catalog the file changed meanwhile and the hash is
-//! dropped (it is computed again after the catalog update, F06-AC3). The caller runs this on a
-//! thread in background mode (low CPU and I/O priority, F06-AC2).
+//! dropped (it is computed again after the catalog update, F06-AC3). Files modified in the last
+//! minutes are left for a later run: they are probably still being written (seen in a
+//! diagnostic package: the same 13 files, rewritten all the time, hashed again every 3 minutes).
+//! The caller runs this on a thread in background mode (low CPU and I/O priority, F06-AC2).
 
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::cancel::CancelToken;
-use crate::model::{EntryId, VolumeId, unix_millis_now};
+use crate::model::{EntryId, FileTime, VolumeId, unix_millis_now};
 use crate::names;
 use crate::scan::disk_meta;
 use crate::store::{self, Digest, HashRecord, HashState, Store, StoreError};
@@ -93,6 +96,8 @@ pub struct HashReport {
     pub changed: u64,
     /// Files that could not be read (in use, gone, no access).
     pub unreadable: u64,
+    /// Files modified too recently, left for a later run.
+    pub recent: u64,
     /// Stopped early (cancelled or paused).
     pub interrupted: bool,
 }
@@ -164,7 +169,8 @@ fn full_order(candidate: bool, size: u64, entry: EntryId) -> (bool, u64, EntryId
     )
 }
 
-/// Hashes the files of a volume reached at `root` (see the module documentation). `pause`
+/// Hashes the files of a volume reached at `root` (see the module documentation). Files whose
+/// modification time falls in `recent` (the last minutes) are left for a later run. `pause`
 /// is asked between files (on battery, user pause): when it says so the run stops cleanly.
 ///
 /// Only the ids of the files still to do are kept in memory; each file is read from the
@@ -177,10 +183,15 @@ pub fn hash_volume(
     store: &Store,
     volume: VolumeId,
     root: &Path,
+    recent: Option<Range<FileTime>>,
     cancel: &CancelToken,
     pause: &dyn Fn() -> bool,
     progress: &HashProgress,
 ) -> Result<HashReport, HashError> {
+    let is_recent = |s: &HashState| {
+        s.modified
+            .is_some_and(|m| recent.as_ref().is_some_and(|r| r.contains(&m)))
+    };
     let mut report = HashReport::default();
     let stop = |report: &mut HashReport| {
         let s = cancel.is_cancelled() || pause();
@@ -212,8 +223,10 @@ pub fn hash_volume(
             if stop(&mut report) {
                 break;
             }
+            // Recent files are counted once, by the full pass.
             if let Some(s) = store::hash_state(conn, entry)?
                 && s.quick.is_none()
+                && !is_recent(&s)
                 && let Some(path) = folders.file(root, &s)?
             {
                 match quick_hash(&path, s.size) {
@@ -269,6 +282,10 @@ pub fn hash_volume(
                 continue;
             };
             if s.full.is_some() {
+                continue;
+            }
+            if is_recent(&s) {
+                report.recent += 1;
                 continue;
             }
             let Some(path) = folders.file(root, &s)? else {

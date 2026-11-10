@@ -277,10 +277,15 @@ Sorveglianza cartelle (volumi senza journal, ADR-0007):
   `next_batch` raccoglie gli eventi in lotti (fino a una pausa di silenzio) come percorsi
   relativi alla radice; un traboccamento del buffer chiede una rienumerazione completa.
 - `prism-core::refresh`: per ogni percorso cambiato, la cartella del catalogo più vicina al suo
-  genitore (ignorando le zone escluse); restano solo le più in alto, e ognuna si rienumera come
-  sottoalbero con lo stesso reconciler (una cartella che non esiste più cede il posto al suo
-  antenato esistente). Verificato da un test di proprietà su disco e da un test end-to-end con
-  il watcher.
+  genitore, e il percorso stesso se è una cartella del catalogo (ignorando le zone escluse; una
+  cartella che non esiste più cede il posto al suo antenato esistente). Di ognuna si rilegge solo
+  l'**elenco** (`Enumerator::list`, una lettura della cartella): le sottocartelle già nel
+  catalogo restano com'erano (i loro cambi arrivano con le loro notifiche), quelle nuove si
+  leggono per intero; poi una sola riconciliazione con lo stesso reconciler, genitori prima delle
+  sottocartelle. Rileggere tutto il sottoalbero, come fino alla 2.1.2, trasformava ogni cambio in
+  una cartella di primo livello di un file server in una rilettura di 3,2 milioni di voci
+  (REVIEW L27). Verificato da test di proprietà su disco, da un test che conta le letture e da un
+  test end-to-end con il watcher.
 
 ### 4.3 Hash (ADR-0011, T6)
 
@@ -312,7 +317,9 @@ Nell'app (`prism-app/src/hash_jobs.rs`) un thread, 20 s dopo l'avvio e poi ogni 
   sulle schede (`VolumeView.hashes`, F06-AC5);
 - accoda un job `hash` a priorità *background* per ogni volume collegato, indicizzato, con
   lavoro da fare, non escluso dall'utente (F21-AC3) e senza altri job, al massimo ogni 2
-  minuti. Anche le unità di rete (REVIEW D58): il loro job occupa la risorsa `net:<server>`,
+  minuti. I file modificati negli ultimi 10 minuti (o fino a 10 minuti nel futuro, orologio di
+  un server avanti) aspettano un giro successivo e contano come saltati: un file riscritto di
+  continuo non si ricalcola a ogni giro (REVIEW L27). Anche le unità di rete (REVIEW D58): il loro job occupa la risorsa `net:<server>`,
   quindi le cartelle di uno stesso NAS si leggono una alla volta;
 - per ogni volume con file ancora da leggere e nessun job dice perché aspetta
   (`HashesView.waiting`, REVIEW D61): escluso, in pausa, un altro job sul disco, file che
@@ -382,7 +389,9 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   directory, `JPEGInterchangeFormat` o strisce JPEG anche nelle sotto-directory; negli altri
   contenitori, come CR3, cercando i flussi JPEG), scegliendo la più piccola con il lato corto
   di almeno 400 px; la risoluzione mostrata è quella dell'anteprima più grande. Un file che non
-  si decodifica resta segnato finché non cambia; oltre 512 MB non si decodifica. I gruppi
+  si decodifica resta segnato finché non cambia; oltre 512 MB non si decodifica, e non conta
+  tra le immagini da fare (REVIEW L27: contate, facevano ripartire l'analisi ogni 2 minuti su
+  una cartella di vetrini virtuali). I gruppi
   (`media::bktree::groups`) uniscono le immagini entro una distanza di Hamming con un BK-tree:
   ogni immagine cerca le vicine visitando solo i rami con distanza compatibile, senza
   confrontare tutte le coppie (F11-AC2). Nell'app le impronte si calcolano nello stesso job di
@@ -580,11 +589,16 @@ aspetta uno dei suoi dischi: i job di background (hash) lo chiedono ogni mezzo s
 cedono il disco invece di far aspettare un'indicizzazione per ore (T6, REVIEW D31); quando
 tutti i thread sono occupati e un job più urgente potrebbe partire, cede il posto il job meno
 urgente partito per ultimo (REVIEW L25: con molti dischi quattro analisi tenevano tutti i
-thread e gli aggiornamenti dal journal aspettavano ore). Un job fallito finisce anche nel log. I job di
+thread e gli aggiornamenti dal journal aspettavano ore). I job di background però non prendono
+mai l'ultimo thread (`background_fits`, REVIEW L27): un aggiornamento trova sempre un thread
+libero, e la regola precedente scatta solo mentre quel thread è occupato da un altro lavoro
+urgente. Un job fallito finisce anche nel log. I job di
 background non contano come "disco occupato" per l'app: aggiornamenti dal journal, dalla
 sorveglianza e richieste dell'utente partono comunque (`AppState::foreground_jobs`); il job
 `journal` non riserva il disco (legge pochi record ogni 15 s), altrimenti l'analisi gli
-cederebbe il passo a ogni giro. Gli hash non hanno bisogno di un record persistente per
+cederebbe il passo a ogni giro, e lo stesso vale per un `refresh` di poche cartelle (su una
+cartella di rete affollata arriva ogni pochi secondi): solo la rilettura completa riserva il
+disco o il server. Gli hash non hanno bisogno di un record persistente per
 riprendere (§4.3).
 
 ### 6.1 Lavori interrotti e quando si rifanno
@@ -610,8 +624,8 @@ riprendere (§4.3).
 | Rilevamento dei dischi | ogni 2 s | nessuna lettura del contenuto |
 | Aggiornamento di un disco indicizzato | all'avvio di Prism e ogni volta che il disco torna (collegato, NAS acceso), o con *Aggiorna* | NTFS (Prism elevato): dal journal, secondi; se il journal non copre più la posizione salvata, il volume era `reindex_needed` o le modifiche non si applicano una per una, rilettura completa della MFT (secondi anche per milioni di voci). Altri file system e NAS: rilettura completa dell'albero delle cartelle (solo nomi e metadati, non il contenuto: ~45 s per 600.000 voci sul NAS dell'utente) |
 | Journal dei dischi NTFS collegati | ogni 15 s | solo i record nuovi |
-| Cartelle sorvegliate (FAT, exFAT, ReFS, NAS) | dopo ogni gruppo di cambi (fino a 5 s) | solo le cartelle cambiate; quando Windows perde notifiche o i percorsi in attesa sono più di 10.000, tutto il volume, ma non prima di 30 minuti dalla rilettura completa precedente né di 10 volte quanto è durata (al massimo 6 ore; REVIEW L25) |
-| Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'ultimo giro (30 minuti se restano solo file in uso, illeggibili o cambiati rispetto al catalogo, e stampe di file cambiati; REVIEW L26) | solo i file senza hash valido, mai quelli solo nel cloud (OneDrive) o offline; cede il disco, o un posto di lavoro quando sono tutti occupati, entro mezzo secondo a un lavoro più urgente |
+| Cartelle sorvegliate (FAT, exFAT, ReFS, NAS) | dopo ogni gruppo di cambi (fino a 5 s) | solo l'elenco delle cartelle cambiate, e per intero le sottocartelle nuove (REVIEW L27); quando Windows perde notifiche o i percorsi in attesa sono più di 10.000, tutto il volume, ma non prima di 30 minuti dalla rilettura completa precedente né di 10 volte quanto è durata (al massimo 6 ore; REVIEW L25) |
+| Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'ultimo giro (30 minuti se restano solo file in uso, illeggibili, cambiati rispetto al catalogo o modificati negli ultimi 10 minuti, e stampe di file cambiati; REVIEW L26, L27) | solo i file senza hash valido, mai quelli solo nel cloud (OneDrive) o offline, né quelli modificati da meno di 10 minuti; le analisi lasciano sempre libero un thread del motore, e cedono il disco, o il thread quando sono tutti occupati, entro mezzo secondo a un lavoro più urgente |
 | Avanzamento dell'analisi sulle schede | ogni 5 minuti (1 mentre gira), subito dopo un'indicizzazione | conteggio nel catalogo |
 | Indici di ricerca | dopo un cambio del catalogo, al massimo ogni 30 s per volume | ricostruzione in memoria del volume (L11) |
 | Salute dei dischi del PC | 10 s dopo l'avvio, poi ogni ora e appena si collega un disco | lettura SMART |

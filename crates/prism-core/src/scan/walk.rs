@@ -220,23 +220,29 @@ fn worker(jobs: &Receiver<Job>, results: &Sender<ListingResult>, request: &ScanR
     }
 }
 
+/// The root of a request: its metadata, its verbatim path and its exclusion cursor.
+fn open_root(request: &ScanRequest<'_>) -> Result<(Metadata, PathBuf, RuleCursor), ScanError> {
+    let unreadable = |source| ScanError::RootUnreadable {
+        path: request.root.to_path_buf(),
+        source,
+    };
+    let root_md = fs::metadata(request.root).map_err(unreadable)?;
+    if !root_md.is_dir() {
+        return Err(ScanError::RootNotADirectory(request.root.to_path_buf()));
+    }
+    // Verbatim form (\\?\...), so that names ending with a dot or a space work.
+    let root_path = fs::canonicalize(request.root).map_err(unreadable)?;
+    let root_cursor = request
+        .policy
+        .cursor_for(request.relative)
+        .ok_or_else(|| ScanError::RootExcluded(request.root.to_path_buf()))?;
+    Ok((root_md, root_path, root_cursor))
+}
+
 impl Enumerator for WalkEnumerator {
     fn scan(&self, request: &ScanRequest<'_>) -> Result<ScanTree, ScanError> {
         let started = Instant::now();
-        let unreadable = |source| ScanError::RootUnreadable {
-            path: request.root.to_path_buf(),
-            source,
-        };
-        let root_md = fs::metadata(request.root).map_err(unreadable)?;
-        if !root_md.is_dir() {
-            return Err(ScanError::RootNotADirectory(request.root.to_path_buf()));
-        }
-        // Verbatim form (\\?\...), so that names ending with a dot or a space work.
-        let root_path = fs::canonicalize(request.root).map_err(unreadable)?;
-        let root_cursor = request
-            .policy
-            .cursor_for(request.relative)
-            .ok_or_else(|| ScanError::RootExcluded(request.root.to_path_buf()))?;
+        let (root_md, root_path, root_cursor) = open_root(request)?;
 
         let mut builder = ScanTreeBuilder::new(folder_meta(&root_md));
         let mut stats = ScanStats {
@@ -317,6 +323,54 @@ impl Enumerator for WalkEnumerator {
                 "the walker threads stopped before the end of the scan".into(),
             ));
         }
+        stats.elapsed = started.elapsed();
+        Ok(builder.finish(stats))
+    }
+
+    /// One listing on the calling thread: the subfolders are not read.
+    fn list(&self, request: &ScanRequest<'_>) -> Result<ScanTree, ScanError> {
+        let started = Instant::now();
+        let (root_md, path, cursor) = open_root(request)?;
+        request.cancel.check()?;
+        let listing = list_dir(
+            &Job {
+                node: ScanTree::ROOT,
+                path,
+                cursor,
+            },
+            request.policy,
+        );
+        let mut builder = ScanTreeBuilder::new(folder_meta(&root_md));
+        let mut stats = ScanStats {
+            dirs: 1,
+            excluded: listing.excluded,
+            ..ScanStats::default()
+        };
+        if let Some(err) = listing.error {
+            stats.unreadable_dirs += 1;
+            stats.push_error(err);
+            builder.mark_unreadable(ScanTree::ROOT);
+        }
+        let count = listing.children.len() as u64;
+        let mut descend = Vec::new();
+        let range = builder.add_listing(
+            ScanTree::ROOT,
+            listing.children.into_iter().map(|found| {
+                if found.child.is_dir {
+                    stats.dirs += 1;
+                } else {
+                    stats.files += 1;
+                }
+                descend.push(found.descend.is_some());
+                found.child
+            }),
+        );
+        for (node, d) in range.zip(descend) {
+            if d {
+                builder.mark_not_listed(node);
+            }
+        }
+        request.progress.fetch_add(count, Ordering::Relaxed);
         stats.elapsed = started.elapsed();
         Ok(builder.finish(stats))
     }

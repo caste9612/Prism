@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 use common::{Sandbox, TestCatalog};
 use prism_core::cancel::CancelToken;
 use prism_core::hashing::{HashProgress, hash_volume};
-use prism_core::model::{EntryId, VolumeId};
+use prism_core::model::{EntryId, FileTime, VolumeId};
 use prism_core::store;
 
 fn id(cat: &TestCatalog, volume: VolumeId, rel: &str) -> EntryId {
@@ -61,6 +61,7 @@ fn run(sb: &Sandbox, cat: &TestCatalog, volume: VolumeId) -> prism_core::hashing
         &cat.store,
         volume,
         sb.root(),
+        None,
         &CancelToken::new(),
         &|| false,
         &HashProgress::default(),
@@ -209,6 +210,40 @@ fn changed_and_missing_files_are_skipped() {
     );
 }
 
+// Files modified in the last minutes are left for a later run and counted apart (seen in a
+// diagnostic package: the same files, rewritten all the time, hashed again every 3 minutes);
+// the others are hashed as usual.
+#[test]
+fn recently_modified_files_wait_for_a_later_run() {
+    let (sb, cat, volume) = setup();
+    // The times of `setup`: c\middle.bin at 30 s and d\end.bin at 40 s are "recent".
+    let at = |secs: i64| FileTime::from_unix_millis((1_577_836_800 + secs) * 1000);
+    let report = hash_volume(
+        &cat.store,
+        volume,
+        sb.root(),
+        Some(at(30)..at(45)),
+        &CancelToken::new(),
+        &|| false,
+        &HashProgress::default(),
+    )
+    .unwrap();
+    assert_eq!(report.recent, 2, "each recent file counted once");
+    assert_eq!((report.quick, report.full), (2, 3));
+    let hashed = |rel: &str| {
+        cat.store
+            .read(|c| store::valid_hashes(c, id(&cat, volume, rel)))
+            .unwrap()
+            .is_some()
+    };
+    assert!(hashed(r"a\copy.bin") && hashed(r"e\alone.bin"));
+    assert!(!hashed(r"c\middle.bin") && !hashed(r"d\end.bin"));
+    // Later, they are hashed.
+    let report = run(&sb, &cat, volume);
+    assert_eq!((report.quick, report.full, report.recent), (2, 2, 0));
+    assert!(hashed(r"c\middle.bin") && hashed(r"d\end.bin"));
+}
+
 // F06-AC5: a pause stops the run between files; nothing half-done is saved.
 #[test]
 fn f06_ac5_pause_stops_cleanly() {
@@ -218,6 +253,7 @@ fn f06_ac5_pause_stops_cleanly() {
         &cat.store,
         volume,
         sb.root(),
+        None,
         &CancelToken::new(),
         &|| true,
         &progress,

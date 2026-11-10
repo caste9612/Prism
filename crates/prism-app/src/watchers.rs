@@ -28,10 +28,10 @@ const MAX_PENDING: usize = 10_000;
 const RESCAN_MIN_GAP: Duration = Duration::from_secs(30 * 60);
 /// …and ten times what the previous one took…
 const RESCAN_GAP_FACTOR: u32 = 10;
-/// …but never more than this. Seen on a busy company file server: Windows lost notifications
-/// every few minutes, and a share of 3.2 million entries was read again in full every 7
-/// minutes for hours (6 minutes each), keeping the server busy and the content analysis of its
-/// other shares from ever finishing.
+/// …but never more than this (REVIEW L25). On a busy company file server a share of 3.2
+/// million entries takes 6 to 9 minutes to read in full; the back-to-back full re-reads seen
+/// there came from the refreshes of single folders, which re-read whole subtrees until 2.1.3
+/// (REVIEW L27), but a watcher that keeps losing notifications would do the same.
 const RESCAN_MAX_GAP: Duration = Duration::from_secs(6 * 3600);
 
 /// How long after a full re-read the next one may start.

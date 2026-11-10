@@ -12,8 +12,9 @@ use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use prism_core::cancel::CancelToken;
 use prism_core::jobs::JobProgress;
 use prism_core::media::bktree::{distance, groups};
-use prism_core::media::{Workers, print_image, print_progress, print_volume, raw};
-use prism_core::store;
+use prism_core::media::{MAX_IMAGE_BYTES, Workers, print_image, print_progress, print_volume, raw};
+use prism_core::model::{EntryId, EntryMeta};
+use prism_core::store::{self, WriteOp};
 
 fn photo(w: u32, h: u32) -> RgbImage {
     RgbImage::from_fn(w, h, |x, y| {
@@ -244,6 +245,43 @@ fn f11_background_prints_and_groups() {
         (4, 3)
     );
     assert_eq!(cat.store.read(store::valid_prints).unwrap().len(), 2);
+}
+
+// Images too large to decode are neither printed nor counted as left: counted, they made a
+// round every 2 minutes on a share of virtual slides, each doing nothing.
+#[test]
+fn images_too_large_to_decode_are_not_counted() {
+    let cat = TestCatalog::new();
+    let volume = cat.add_volume("slides");
+    let first = cat.store.allocate_entry_ids(3);
+    let insert = |i: i64, name: &str, is_dir: bool, size: u64| WriteOp::Insert {
+        id: EntryId(first.0 + i),
+        volume,
+        parent: (i > 0).then_some(first),
+        name: name.into(),
+        is_dir,
+        meta: EntryMeta {
+            size,
+            ..EntryMeta::default()
+        },
+    };
+    let session = cat.store.session();
+    session
+        .submit(
+            volume,
+            vec![
+                insert(0, "", true, 0),
+                insert(1, "slide.tif", false, MAX_IMAGE_BYTES + 1),
+                insert(2, "photo.jpg", false, 1000),
+            ],
+        )
+        .unwrap();
+    session.flush().unwrap();
+    assert_eq!(
+        cat.store.read(|c| print_progress(c, volume)).unwrap(),
+        (1, 0),
+        "only the photo is left"
+    );
 }
 
 // F11-AC3: the side-by-side previews are small JPEG thumbnails, also of RAW files.

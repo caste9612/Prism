@@ -6,13 +6,17 @@
 ## Stato attuale
 
 - **Stato**: pubblicate la **2.0.0**, la **2.1.0** (2026-11-08) e la **2.1.1** (2026-11-09); il
-  PC aziendale dell'utente si è aggiornato da solo alla 2.1.1. Su `develop` la **2.1.2**, non
-  ancora pubblicata: aggiornamenti dal journal bloccati da record presi per rovinati (REVIEW
-  L26). Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: l'utente prova sul PC aziendale un installer della 2.1.2 compilato in
-  locale (senza firma degli aggiornamenti); se il nuovo pacchetto diagnostico è pulito, release
-  2.1.2 col suo via libera. Prima di avviare l'app di sviluppo va chiusa quella installata
-  (CLAUDE.md). Consigliata una copia della chiave fuori dal PC (REVIEW U7).
+  PC aziendale dell'utente si è aggiornato da solo alla 2.1.1 e ha provato la 2.1.2 da un
+  installer locale. Su `develop` la **2.1.3**, non ancora pubblicata: comprende la 2.1.2
+  (journal fermato da record presi per rovinati, REVIEW L26) e le correzioni del terzo pacchetto
+  diagnostico (aggiornamento mirato che rileggeva interi sottoalberi, analisi delle cartelle di
+  rete che non avanzavano, REVIEW L27). La 2.1.2 non si pubblica. Il lavoro continua
+  direttamente su `develop`.
+- **Prossimo passo**: l'utente prova sul PC aziendale un installer della 2.1.3 compilato in
+  locale (senza firma degli aggiornamenti); se il pacchetto diagnostico di una giornata di
+  lavoro è pulito, release 2.1.3 col suo via libera. Prima di avviare l'app di sviluppo va
+  chiusa quella installata (CLAUDE.md). Consigliata una copia della chiave fuori dal PC
+  (REVIEW U7).
 - **Bloccanti**: nessuno.
 - **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); riduzioni della
   dimensione del catalogo (L23, l'utente: "non serve" per ora).
@@ -21,6 +25,22 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-10 — 2.1.3: la sorveglianza rilegge solo le cartelle cambiate
+
+- Terzo pacchetto diagnostico del PC aziendale, con la 2.1.2 di prova (53 minuti di log in
+  orario di lavoro): la correzione del journal funziona, nessun aggiornamento fallito e l'analisi
+  di C: ha recuperato.
+- In orario di lavoro però `Organ` (3,2 milioni di voci) si rileggeva ancora per intero, una
+  lettura dopo l'altra. La causa era l'aggiornamento mirato, che rileggeva tutto il sottoalbero
+  della cartella cambiata: un cambio in una cartella di primo livello vuol dire la radice. La
+  diagnosi di L25 (notifiche perse) era sbagliata, e il secondo pacchetto, di notte, non lo
+  mostrava. Ora di ogni cartella cambiata si rilegge solo l'elenco, e per intero solo le
+  sottocartelle nuove (REVIEW L27).
+- Corretti anche: immagini oltre 512 MB contate come da fare (giri a vuoto ogni 2 minuti),
+  analisi interrotte dagli aggiornamenti del journal quando i thread erano tutti occupati,
+  aggiornamenti di poche cartelle che fermavano le analisi dello stesso server, file riscritti
+  di continuo ricalcolati a ogni giro.
 
 ### 2026-11-10 — 2.1.2: il journal fermato da un falso record rovinato
 

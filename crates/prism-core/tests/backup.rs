@@ -46,6 +46,7 @@ fn catalog(cat: &TestCatalog, sb: &Sandbox, hashed: bool) -> VolumeId {
             &cat.store,
             v,
             sb.root(),
+            None,
             &CancelToken::new(),
             &|| false,
             &HashProgress::default(),

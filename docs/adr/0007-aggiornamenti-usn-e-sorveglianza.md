@@ -18,7 +18,8 @@ cambiato senza rileggere il disco.
   disponibile): riconciliazione completa.
 - **Altri file system locali** con Prism attivo: sorveglianza delle cartelle
   (`ReadDirectoryChangesW`) seguita da riconciliazione mirata delle cartelle toccate; se il
-  buffer delle notifiche trabocca, riconciliazione completa.
+  buffer delle notifiche trabocca, riconciliazione completa. Della cartella toccata si rilegge
+  solo l'elenco, non il sottoalbero (aggiunta del 2026-11-10, REVIEW L27).
 - **Unità di rete e dischi ricollegati senza journal**: riconciliazione completa con il
   walker.
 

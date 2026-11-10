@@ -275,7 +275,10 @@ impl AppState {
     }
 
     /// Queues a refresh of the folders where a watcher saw changes (REVIEW L6); `rescan`
-    /// re-reads the whole volume.
+    /// re-reads the whole volume. Only a full re-read reserves the disk (or the server): the
+    /// refresh of a few folders reads their listings, like a journal update reads a few records,
+    /// and on a busy share it comes every few seconds, which would stop the analysis of the
+    /// server's shares every time (REVIEW D31).
     pub fn submit_refresh(
         &self,
         volume: VolumeId,
@@ -290,7 +293,11 @@ impl AppState {
             kind: "refresh".to_owned(),
             volume: Some(volume),
             priority: Priority::Indexing,
-            disks: job_disks(&detected),
+            disks: if rescan {
+                job_disks(&detected)
+            } else {
+                Vec::new()
+            },
             run: Box::new(move |ctx| {
                 refresh::refresh_folders(
                     &store,

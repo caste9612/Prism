@@ -195,7 +195,14 @@ pub struct PrintReport {
     pub interrupted: bool,
 }
 
-/// Images of a volume with and without a valid print (decoded or not).
+/// Whether a file of the catalog is an image Prism prints: printable and not too large.
+fn wants_print(s: &store::PrintState) -> bool {
+    is_printable(&s.name) && s.size <= MAX_IMAGE_BYTES
+}
+
+/// Images of a volume Prism prints, with and without a valid print (decoded or not). Images
+/// too large to decode are not counted: counted as left, they made a round every 2 minutes on
+/// a share of virtual slides, each doing nothing.
 ///
 /// # Errors
 /// SQLite errors.
@@ -204,7 +211,7 @@ pub fn print_progress(
     volume: VolumeId,
 ) -> Result<(u64, u64), StoreError> {
     let states = store::print_states(conn, volume)?;
-    let images = states.iter().filter(|s| is_printable(&s.name));
+    let images = states.iter().filter(|s| wants_print(s));
     let (mut total, mut done) = (0, 0);
     for s in images {
         total += 1;
@@ -231,7 +238,7 @@ pub fn print_volume(
     let todo: Vec<store::PrintState> = store
         .read(|c| store::print_states(c, volume))?
         .into_iter()
-        .filter(|s| !s.printed && is_printable(&s.name) && s.size <= MAX_IMAGE_BYTES)
+        .filter(|s| !s.printed && wants_print(s))
         .collect();
     let compute = |path: &Path| print_image(path).map_err(|e| e.to_string());
     let one = |s: &store::PrintState, path: &Path| print_one(s, path, cancel, &compute);

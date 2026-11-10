@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use prism_core::hashing;
 use prism_core::jobs::{JobSpec, Priority};
 use prism_core::media;
-use prism_core::model::{VolumeId, VolumeStatus};
+use prism_core::model::{FileTime, VolumeId, VolumeStatus};
 use prism_core::store;
 
 use crate::state::{AppState, access_path, job_disks};
@@ -47,6 +47,17 @@ const RERUN: Duration = Duration::from_secs(120);
 const RERUN_SKIPPED: Duration = Duration::from_secs(30 * 60);
 /// How often a running hash job asks whether an indexing waits for its disk.
 const YIELD_CHECK: Duration = Duration::from_millis(500);
+/// Files modified less than this long ago (or this far in the future, a server clock ahead of
+/// the PC) are probably still being written: left for a later round.
+const SETTLING: Duration = Duration::from_secs(10 * 60);
+
+/// The modification times of files still being written, around now.
+fn settling_window() -> std::ops::Range<FileTime> {
+    let now = unix_millis_now();
+    let span = i64::try_from(SETTLING.as_millis()).unwrap_or(i64::MAX);
+    FileTime::from_unix_millis(now.saturating_sub(span))
+        ..FileTime::from_unix_millis(now.saturating_add(span))
+}
 
 #[derive(Default)]
 pub struct HashingState {
@@ -63,7 +74,8 @@ pub struct HashingState {
 }
 
 /// What the last complete round of a volume left: files it could not read (changed while read,
-/// changed since the catalog was updated, or unreadable) and images and videos it could not
+/// changed since the catalog was updated, unreadable, or still being written) and images and
+/// videos it could not
 /// print because they changed since the catalog was updated.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Skipped {
@@ -324,8 +336,15 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                     }
                     yielding.get() || s.hashing.should_pause()
                 };
-                let result =
-                    hashing::hash_volume(&s.store, id, &root, &ctx.cancel, &pause, &ctx.progress);
+                let result = hashing::hash_volume(
+                    &s.store,
+                    id,
+                    &root,
+                    Some(settling_window()),
+                    &ctx.cancel,
+                    &pause,
+                    &ctx.progress,
+                );
                 let report = match result {
                     Ok(r) => r,
                     Err(e) => {
@@ -339,6 +358,7 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                     full = report.full,
                     changed = report.changed,
                     unreadable = report.unreadable,
+                    recent = report.recent,
                     interrupted = report.interrupted,
                     "hashing finished"
                 );
@@ -415,7 +435,7 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                     s.hashing.skipped().insert(
                         id,
                         Skipped {
-                            files: report.changed + report.unreadable,
+                            files: report.changed + report.unreadable + report.recent,
                             prints: skipped_prints.unwrap_or(0),
                         },
                     );

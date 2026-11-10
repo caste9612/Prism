@@ -21,6 +21,19 @@ use crate::netprobe::{NetProbe, ProbeTiming};
 use crate::notices::Notices;
 use crate::state::{AppState, debug_guard_roots};
 
+/// Writes a file dated an hour ago, as files on a disk usually are: the analysis leaves the
+/// files modified in the last minutes for a later round (`hash_jobs::SETTLING`).
+fn write_old(path: &Path, content: &[u8]) {
+    std::fs::write(path, content).unwrap();
+    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(hour_ago)
+        .unwrap();
+}
+
 fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
     AppState {
         store,
@@ -150,10 +163,10 @@ fn background_hashing_runs_pauses_and_counts() {
     let disk = tmp.path().join("disk");
     std::fs::create_dir_all(disk.join("sub")).unwrap();
     let same = vec![7u8; 200 * 1024];
-    std::fs::write(disk.join("a.bin"), &same).unwrap();
-    std::fs::write(disk.join("sub").join("b.bin"), &same).unwrap();
-    std::fs::write(disk.join("c.bin"), vec![8u8; 200 * 1024]).unwrap();
-    std::fs::write(disk.join("notes.txt"), b"unique").unwrap();
+    write_old(&disk.join("a.bin"), &same);
+    write_old(&disk.join("sub").join("b.bin"), &same);
+    write_old(&disk.join("c.bin"), &[8u8; 200 * 1024]);
+    write_old(&disk.join("notes.txt"), b"unique");
 
     let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
     let info = VolumeInfo::dev_folder(&disk.to_string_lossy());
@@ -253,7 +266,7 @@ fn background_hashing_runs_pauses_and_counts() {
 
     // A new file and an update of the disk: counted at the next tick, not minutes later.
     std::thread::sleep(std::time::Duration::from_millis(5));
-    std::fs::write(disk.join("d.bin"), vec![9u8; 100 * 1024]).unwrap();
+    write_old(&disk.join("d.bin"), &[9u8; 100 * 1024]);
     indexer::index(
         &app.store,
         &WalkEnumerator::default(),
@@ -293,10 +306,10 @@ fn duplicates_are_grouped_selected_and_deleted_safely() {
     let disk = tmp.path().join("disk");
     std::fs::create_dir_all(disk.join("copies").join("old")).unwrap();
     let same = vec![3u8; 300 * 1024];
-    std::fs::write(disk.join("photo.jpg"), &same).unwrap();
+    write_old(&disk.join("photo.jpg"), &same);
     let copy = disk.join("copies").join("old").join("photo.jpg");
-    std::fs::write(&copy, &same).unwrap();
-    std::fs::write(disk.join("unique.txt"), b"only one").unwrap();
+    write_old(&copy, &same);
+    write_old(&disk.join("unique.txt"), b"only one");
 
     let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
     let mut info = VolumeInfo::dev_folder(&disk.to_string_lossy());
@@ -1251,7 +1264,7 @@ fn one_file_under_two_paths_is_not_deleted_as_a_duplicate() {
     let disk = tmp.path().join("disk");
     std::fs::create_dir_all(disk.join("other")).unwrap();
     let file = disk.join("video.mp4");
-    std::fs::write(&file, vec![5u8; 300 * 1024]).unwrap();
+    write_old(&file, &[5u8; 300 * 1024]);
     let link = disk.join("other").join("video.mp4");
     std::fs::hard_link(&file, &link).unwrap();
 

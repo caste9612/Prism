@@ -25,6 +25,7 @@ fn f21_ac4_reset_removes_volumes_and_their_data_only() {
         &cat.store,
         va,
         a.root(),
+        None,
         &CancelToken::new(),
         &|| false,
         &HashProgress::default(),

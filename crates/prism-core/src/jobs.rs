@@ -275,7 +275,8 @@ impl JobEngine {
     /// waiting job needs one of its disks, or when every worker is busy and the waiting job
     /// could otherwise start: then only the most recently started of the less urgent jobs
     /// gives way (seen on a PC with many disks: four analyses held every worker and the journal
-    /// updates waited for hours).
+    /// updates waited for hours). Background jobs leave a worker free, so this happens only
+    /// while another urgent job holds that worker.
     #[must_use]
     pub fn should_yield(&self, id: JobId) -> bool {
         let state = self.shared.lock();
@@ -363,6 +364,19 @@ impl Drop for JobEngine {
     }
 }
 
+/// Whether one more background job may start: with several workers, background jobs never take
+/// the last one, so an update starts at once instead of stopping an analysis (seen in a
+/// diagnostic package: analyses held all four workers and a journal update every 16 s
+/// interrupted one of them, so the analysis of a large share restarted every few minutes).
+fn background_fits(state: &State) -> bool {
+    let running = state
+        .jobs
+        .iter()
+        .filter(|e| e.info.state == JobState::Running && e.info.priority == Priority::Background)
+        .count();
+    state.workers <= 1 || running + 1 < state.workers
+}
+
 fn worker(shared: &Shared) {
     loop {
         let (run, ctx, disks) = {
@@ -372,13 +386,16 @@ fn worker(shared: &Shared) {
                     return;
                 }
                 // The most urgent queued job whose disks are free (FIFO within a priority).
+                // Background jobs leave a worker to the others (`background_fits`).
                 let busy = &state.busy_disks;
+                let background_ok = background_fits(&state);
                 let pick = state
                     .jobs
                     .iter()
                     .enumerate()
                     .filter(|(_, e)| e.info.state == JobState::Queued)
                     .filter(|(_, e)| e.disks.iter().all(|d| !busy.contains(d)))
+                    .filter(|(_, e)| background_ok || e.info.priority != Priority::Background)
                     .min_by_key(|(i, e)| (e.info.priority, *i))
                     .map(|(i, _)| i);
                 if let Some(i) = pick {
@@ -462,6 +479,7 @@ fn worker(shared: &Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
     use std::time::Duration;
 
     fn spec(kind: &str, priority: Priority, disks: &[&str], run: JobFn) -> JobSpec {
@@ -629,19 +647,82 @@ mod tests {
         assert!(!engine.should_yield(JobId(9999)));
     }
 
-    // When background jobs hold every worker, a more urgent job on other disks (or on none, like
-    // a journal update) does not wait for them: the most recently started one gives way.
+    // Background jobs never take the last worker: with three workers, two analyses run, the
+    // third waits although its disk is free, and an update starts at once without stopping any.
+    #[test]
+    fn background_jobs_leave_a_worker_to_the_others() {
+        let engine = Arc::new(JobEngine::start(3));
+        let (started_tx, started_rx) = crossbeam_channel::unbounded::<&str>();
+        let (stop_tx, stop_rx) = crossbeam_channel::unbounded::<()>();
+        let yielded = Arc::new(AtomicUsize::new(0));
+        let mut background = Vec::new();
+        for (name, disk) in [("first", "disk0"), ("second", "disk1"), ("third", "disk2")] {
+            let (e, s, stop, y) = (
+                Arc::clone(&engine),
+                started_tx.clone(),
+                stop_rx.clone(),
+                Arc::clone(&yielded),
+            );
+            background.push(engine.submit(spec(
+                name,
+                Priority::Background,
+                &[disk],
+                Box::new(move |ctx| {
+                    s.send(name).unwrap();
+                    while stop.try_recv().is_err() {
+                        if e.should_yield(ctx.id) {
+                            y.fetch_add(1, Ordering::SeqCst);
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    Ok(())
+                }),
+            )));
+        }
+        for _ in 0..2 {
+            started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(started_rx.try_recv().is_err(), "the third analysis waits");
+        let journal = engine.submit(spec(
+            "journal",
+            Priority::Indexing,
+            &[],
+            Box::new(|_| Ok(())),
+        ));
+        assert_eq!(engine.wait(journal).unwrap().state, JobState::Done);
+        assert_eq!(yielded.load(Ordering::SeqCst), 0, "nobody gave way");
+        // One analysis ends: the third one starts.
+        stop_tx.send(()).unwrap();
+        assert_eq!(
+            started_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            "third"
+        );
+        for _ in 0..2 {
+            stop_tx.send(()).unwrap();
+        }
+        for id in background {
+            assert_eq!(engine.wait(id).unwrap().state, JobState::Done);
+        }
+    }
+
+    // When every worker is busy (an analysis and a long update), a more urgent job on other
+    // disks (or on none, like a journal update) does not wait for the analysis: it gives way.
     #[test]
     fn background_jobs_free_a_worker_when_all_are_busy() {
         let engine = Arc::new(JobEngine::start(2));
         let (started_tx, started_rx) = crossbeam_channel::unbounded::<&str>();
         let (yielded_tx, yielded_rx) = crossbeam_channel::unbounded::<&str>();
         let mut background = Vec::new();
-        for (name, disk) in [("first", "disk0"), ("second", "disk1")] {
+        for (name, disk, priority) in [
+            ("first", "disk0", Priority::Indexing),
+            ("second", "disk1", Priority::Background),
+        ] {
             let (e, s, y) = (Arc::clone(&engine), started_tx.clone(), yielded_tx.clone());
             background.push(engine.submit(spec(
                 name,
-                Priority::Background,
+                priority,
                 &[disk],
                 Box::new(move |ctx| {
                     s.send(name).unwrap();

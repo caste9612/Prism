@@ -6,6 +6,7 @@
 mod common;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::fakefs::{NAMES, Rng};
 use common::{Sandbox, TestCatalog, mtime};
@@ -14,7 +15,7 @@ use prism_core::exclusion::ExclusionPolicy;
 use prism_core::indexer::IndexProgress;
 use prism_core::names;
 use prism_core::refresh;
-use prism_core::scan::WalkEnumerator;
+use prism_core::scan::{Enumerator, ScanError, ScanRequest, ScanTree, WalkEnumerator};
 use proptest::prelude::*;
 
 /// Lists folders (root included) and files below `root`, read-only.
@@ -256,6 +257,133 @@ fn check(seed: u64, steps: usize) {
     fresh.index(fv, sb.root());
     fresh.assert_consistent();
     assert_eq!(cat.snapshot(v), fresh.snapshot(fv));
+}
+
+/// The walker, counting the folders it reads in full and the listings it reads alone.
+#[derive(Default)]
+struct Counting {
+    inner: WalkEnumerator,
+    scans: AtomicUsize,
+    lists: AtomicUsize,
+}
+
+impl Counting {
+    fn take(&self) -> (usize, usize) {
+        (
+            self.scans.swap(0, Ordering::SeqCst),
+            self.lists.swap(0, Ordering::SeqCst),
+        )
+    }
+}
+
+impl Enumerator for Counting {
+    fn scan(&self, request: &ScanRequest<'_>) -> Result<ScanTree, ScanError> {
+        self.scans.fetch_add(1, Ordering::SeqCst);
+        self.inner.scan(request)
+    }
+
+    fn list(&self, request: &ScanRequest<'_>) -> Result<ScanTree, ScanError> {
+        self.lists.fetch_add(1, Ordering::SeqCst);
+        self.inner.list(request)
+    }
+}
+
+// A change directly in a large folder reads the listing of that folder, not its subtree (seen
+// on a company file server: each such change re-read a share of 3.2 million entries); a new
+// folder is read in full. The catalog still equals a full indexing (F05-AC3).
+#[test]
+fn a_refresh_reads_the_listing_of_the_changed_folder_only() {
+    let sb = Sandbox::new();
+    for d in ["big\\a\\x", "big\\a\\y", "big\\b", "other"] {
+        sb.mkdir(d);
+    }
+    for (i, f) in [
+        "big\\a\\x\\1.txt",
+        "big\\a\\y\\2.txt",
+        "big\\b\\3.txt",
+        "top.txt",
+    ]
+    .iter()
+    .enumerate()
+    {
+        sb.file(f, 10 + i, 100);
+    }
+    let cat = TestCatalog::new();
+    let v = cat.add_volume("sandbox");
+    cat.index(v, sb.root());
+    let walker = Counting::default();
+    let refresh = |changed: &[&str]| {
+        let changed: Vec<Vec<String>> = changed
+            .iter()
+            .map(|p| p.split('\\').map(str::to_owned).collect())
+            .collect();
+        refresh::refresh_folders(
+            &cat.store,
+            v,
+            sb.root(),
+            &walker,
+            &ExclusionPolicy::with_defaults(),
+            &changed,
+            false,
+            &CancelToken::new(),
+            &IndexProgress::default(),
+        )
+        .unwrap()
+    };
+    let same_as_full_index = || {
+        cat.assert_consistent();
+        let fresh = TestCatalog::new();
+        let fv = fresh.add_volume("sandbox");
+        fresh.index(fv, sb.root());
+        assert_eq!(cat.snapshot(v), fresh.snapshot(fv));
+    };
+
+    // A file written in "big": one listing, nothing read in full.
+    sb.file("big\\new.txt", 7, 200);
+    let report = refresh(&["big\\new.txt"]);
+    assert_eq!(walker.take(), (0, 1));
+    assert_eq!(
+        report.scan.files + report.scan.dirs,
+        4,
+        "big and its 3 children"
+    );
+    same_as_full_index();
+
+    // A folder created in "big" with content: the listing of "big", then the new folder in
+    // full; "big" itself reported as changed (its date) adds the listing of the root.
+    sb.mkdir("big\\new\\deep");
+    sb.file("big\\new\\deep\\4.txt", 4, 300);
+    refresh(&["big\\new", "big"]);
+    assert_eq!(walker.take(), (1, 2));
+    same_as_full_index();
+
+    // A folder renamed: the listing of its parent, and the new name read in full.
+    sb.fs
+        .rename(&sb.path("big\\a"), &sb.path("big\\renamed"))
+        .unwrap();
+    refresh(&["big\\a", "big\\renamed"]);
+    assert_eq!(walker.take(), (1, 1));
+    same_as_full_index();
+
+    // A folder replaced by another of the same name, reported level by level.
+    sb.fs.remove_dir_all(&sb.path("big\\renamed\\x")).unwrap();
+    sb.mkdir("big\\renamed\\x");
+    sb.file("big\\renamed\\x\\5.txt", 5, 400);
+    refresh(&["big\\renamed\\x", "big\\renamed\\x\\5.txt"]);
+    assert_eq!(walker.take(), (0, 2));
+    same_as_full_index();
+
+    // A junction is recorded and never followed, also when it is reported again once in the
+    // catalog: its parent's listing is read instead.
+    #[cfg(windows)]
+    {
+        common::junction(&sb.path("big\\link"), &sb.path("big\\b"));
+        for _ in 0..2 {
+            refresh(&["big\\link"]);
+            assert_eq!(walker.take(), (0, 1));
+            same_as_full_index();
+        }
+    }
 }
 
 proptest! {

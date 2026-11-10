@@ -7,6 +7,7 @@
 
 mod walk;
 
+use std::collections::VecDeque;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
@@ -204,6 +205,17 @@ impl ScanStats {
             self.errors.push(message);
         }
     }
+
+    /// Adds the counters and errors of another enumeration (the time is not added).
+    pub fn add(&mut self, other: &Self) {
+        self.files += other.files;
+        self.dirs += other.dirs;
+        self.unreadable_dirs += other.unreadable_dirs;
+        self.excluded += other.excluded;
+        for e in &other.errors {
+            self.push_error(e.clone());
+        }
+    }
 }
 
 /// A snapshot of a folder tree. Children of a folder are stored contiguously; the root is
@@ -346,6 +358,36 @@ impl ScanTreeBuilder {
         }
     }
 
+    /// Copies what `tree` holds below its node `from` (the children, their listing states and
+    /// everything below them) as the content of folder `dir`, which takes the listing state of
+    /// `from`. `dir` must not be listed yet.
+    pub fn graft(&mut self, dir: NodeId, tree: &ScanTree, from: NodeId) {
+        let mut queue = VecDeque::from([(from, dir)]);
+        while let Some((src, dst)) = queue.pop_front() {
+            let kids = tree.children(src);
+            let range = self.add_listing(
+                dst,
+                kids.clone().map(|k| {
+                    let n = tree.node(k);
+                    ScanChild {
+                        name: n.name.to_owned(),
+                        is_dir: n.is_dir,
+                        meta: n.meta,
+                    }
+                }),
+            );
+            let listing = tree.node(src).listing;
+            if let Some(node) = self.nodes.nodes.get_mut(dst as usize) {
+                node.set_listing(listing);
+            }
+            for (k, d) in kids.zip(range) {
+                if tree.node(k).is_dir {
+                    queue.push_back((k, d));
+                }
+            }
+        }
+    }
+
     /// The node `id`, if it exists.
     #[must_use]
     pub fn node(&self, id: NodeId) -> Option<ScanNode<'_>> {
@@ -420,6 +462,17 @@ pub trait Enumerator: Send + Sync {
     /// [`ScanError`] if the root cannot be read or the scan was cancelled. Errors below the
     /// root do not fail the scan: the affected folders are marked [`Listing::Unreadable`].
     fn scan(&self, request: &ScanRequest<'_>) -> Result<ScanTree, ScanError>;
+
+    /// Lists `request.root` alone, for the refresh of one folder (ADR-0007): its children,
+    /// with the folders among them that [`Enumerator::scan`] would descend marked
+    /// [`Listing::NotListed`]. An enumerator may give more, as the default does (the whole
+    /// subtree): the refresh then takes what it needs.
+    ///
+    /// # Errors
+    /// As [`Enumerator::scan`].
+    fn list(&self, request: &ScanRequest<'_>) -> Result<ScanTree, ScanError> {
+        self.scan(request)
+    }
 }
 
 #[cfg(test)]
@@ -480,6 +533,32 @@ mod tests {
         assert!(t.has_file_refs());
         assert!(t.memory() >= 3 * size_of::<Node>());
         assert_eq!(size_of::<Node>(), 64);
+    }
+
+    // A subtree copied into another tree keeps its names, metadata, folders and listing states.
+    #[test]
+    fn grafted_subtrees_are_copied_whole() {
+        let mut src = ScanTreeBuilder::new(EntryMeta::default());
+        let top = src.add_listing(ScanTree::ROOT, [child("d", true), child("f", false)]);
+        let below = src.add_listing(top.start, [child("e", true), child("g", false)]);
+        src.add_listing(below.start, [child("h", false)]);
+        src.mark_unreadable(below.start);
+        let src = src.finish(ScanStats::default());
+
+        let mut b = ScanTreeBuilder::new(EntryMeta::default());
+        let mine = b.add_listing(ScanTree::ROOT, [child("x", true), child("y", true)]);
+        b.graft(mine.start, &src, top.start);
+        b.mark_not_listed(mine.start + 1);
+        let t = b.finish(ScanStats::default());
+        let x = mine.start;
+        let names = |id: NodeId| -> Vec<&str> { t.children(id).map(|k| t.node(k).name).collect() };
+        assert_eq!(names(x), ["e", "g"]);
+        let e = t.children(x).start;
+        assert_eq!(t.node(e).listing, Listing::Unreadable);
+        assert_eq!(names(e), ["h"]);
+        assert_eq!(t.node(x).listing, Listing::Complete);
+        assert_eq!(t.node(x + 1).listing, Listing::NotListed);
+        assert_eq!(t.len(), 6);
     }
 
     #[test]
