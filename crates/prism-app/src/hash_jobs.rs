@@ -58,8 +58,17 @@ pub struct HashingState {
     excluded: Mutex<HashSet<VolumeId>>,
     status: Mutex<HashMap<VolumeId, (HashStatus, Instant)>>,
     last_run: Mutex<HashMap<VolumeId, Instant>>,
-    /// Files the last complete round could not read: changed while read, or unreadable.
-    skipped: Mutex<HashMap<VolumeId, u64>>,
+    /// What the last complete round could not do.
+    skipped: Mutex<HashMap<VolumeId, Skipped>>,
+}
+
+/// What the last complete round of a volume left: files it could not read (changed while read,
+/// changed since the catalog was updated, or unreadable) and images and videos it could not
+/// print because they changed since the catalog was updated.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Skipped {
+    pub files: u64,
+    pub prints: u64,
 }
 
 /// Why the analysis of a volume with files left is not running now (the activity panel says
@@ -144,13 +153,17 @@ impl HashingState {
         self.skipped().clear();
     }
 
-    fn skipped(&self) -> MutexGuard<'_, HashMap<VolumeId, u64>> {
+    fn skipped(&self) -> MutexGuard<'_, HashMap<VolumeId, Skipped>> {
         self.skipped.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Files of the volume the last complete round could not read.
     pub fn skipped_files(&self, volume: VolumeId) -> u64 {
-        self.skipped().get(&volume).copied().unwrap_or(0)
+        self.skipped().get(&volume).map_or(0, |s| s.files)
+    }
+
+    fn skipped_of(&self, volume: VolumeId) -> Skipped {
+        self.skipped().get(&volume).copied().unwrap_or_default()
     }
 
     /// Why the analysis of a volume with `left` files without a hash is not running, if it is
@@ -210,11 +223,14 @@ pub fn refresh(state: &AppState, volume: VolumeId) {
     }
 }
 
-/// Whether the only work left on a volume is the files its last complete round could not read
-/// (`skipped`): every image and video has its print.
-fn only_skipped_left(s: &HashStatus, skipped: u64) -> bool {
-    let left = s.total.saturating_sub(s.hashed);
-    left > 0 && skipped >= left && s.images <= s.printed && s.videos <= s.videos_printed
+/// Whether the only work left on a volume is what its last complete round could not do: files
+/// it could not read and prints of files changed since the catalog was updated. Seen in a
+/// diagnostic package: with the catalog of C: behind, a round every 2 minutes found 2,166
+/// changed files and 377 changed images, and did nothing else.
+fn only_skipped_left(s: &HashStatus, skipped: Skipped) -> bool {
+    let files = s.total.saturating_sub(s.hashed);
+    let prints = s.images.saturating_sub(s.printed) + s.videos.saturating_sub(s.videos_printed);
+    files + prints > 0 && skipped.files >= files && skipped.prints >= prints
 }
 
 /// Called every 30 s: counts the progress of the volumes that need it and queues a hash job
@@ -271,12 +287,12 @@ pub fn tick(state: &Arc<AppState>) -> bool {
         });
         let progress = state.hashing.progress(id);
         let pending = progress.is_some_and(|s| s.pending());
-        let rerun =
-            if progress.is_some_and(|s| only_skipped_left(&s, state.hashing.skipped_files(id))) {
-                RERUN_SKIPPED
-            } else {
-                RERUN
-            };
+        let rerun = if progress.is_some_and(|s| only_skipped_left(&s, state.hashing.skipped_of(id)))
+        {
+            RERUN_SKIPPED
+        } else {
+            RERUN
+        };
         let recent = state
             .hashing
             .last_run()
@@ -317,11 +333,6 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                         return Err(e.to_string());
                     }
                 };
-                if !report.interrupted {
-                    s.hashing
-                        .skipped()
-                        .insert(id, report.changed + report.unreadable);
-                }
                 tracing::info!(
                     volume = id.0,
                     quick = report.quick,
@@ -350,16 +361,27 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                         &pause,
                         &ctx.progress,
                     );
+                    // Prints skipped because their file changed; unknown (0) if a pass did not
+                    // end, so the next round comes at the usual pace.
+                    let mut skipped_prints = Some(0u64);
                     match prints {
-                        Ok(p) => tracing::info!(
-                            volume = id.0,
-                            printed = p.printed,
-                            unreadable = p.unreadable,
-                            changed = p.changed,
-                            interrupted = p.interrupted,
-                            "image prints finished"
-                        ),
-                        Err(e) => tracing::warn!(volume = id.0, error = %e, "image prints failed"),
+                        Ok(p) => {
+                            tracing::info!(
+                                volume = id.0,
+                                printed = p.printed,
+                                unreadable = p.unreadable,
+                                changed = p.changed,
+                                interrupted = p.interrupted,
+                                "image prints finished"
+                            );
+                            skipped_prints = skipped_prints
+                                .filter(|_| !p.interrupted)
+                                .map(|n| n + p.changed);
+                        }
+                        Err(e) => {
+                            tracing::warn!(volume = id.0, error = %e, "image prints failed");
+                            skipped_prints = None;
+                        }
                     }
                     // And of the videos, decoded by Windows (F12, ADR-0013).
                     let videos = media::video::print_videos(
@@ -372,15 +394,31 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                         &ctx.progress,
                     );
                     match videos {
-                        Ok(p) => tracing::info!(
-                            volume = id.0,
-                            printed = p.printed,
-                            unreadable = p.unreadable,
-                            interrupted = p.interrupted,
-                            "video prints finished"
-                        ),
-                        Err(e) => tracing::warn!(volume = id.0, error = %e, "video prints failed"),
+                        Ok(p) => {
+                            tracing::info!(
+                                volume = id.0,
+                                printed = p.printed,
+                                unreadable = p.unreadable,
+                                changed = p.changed,
+                                interrupted = p.interrupted,
+                                "video prints finished"
+                            );
+                            skipped_prints = skipped_prints
+                                .filter(|_| !p.interrupted)
+                                .map(|n| n + p.changed);
+                        }
+                        Err(e) => {
+                            tracing::warn!(volume = id.0, error = %e, "video prints failed");
+                            skipped_prints = None;
+                        }
                     }
+                    s.hashing.skipped().insert(
+                        id,
+                        Skipped {
+                            files: report.changed + report.unreadable,
+                            prints: skipped_prints.unwrap_or(0),
+                        },
+                    );
                 }
                 refresh(&s, id);
                 Ok(())
@@ -431,15 +469,56 @@ mod tests {
             videos: 0,
             videos_printed: 0,
         };
-        assert!(only_skipped_left(&s, 3));
-        assert!(!only_skipped_left(&s, 2), "a new file to read");
+        let files = |files| Skipped { files, prints: 0 };
+        assert!(only_skipped_left(&s, files(3)));
+        assert!(!only_skipped_left(&s, files(2)), "a new file to read");
         assert!(
-            !only_skipped_left(&HashStatus { printed: 9, ..s }, 3),
+            !only_skipped_left(&HashStatus { printed: 9, ..s }, files(3)),
             "an image to print"
         );
         assert!(
-            !only_skipped_left(&HashStatus { hashed: 100, ..s }, 3),
+            !only_skipped_left(&HashStatus { hashed: 100, ..s }, files(3)),
             "nothing left"
+        );
+    }
+
+    // Seen on C: of a company PC whose catalog was behind: files and images changed since the
+    // catalog was updated, nothing else; the round waits until the catalog catches up.
+    #[test]
+    fn rounds_with_only_changed_prints_left_wait_longer() {
+        let s = HashStatus {
+            total: 100,
+            hashed: 97,
+            images: 10,
+            printed: 8,
+            videos: 4,
+            videos_printed: 3,
+        };
+        let skipped = Skipped {
+            files: 3,
+            prints: 3,
+        };
+        assert!(only_skipped_left(&s, skipped));
+        assert!(
+            !only_skipped_left(
+                &s,
+                Skipped {
+                    prints: 2,
+                    ..skipped
+                }
+            ),
+            "a print to make"
+        );
+        let hashed = HashStatus { hashed: 100, ..s };
+        assert!(
+            only_skipped_left(
+                &hashed,
+                Skipped {
+                    files: 0,
+                    ..skipped
+                }
+            ),
+            "only prints left, all skipped"
         );
     }
 }

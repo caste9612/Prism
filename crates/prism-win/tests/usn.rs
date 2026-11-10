@@ -199,3 +199,39 @@ fn journal_records_and_single_file_fetches() {
         assert_eq!(links.meta(i), in_tree(&links.name(i)), "{}", links.name(i));
     }
 }
+
+/// READ ONLY on the system volume: the files changed lately are read through the file system
+/// as a journal update does, and none is taken for a damaged record. A stride may end with the
+/// update sequence number as data; Prism 2.1.1 took those records for damaged ones, and the
+/// journal of C: and D: of a company PC stopped (REVIEW L26).
+#[test]
+fn recently_changed_files_of_the_system_volume_are_read() {
+    let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_owned());
+    let handle = File::open(format!(r"\\.\{}", drive.trim_end_matches('\\'))).unwrap();
+    let Some(journal) = query_journal(&handle).unwrap() else {
+        return; // no journal on this machine's system volume: nothing to read
+    };
+    // Every record kept, from the oldest (a position inside a record is refused by Windows):
+    // the records that tripped 2.1.1 are a few in ten thousand, among the recent ones.
+    let batch = read_journal(&handle, journal.id, journal.first_usn, 5_000_000).unwrap();
+    let files: std::collections::BTreeSet<u64> = batch
+        .records
+        .iter()
+        .map(|r| r.file_ref)
+        .filter(|r| r & 0x0000_FFFF_FFFF_FFFF >= 24)
+        .collect();
+    let damaged: Vec<String> = files
+        .iter()
+        .filter_map(|f| match fetch_file(&handle, *f) {
+            Err(prism_win::mft::FetchError::Parse(e)) => Some(format!("{f:#x}: {e}")),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        damaged.is_empty(),
+        "{} of {} files taken for damaged records: {:?}",
+        damaged.len(),
+        files.len(),
+        &damaged[..damaged.len().min(10)]
+    );
+}

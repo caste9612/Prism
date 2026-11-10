@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use prism_core::jobs::{JobInfo, JobState};
 use prism_core::model::{Volume, VolumeId, VolumeKind, VolumeStatus};
 use prism_core::store;
 use prism_core::volumes::{
@@ -132,7 +133,7 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
 fn volume_monitor(app: &AppHandle, state: &Arc<AppState>) {
     let mut last_journal = Instant::now();
     let mut watchers = Watchers::default();
-    let mut needs_reindex: HashMap<VolumeId, Instant> = HashMap::new();
+    let mut journal = JournalWatch::default();
     loop {
         if let Err(e) = detect_once(app, state) {
             tracing::warn!(error = %e, "volume detection failed");
@@ -140,7 +141,7 @@ fn volume_monitor(app: &AppHandle, state: &Arc<AppState>) {
         watchers.sync(state);
         if last_journal.elapsed() >= JOURNAL_EVERY {
             last_journal = Instant::now();
-            journal_tick(state, &mut needs_reindex);
+            journal_tick(state, &mut journal);
         }
         std::thread::sleep(DETECT_EVERY);
     }
@@ -428,8 +429,49 @@ fn announce_new_volumes(app: &AppHandle, state: &AppState) {
 /// itself (seen in a diagnostic package: C: stayed so for hours, not updated by the journal).
 const REINDEX_AFTER: Duration = Duration::from_secs(30 * 60);
 
+/// How long the journal updates of a volume may fail one after the other before Prism reads
+/// the volume again from its MFT. Seen in a diagnostic package: one file the updates could not
+/// read kept C: and D: from being updated all night, retried every 16 seconds (REVIEW L26).
+const JOURNAL_STUCK: Duration = Duration::from_secs(10 * 60);
+
+/// What the journal rounds remember from one to the next.
+#[derive(Default)]
+struct JournalWatch {
+    /// Since when a connected NTFS volume needs a reindex.
+    needs_reindex: HashMap<VolumeId, Instant>,
+    /// Since when the journal updates of a volume fail one after the other.
+    failing: HashMap<VolumeId, Instant>,
+}
+
+/// Notes, from the last finished journal update of each volume, since when its updates fail
+/// one after the other; forgotten at the first one that works, or when the volume leaves.
+fn track_journal_failures(
+    jobs: &[JobInfo],
+    volumes: &[VolumeId],
+    failing: &mut HashMap<VolumeId, Instant>,
+    now: Instant,
+) {
+    failing.retain(|id, _| volumes.contains(id));
+    for id in volumes {
+        let last = jobs
+            .iter()
+            .filter(|j| j.kind == IndexKind::Journal.as_str() && j.volume == Some(*id))
+            .filter(|j| j.state.is_finished())
+            .max_by_key(|j| j.id);
+        match last.map(|j| j.state) {
+            Some(JobState::Failed) => {
+                failing.entry(*id).or_insert(now);
+            }
+            Some(JobState::Done) => {
+                failing.remove(id);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// F05-AC1: while Prism runs, indexed NTFS volumes are updated from their change journal.
-fn journal_tick(state: &AppState, needs_reindex: &mut HashMap<VolumeId, Instant>) {
+fn journal_tick(state: &AppState, watch: &mut JournalWatch) {
     if !state.elevated {
         return; // the journal needs administrator rights (development builds)
     }
@@ -453,10 +495,33 @@ fn journal_tick(state: &AppState, needs_reindex: &mut HashMap<VolumeId, Instant>
             .map(|v| v.id)
             .collect()
     };
+    track_journal_failures(
+        &state.engine.jobs(),
+        &candidates,
+        &mut watch.failing,
+        Instant::now(),
+    );
     for id in candidates {
-        if state.foreground_jobs(id).is_empty() {
-            let _ = state.submit_index(id, IndexKind::Journal);
+        if !state.foreground_jobs(id).is_empty() {
+            continue;
         }
+        // Updates that keep failing: the volume is read again from its MFT (seconds), which
+        // also starts the journal from now.
+        if watch
+            .failing
+            .get(&id)
+            .is_some_and(|since| since.elapsed() >= JOURNAL_STUCK)
+        {
+            tracing::warn!(
+                volume = id.0,
+                "the journal updates keep failing: reading the volume again"
+            );
+            if state.submit_index(id, IndexKind::Reread).is_ok() {
+                watch.failing.remove(&id);
+            }
+            continue;
+        }
+        let _ = state.submit_index(id, IndexKind::Journal);
     }
     // A connected NTFS volume left needing a reindex (a journal update failed or was stopped)
     // is read again from its MFT, which takes seconds, instead of waiting for the next start of
@@ -470,13 +535,13 @@ fn journal_tick(state: &AppState, needs_reindex: &mut HashMap<VolumeId, Instant>
             .map(|v| v.id)
             .collect()
     };
-    needs_reindex.retain(|id, _| stale.contains(id));
+    watch.needs_reindex.retain(|id, _| stale.contains(id));
     for id in stale {
-        let since = *needs_reindex.entry(id).or_insert_with(Instant::now);
+        let since = *watch.needs_reindex.entry(id).or_insert_with(Instant::now);
         if since.elapsed() >= REINDEX_AFTER && state.foreground_jobs(id).is_empty() {
             tracing::info!(volume = id.0, "reading again a volume that needs it");
             if state.submit_index(id, IndexKind::Update).is_ok() {
-                needs_reindex.insert(id, Instant::now());
+                watch.needs_reindex.insert(id, Instant::now());
             }
         }
     }
@@ -614,5 +679,59 @@ mod tests {
             vec![r"\\192.168.1.57\ZimaOS-HD".to_owned()]
         );
         assert_eq!(found[0].info.capacity, None);
+    }
+
+    // Seen on a company PC: the journal updates of C: and D: failed every 16 s all night. The
+    // monitor notes since when they fail, to read the volume again after a while.
+    #[test]
+    fn journal_failures_are_counted_from_the_first_one() {
+        use super::track_journal_failures;
+        use prism_core::jobs::{JobId, JobInfo, JobState, Priority};
+        use std::collections::HashMap;
+        use std::time::{Duration, Instant};
+
+        let job = |id: u64, kind: &str, volume: i64, state: JobState| JobInfo {
+            id: JobId(id),
+            kind: kind.to_owned(),
+            volume: Some(VolumeId(volume)),
+            priority: Priority::Indexing,
+            state,
+            done: 0,
+            total: 0,
+            phase: String::new(),
+            error: None,
+            created_at: 0,
+            started_at: None,
+            finished_at: None,
+        };
+        let volumes = [VolumeId(2), VolumeId(3)];
+        let mut failing = HashMap::new();
+        let t0 = Instant::now();
+        let mut jobs = vec![
+            job(1, "journal", 2, JobState::Failed),
+            job(2, "journal", 3, JobState::Done),
+            job(3, "hash", 3, JobState::Failed),
+        ];
+        track_journal_failures(&jobs, &volumes, &mut failing, t0);
+        assert_eq!(failing.get(&VolumeId(2)), Some(&t0));
+        assert!(
+            !failing.contains_key(&VolumeId(3)),
+            "other jobs do not count"
+        );
+
+        // Still failing later: the first failure is kept; a job still running changes nothing.
+        let t1 = t0 + Duration::from_secs(16);
+        jobs.push(job(4, "journal", 2, JobState::Failed));
+        jobs.push(job(5, "journal", 2, JobState::Running));
+        track_journal_failures(&jobs, &volumes, &mut failing, t1);
+        assert_eq!(failing.get(&VolumeId(2)), Some(&t0));
+
+        // One that works forgets it; a volume no longer updated is forgotten too.
+        jobs.push(job(6, "journal", 2, JobState::Done));
+        track_journal_failures(&jobs, &volumes, &mut failing, t1);
+        assert!(failing.is_empty());
+        failing.insert(VolumeId(9), t0);
+        track_journal_failures(&jobs, &volumes, &mut failing, t1);
+        assert!(!failing.contains_key(&VolumeId(9)));
     }
 }

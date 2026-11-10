@@ -264,7 +264,7 @@ impl AppState {
         let detected = self.detected(volume)?;
         let store = self.store.clone();
         let elevated = self.elevated;
-        let update = kind != IndexKind::Index;
+        let update = kind.uses_journal();
         Ok(self.engine.submit(JobSpec {
             kind: kind.as_str().to_owned(),
             volume: Some(volume),
@@ -864,15 +864,23 @@ pub enum IndexKind {
     Update,
     /// Periodic update from the NTFS change journal.
     Journal,
+    /// A full read of a volume whose journal updates keep failing (REVIEW L26): shown as an
+    /// update, but never through the journal.
+    Reread,
 }
 
 impl IndexKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Index => "index",
-            Self::Update => "update",
+            Self::Update | Self::Reread => "update",
             Self::Journal => "journal",
         }
+    }
+
+    /// Whether the job may use the change journal instead of reading the whole volume.
+    pub fn uses_journal(self) -> bool {
+        matches!(self, Self::Update | Self::Journal)
     }
 
     /// The disks the job keeps busy. A journal update reads a few records every 15 s: it does
@@ -881,7 +889,7 @@ impl IndexKind {
     pub fn disks(self, detected: &DetectedVolume) -> Vec<String> {
         match self {
             Self::Journal => Vec::new(),
-            Self::Index | Self::Update => job_disks(detected),
+            Self::Index | Self::Update | Self::Reread => job_disks(detected),
         }
     }
 }

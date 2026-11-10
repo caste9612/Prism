@@ -252,7 +252,11 @@ Componenti del journal (`prism-win`, ADR-0018):
 - `mft::fetch_file`: stato attuale di un file (record base ed estensioni, anche con
   `$ATTRIBUTE_LIST` non residente letto dai cluster) tramite `FSCTL_GET_NTFS_FILE_RECORD`,
   coerente con la cache del file system e con la stessa semantica della lettura completa
-  (codice `entry_meta` condiviso).
+  (codice `entry_meta` condiviso). Windows restituisce questi record con i fixup già
+  applicati: si riapplicano solo se tutti i settori finiscono col numero di sequenza, perché
+  un settore può finire con quel valore anche come dato (`parse::fixups_pending`, REVIEW L26).
+  Un file che non si legge in modo coerente fa ritentare l'aggiornamento senza avanzare; se i
+  tentativi falliscono per 10 minuti, il monitor rilegge il volume dalla MFT.
 - `prism-core::changes::apply_changes`: dai file cambiati (`FileChange`: stato attuale e
   genitori nominati dai record) agli elenchi **parziali** delle cartelle toccate
   (`Listing::Partial`: solo i file cambiati che ora sono lì, con le voci che quei file avevano
@@ -607,13 +611,14 @@ riprendere (§4.3).
 | Aggiornamento di un disco indicizzato | all'avvio di Prism e ogni volta che il disco torna (collegato, NAS acceso), o con *Aggiorna* | NTFS (Prism elevato): dal journal, secondi; se il journal non copre più la posizione salvata, il volume era `reindex_needed` o le modifiche non si applicano una per una, rilettura completa della MFT (secondi anche per milioni di voci). Altri file system e NAS: rilettura completa dell'albero delle cartelle (solo nomi e metadati, non il contenuto: ~45 s per 600.000 voci sul NAS dell'utente) |
 | Journal dei dischi NTFS collegati | ogni 15 s | solo i record nuovi |
 | Cartelle sorvegliate (FAT, exFAT, ReFS, NAS) | dopo ogni gruppo di cambi (fino a 5 s) | solo le cartelle cambiate; quando Windows perde notifiche o i percorsi in attesa sono più di 10.000, tutto il volume, ma non prima di 30 minuti dalla rilettura completa precedente né di 10 volte quanto è durata (al massimo 6 ore; REVIEW L25) |
-| Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'ultimo giro (30 minuti se restano solo file in uso o illeggibili) | solo i file senza hash valido, mai quelli solo nel cloud (OneDrive) o offline; cede il disco, o un posto di lavoro quando sono tutti occupati, entro mezzo secondo a un lavoro più urgente |
+| Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'ultimo giro (30 minuti se restano solo file in uso, illeggibili o cambiati rispetto al catalogo, e stampe di file cambiati; REVIEW L26) | solo i file senza hash valido, mai quelli solo nel cloud (OneDrive) o offline; cede il disco, o un posto di lavoro quando sono tutti occupati, entro mezzo secondo a un lavoro più urgente |
 | Avanzamento dell'analisi sulle schede | ogni 5 minuti (1 mentre gira), subito dopo un'indicizzazione | conteggio nel catalogo |
 | Indici di ricerca | dopo un cambio del catalogo, al massimo ogni 30 s per volume | ricostruzione in memoria del volume (L11) |
 | Salute dei dischi del PC | 10 s dopo l'avvio, poi ogni ora e appena si collega un disco | lettura SMART |
 | NAS ZimaOS | 10 s dopo l'avvio, poi ogni ora (ogni 5 minuti se l'ultima lettura è fallita) | due chiamate al NAS |
 | Spazio libero dei NAS | ogni 30 s (10 s se non risponde) | una chiamata |
 | Disco NTFS collegato rimasto `reindex_needed` | dopo 30 minuti, senza aspettare il prossimo avvio | rilettura della MFT |
+| Disco NTFS i cui aggiornamenti dal journal falliscono di fila | dopo 10 minuti di fallimenti, qualunque ne sia la causa (REVIEW L26) | rilettura della MFT, che fa ripartire il journal da quel momento |
 | Aggiornamenti di Prism | un minuto dopo l'avvio, poi ogni 24 ore (dopo un'ora se il controllo è fallito) | il `latest.json` della release |
 
 Prism non riparte mai da zero da solo con l'analisi del contenuto: si rifà per intero solo

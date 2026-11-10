@@ -278,9 +278,9 @@ pub fn parse_record(record: &mut [u8]) -> Result<Option<ParsedRecord>, ParseErro
     parse_record_with(record, false)
 }
 
-/// Like [`parse_record`] for a record returned by `FSCTL_GET_NTFS_FILE_RECORD`, which may come
-/// with the fixups already applied: they are applied only if every stride still carries the
-/// update sequence number; a mix of the two is reported as damage.
+/// Like [`parse_record`] for a record returned by `FSCTL_GET_NTFS_FILE_RECORD`, which comes
+/// from the file-system cache with the fixups already applied: they are applied again only if
+/// every stride still carries the update sequence number.
 ///
 /// # Errors
 /// [`ParseError`] for damaged records.
@@ -288,22 +288,25 @@ pub fn parse_fetched_record(record: &mut [u8]) -> Result<Option<ParsedRecord>, P
     parse_record_with(record, true)
 }
 
+/// Whether a record read through the file system still has its fixups to apply: only when
+/// every stride ends with the update sequence number. Measured on two volumes (REVIEW L26):
+/// all of 35,000 records came with the fixups applied, and a few hundred had a stride ending
+/// with the update sequence number all the same, as data — for instance in the unused tail of a
+/// short record, which keeps that value. A record read through the cache is never torn, so a
+/// mix means fixups already applied, not damage.
 fn fixups_pending(record: &[u8]) -> Result<bool, ParseError> {
     let usa_offset = usize::from(u16_at(record, 4)?);
     let usa_count = usize::from(u16_at(record, 6)?);
     let usn = u16_at(record, usa_offset)?;
-    let strides: Vec<bool> = (1..usa_count)
+    for end in (1..usa_count)
         .map(|i| i * 512)
         .filter(|end| *end <= record.len())
-        .map(|end| u16_at(record, end - 2).map(|v| v == usn))
-        .collect::<Result<_, _>>()?;
-    match (strides.iter().all(|m| *m), strides.iter().any(|m| *m)) {
-        (true, _) => Ok(true),
-        (false, false) => Ok(false),
-        (false, true) => Err(ParseError::Fixup(
-            strides.iter().position(|m| !m).unwrap_or(0),
-        )),
+    {
+        if u16_at(record, end - 2)? != usn {
+            return Ok(false);
+        }
     }
+    Ok(true)
 }
 
 fn parse_record_with(
@@ -704,6 +707,41 @@ pub(crate) mod tests {
         let mut truncated = RecordBuilder::new(false).standard(1, 2, 3).build();
         truncated[60..64].copy_from_slice(&5000u32.to_le_bytes()); // attribute too long
         assert!(parse_record(&mut truncated).is_err());
+    }
+
+    // A record read through the file system has its fixups applied; a stride may still end with
+    // the update sequence number as data (seen on C: and D:, REVIEW L26): it is not damage.
+    #[test]
+    fn fetched_records_with_the_sequence_number_as_data() {
+        let built = RecordBuilder::new(false)
+            .standard(1, 2, 3)
+            .name(5, NAMESPACE_WIN32, "a.txt")
+            .build();
+        let mut applied = built.clone();
+        apply_fixups(&mut applied).unwrap();
+        let expected = parse_record(&mut built.clone()).unwrap().unwrap();
+
+        // The unused tail of the short record holds the update sequence number at the first
+        // stride end, the second does not.
+        let mut fetched = applied.clone();
+        fetched[510..512].copy_from_slice(&0x0042u16.to_le_bytes());
+        assert_eq!(
+            parse_fetched_record(&mut fetched).unwrap().unwrap(),
+            expected
+        );
+        assert_eq!(&fetched[510..512], &0x0042u16.to_le_bytes(), "left as read");
+
+        // Already applied, and as stored (every stride stamped): both read the same.
+        assert_eq!(
+            parse_fetched_record(&mut applied.clone()).unwrap().unwrap(),
+            expected
+        );
+        assert_eq!(
+            parse_fetched_record(&mut built.clone()).unwrap().unwrap(),
+            expected
+        );
+        // Records read raw from the disk are still checked stride by stride.
+        assert_eq!(parse_record(&mut fetched), Err(ParseError::Fixup(1)));
     }
 
     #[test]

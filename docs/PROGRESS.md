@@ -5,12 +5,14 @@
 
 ## Stato attuale
 
-- **Stato**: pubblicate la **2.0.0** e la **2.1.0** (2026-11-08); la 2.1.0 è installata su un
-  PC aziendale dell'utente. **2.1.1 in pubblicazione**: correzioni dal pacchetto diagnostico di
-  quel PC (REVIEW L25). Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: verificare la release 2.1.1 e l'aggiornamento automatico delle copie
-  installate; poi le richieste dell'utente. Prima di avviare l'app di sviluppo va chiusa quella
-  installata (CLAUDE.md). Consigliata una copia della chiave fuori dal PC (REVIEW U7).
+- **Stato**: pubblicate la **2.0.0**, la **2.1.0** (2026-11-08) e la **2.1.1** (2026-11-09); il
+  PC aziendale dell'utente si è aggiornato da solo alla 2.1.1. Su `develop` la **2.1.2**, non
+  ancora pubblicata: aggiornamenti dal journal bloccati da record presi per rovinati (REVIEW
+  L26). Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: l'utente prova sul PC aziendale un installer della 2.1.2 compilato in
+  locale (senza firma degli aggiornamenti); se il nuovo pacchetto diagnostico è pulito, release
+  2.1.2 col suo via libera. Prima di avviare l'app di sviluppo va chiusa quella installata
+  (CLAUDE.md). Consigliata una copia della chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
 - **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); riduzioni della
   dimensione del catalogo (L23, l'utente: "non serve" per ora).
@@ -19,6 +21,22 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-10 — 2.1.2: il journal fermato da un falso record rovinato
+
+- Secondo pacchetto diagnostico del PC aziendale: l'aggiornamento automatico 2.1.0 → 2.1.1 è
+  riuscito e le cartelle di rete non si rileggono più per intero ogni pochi minuti, ma gli
+  aggiornamenti dal journal di C: e D: sono falliti ogni 16 secondi per tutta la notte
+  (`update sequence mismatch in sector 1`).
+- Test diagnostico in sola lettura su C: e D: di questo PC (runner amministratore, poi tolto):
+  `FSCTL_GET_NTFS_FILE_RECORD` restituisce sempre i record con i fixup applicati, e 70 record su
+  ~35.000 avevano il numero di sequenza alla fine di un settore come dato; la regola "misto =
+  rovinato" li scartava. Corretta la regola, aggiunta la rilettura della MFT dopo 10 minuti di
+  aggiornamenti falliti, e l'attesa di 30 minuti per i giri di analisi con soli file cambiati
+  rispetto al catalogo (REVIEW L26). Nuovo test elevato in sola lettura sul disco di sistema
+  (`usn.rs`).
+- L'utente ha chiesto di provare la correzione sul PC aziendale prima di una release:
+  installer compilato in locale con `build-installer.ps1 -NoUpdateSignature`.
 
 ### 2026-11-09 — 2.1.1 dal pacchetto diagnostico di un altro PC
 
