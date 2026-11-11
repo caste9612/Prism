@@ -12,11 +12,13 @@
   rileggeva interi sottoalberi, analisi delle cartelle di rete che non avanzavano, L27) e le
   correzioni del quarto pacchetto (analisi fermate da attese di pochi secondi, giri troppo
   frequenti su C:, L28); il quinto pacchetto la conferma (L29). La 2.1.2 e la 2.1.3 non sono
-  state pubblicate. Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: un pacchetto diagnostico del PC aziendale di una giornata di lavoro intera
-  con la 2.1.4; poi i punti aperti di REVIEW L29 (avanzamento delle analisi lunghe nel pacchetto
-  diagnostico, analisi di una cartella ferma dietro quella di un'altra cartella dello stesso
-  server). Prima di avviare l'app di sviluppo va chiusa quella installata (CLAUDE.md).
+  state pubblicate. Su `develop` la **2.1.5**, non ancora pubblicata: le correzioni del sesto
+  pacchetto (REVIEW L30: aggiornamento di C: fallito per due file letti con lo stesso nome, voci
+  degli hard link scambiate a ogni rilettura, motivo delle riletture e voci per disco nella
+  diagnostica). Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: release 2.1.5 col via libera dell'utente; poi un pacchetto diagnostico
+  con le voci e l'avanzamento di ogni disco. Resta aperto REVIEW L29 (2). Prima di avviare
+  l'app di sviluppo va chiusa quella installata (CLAUDE.md).
   Consigliata una copia della chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
 - **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); riduzioni della
@@ -26,6 +28,17 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-11 — 2.1.5: dal pacchetto di una giornata intera
+
+- Sesto pacchetto del PC aziendale, con la 2.1.4 pubblicata (26 ore e mezza): nessuna analisi
+  interrotta, analisi della cartella d'archivio finita, `Organ` in corso da 28 ore. Un
+  aggiornamento di C: dal journal è fallito alle 05:11 UTC (`UNIQUE constraint failed`): due
+  file cambiati letti con lo stesso nome, uno rinominato sopra l'altro fra le due letture;
+  riprodotto in un test, ora l'aggiornamento riprova al giro dopo. Ogni rilettura completa di
+  C: scambiava le voci dei nomi di un file con più hard link nella stessa cartella (1.881 voci
+  "spostate" ogni volta): corretto l'abbinamento. Nel log il motivo delle riletture complete,
+  in `system.txt` voci e avanzamento dell'analisi di ogni disco (REVIEW L30).
 
 ### 2026-11-10 — 2.1.4: analisi che non si fermano per attese di pochi secondi
 

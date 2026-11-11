@@ -993,9 +993,16 @@ fn index_with(
 ) -> Result<(), String> {
     if ntfs {
         if update {
-            ntfs::update_ntfs(store, volume, root, policy, cancel, progress)
-                .map(|_| ())
-                .map_err(|e| e.to_string())
+            match ntfs::update_ntfs(store, volume, root, policy, cancel, progress) {
+                // Why the journal was not enough: seen in a diagnostic package, two full readings
+                // of a system disk minutes apart with no reason in the log (REVIEW L30).
+                Ok(ntfs::UpdateOutcome::Reindexed { reason, .. }) => {
+                    tracing::info!(volume = volume.0, reason, "volume read again in full");
+                    Ok(())
+                }
+                Ok(_) => Ok(()),
+                Err(e) => Err(e.to_string()),
+            }
         } else {
             ntfs::index_ntfs(store, volume, root, policy, cancel, progress)
                 .map(|_| ())

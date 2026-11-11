@@ -210,6 +210,12 @@ fn background_hashing_runs_pauses_and_counts() {
         })
     );
     assert!(app.engine.jobs().is_empty());
+    // The diagnostic package says it for every disk (REVIEW L30).
+    let system = app.diagnostics_preview().unwrap().system;
+    assert!(
+        system.contains("entries, analysed 0/4 files, 0/0 images, 0/0 videos"),
+        "{system}"
+    );
     let waiting = |app: &AppState| {
         app.volume_views().unwrap()[0]
             .hashes

@@ -328,26 +328,37 @@ impl Run<'_> {
         let mut plan: Vec<Plan> = vec![Plan::New; kids.len()];
         let mut matched = vec![false; existing.len()];
         if !existing.is_empty() {
-            let by_ref: HashMap<u64, usize> = existing
-                .iter()
-                .enumerate()
-                .filter_map(|(i, e)| e.meta.file_ref.map(|r| (r, i)))
-                .collect();
+            // Several entries of a folder share a reference when a file has several names in
+            // it (hard links, as the `git-*.exe` of Git for Windows).
+            let mut by_ref: HashMap<u64, Vec<usize>> = HashMap::new();
+            for (i, e) in existing.iter().enumerate() {
+                if let Some(r) = e.meta.file_ref {
+                    by_ref.entry(r).or_default().push(i);
+                }
+            }
             let by_name: HashMap<&str, usize> = existing
                 .iter()
                 .enumerate()
                 .map(|(i, e)| (e.name.as_str(), i))
                 .collect();
-            // 1. Same file reference in the same folder (rename in place).
-            for (k, &n) in kids.iter().enumerate() {
-                let c = tree.node(n);
-                let Some(r) = c.meta.file_ref else { continue };
-                if let Some(&i) = by_ref.get(&r)
-                    && !matched[i]
-                    && existing[i].is_dir == c.is_dir
-                {
-                    matched[i] = true;
-                    plan[k] = Plan::Existing(i);
+            // 1. Same file reference in the same folder: the same name first, so the names of
+            //    a file with hard links keep their entries (REVIEW L30); then a rename in place.
+            for same_name in [true, false] {
+                for (k, &n) in kids.iter().enumerate() {
+                    if !matches!(plan[k], Plan::New) {
+                        continue;
+                    }
+                    let c = tree.node(n);
+                    let Some(r) = c.meta.file_ref else { continue };
+                    let Some(ids) = by_ref.get(&r) else { continue };
+                    if let Some(&i) = ids.iter().find(|&&i| {
+                        !matched[i]
+                            && existing[i].is_dir == c.is_dir
+                            && (!same_name || existing[i].name == c.name)
+                    }) {
+                        matched[i] = true;
+                        plan[k] = Plan::Existing(i);
+                    }
                 }
             }
             // 2. Same name, unless the references say they are different files.

@@ -218,8 +218,10 @@ L'istantanea tiene ogni voce in 64 byte (metadati con valori riservati al posto 
 D49, L1).
 
 **Reconciler** (`reconcile::reconcile`), visita in ampiezza; per ogni cartella abbina i figli
-scansionati a quelli del catalogo: (1) per riferimento al file nella stessa cartella,
-(2) per nome esatto se i riferimenti non si contraddicono, (3) per riferimento altrove nel
+scansionati a quelli del catalogo: (1) per riferimento al file nella stessa cartella, prima
+con lo stesso nome (i nomi di un file con più hard link nella stessa cartella tengono le loro
+voci, REVIEW L30), poi con un altro nome (rinomina sul posto), (2) per nome esatto se i
+riferimenti non si contraddicono, (3) per riferimento altrove nel
 volume (spostamento: la voce mantiene id e dati collegati, F05-AC4). I figli rinominati o
 il cui nome è preso da un'altra voce passano prima per un nome temporaneo (i nomi sono unici
 per cartella); le eliminazioni avvengono alla fine, salvo voci rivendicate da uno spostamento.
@@ -255,8 +257,12 @@ Componenti del journal (`prism-win`, ADR-0018):
   (codice `entry_meta` condiviso). Windows restituisce questi record con i fixup già
   applicati: si riapplicano solo se tutti i settori finiscono col numero di sequenza, perché
   un settore può finire con quel valore anche come dato (`parse::fixups_pending`, REVIEW L26).
-  Un file che non si legge in modo coerente fa ritentare l'aggiornamento senza avanzare; se i
-  tentativi falliscono per 10 minuti, il monitor rilegge il volume dalla MFT.
+  Un file che non si legge in modo coerente fa ritentare l'aggiornamento senza avanzare; così
+  anche due file cambiati letti con lo stesso nome nella stessa cartella
+  (`changes::name_claimed_twice`: gli stati si leggono uno dopo l'altro, e un programma può
+  rinominare un file sopra un altro fra le due letture; applicati, i due nomi si
+  scontrerebbero nel catalogo, REVIEW L30). Se i tentativi falliscono per 10 minuti, il monitor
+  rilegge il volume dalla MFT.
 - `prism-core::changes::apply_changes`: dai file cambiati (`FileChange`: stato attuale e
   genitori nominati dai record) agli elenchi **parziali** delle cartelle toccate
   (`Listing::Partial`: solo i file cambiati che ora sono lì, con le voci che quei file avevano
@@ -269,7 +275,7 @@ Componenti del journal (`prism-win`, ADR-0018):
 - `prism-win::ntfs`: `index_ntfs` (posizione del journal letta prima della lettura della MFT e
   salvata dopo) e `update_ntfs` (journal → `apply_changes`; ripiego su `index_ntfs` se la
   posizione manca o è persa, o se le modifiche non si possono applicare: es. cartella con
-  contenuto ripristinata dal Cestino).
+  contenuto ripristinata dal Cestino; il motivo va nel log, `volume read again in full`).
 
 Sorveglianza cartelle (volumi senza journal, ADR-0007):
 
@@ -873,8 +879,9 @@ già, e crea la release `v<versione>` sul commit compilato, con le note di
   thread `prism-nas`; i problemi (RAID non ok, disco non in salute, guasto o mancante) sono
   chiavi stabili, e quelle nuove rispetto alla lettura precedente danno una notifica.
 - Pacchetto diagnostico (`prism-core::diagnostics`, `prism-app/src/diagnostics_state.rs`):
-  `system.txt` (versione, Windows, diritti, contatori del catalogo, impostazioni, dischi, job in
-  corso) e i log, in uno ZIP senza compressione scritto da Prism stesso (nessuna libreria in
+  `system.txt` (versione, Windows, diritti, contatori del catalogo, impostazioni, dischi con le
+  loro voci e l'avanzamento dell'analisi, job in corso col loro disco, avanzamento e durata,
+  REVIEW L30) e i log, in uno ZIP senza compressione scritto da Prism stesso (nessuna libreria in
   più). L'interfaccia mostra prima l'elenco dei file e il testo di `system.txt`; il file va
   nella cartella Download (in sviluppo nella cartella dati) senza mai sostituirne uno esistente.
 - Reset del catalogo (F21-AC4): `store::reset_catalog` toglie ogni volume come la rimozione di

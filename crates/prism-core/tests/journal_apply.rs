@@ -13,7 +13,7 @@ use std::sync::atomic::AtomicU64;
 use common::TestCatalog;
 use common::fakefs::{FakeFs, ROOT, Rng};
 use prism_core::cancel::CancelToken;
-use prism_core::changes::{ApplyOutcome, apply_changes};
+use prism_core::changes::{ApplyOutcome, apply_changes, name_claimed_twice};
 use prism_core::exclusion::ExclusionPolicy;
 use prism_core::model::{EntryId, VolumeId};
 use proptest::prelude::*;
@@ -215,4 +215,53 @@ fn journal_updates_stress() {
         let steps = 1 + (seed % 15) as usize;
         check(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15), 4, steps);
     }
+}
+
+/// The states of the changed files are read one after the other: a file renamed over another
+/// between the two reads leaves the name to both (REVIEW L30, seen on a system disk during a
+/// program update). Applied as they are, the two collide in the catalog; the journal update
+/// checks for it first and tries again later.
+#[test]
+fn a_name_read_for_two_changed_files_is_found() {
+    let mut fs = FakeFs::new();
+    let docs = fs.create(ROOT, "docs", true, 0).unwrap();
+    let old = fs.create(docs, "a.txt", false, 10).unwrap();
+    fs.take_changes();
+    let cat = TestCatalog::new();
+    let volume = cat.add_volume(ROOT_PATH);
+    index(&cat, volume, &fs);
+
+    // A program writes a new version beside the file, then renames it over the file.
+    let new = fs.create(docs, "a.txt.tmp", false, 20).unwrap();
+    let old_read_first = fs.state_of(old);
+    fs.remove(old);
+    assert!(fs.rename(new, docs, "a.txt"));
+    let mut changes = fs.take_changes();
+    for c in &mut changes {
+        if c.file_ref == old {
+            c.state.clone_from(&old_read_first);
+        }
+    }
+    assert_eq!(name_claimed_twice(&changes), Some(docs));
+    let err = apply_changes(
+        &cat.store,
+        volume,
+        &ExclusionPolicy::with_defaults(),
+        &changes,
+        &fs,
+        &CancelToken::new(),
+        &AtomicU64::new(0),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("UNIQUE"), "{err}");
+
+    // Read again, the states agree.
+    let changes: Vec<_> = changes
+        .into_iter()
+        .map(|mut c| {
+            c.state = fs.state_of(c.file_ref);
+            c
+        })
+        .collect();
+    assert_eq!(name_claimed_twice(&changes), None);
 }

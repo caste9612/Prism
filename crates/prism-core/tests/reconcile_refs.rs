@@ -324,3 +324,68 @@ fn reindexing_an_unchanged_volume_changes_nothing() {
     assert_eq!(r.unchanged as usize, fs.refs().len());
     assert_eq!(before, ids_by_ref(&cat, v));
 }
+
+/// A file with several names in one folder (hard links, as `git.exe` and the `git-*.exe` of
+/// Git for Windows): the names share one file reference. Seen in a diagnostic package: every
+/// full reading of a system disk moved the same 1,881 entries.
+#[test]
+fn hard_links_in_one_folder_keep_their_entries() {
+    use prism_core::model::{ATTR_DIRECTORY, EntryMeta, FileTime};
+    use prism_core::scan::{ScanChild, ScanStats, ScanTree, ScanTreeBuilder};
+    let meta = |r: u64, dir: bool| EntryMeta {
+        size: if dir { 0 } else { 100 },
+        alloc_size: Some(4096),
+        created: Some(FileTime(1_000)),
+        modified: Some(FileTime(2_000)),
+        attrs: if dir { ATTR_DIRECTORY } else { 0x20 },
+        file_ref: Some(r),
+    };
+    let tree = || {
+        let mut b = ScanTreeBuilder::new(meta(5, true));
+        let names = ["a.exe", "b.exe", "c.exe", "other.txt"];
+        b.add_listing(
+            ScanTree::ROOT,
+            names.iter().map(|n| ScanChild {
+                name: (*n).to_owned(),
+                is_dir: false,
+                meta: meta(if *n == "other.txt" { 41 } else { 40 }, false),
+            }),
+        );
+        b.finish(ScanStats::default())
+    };
+    let cat = TestCatalog::new();
+    let v = cat.add_volume(ROOT_PATH);
+    let policy = ExclusionPolicy::default();
+    let run = || {
+        cat.index_with(
+            v,
+            Path::new(ROOT_PATH),
+            &FixedTree(tree()),
+            &policy,
+            &CancelToken::new(),
+        )
+        .unwrap()
+        .reconcile
+    };
+    run();
+    let names_of = || {
+        cat.store
+            .read(|c| {
+                let mut stmt = c.prepare("SELECT name, id FROM entries WHERE volume_id = ?1")?;
+                let rows =
+                    stmt.query_map([v.0], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+                Ok(rows.collect::<Result<HashMap<_, _>, _>>()?)
+            })
+            .unwrap()
+    };
+    let before = names_of();
+    for _ in 0..3 {
+        let r = run();
+        assert_eq!(
+            (r.inserted, r.updated, r.moved, r.deleted),
+            (0, 0, 0, 0),
+            "{r:?}"
+        );
+        assert_eq!(names_of(), before);
+    }
+}

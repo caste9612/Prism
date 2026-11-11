@@ -85,6 +85,22 @@ pub enum ApplyError {
 
 const MAX_DEPTH: usize = 10_000;
 
+/// A folder (by file reference) where two changed files have the same name. The states of the
+/// changed files are read one after the other, while programs keep working: a file renamed
+/// over another between two reads leaves the name to both. Applied, the two would collide in
+/// the catalog; the caller tries again later, when the journal also has the records of what
+/// happened meanwhile (REVIEW L30: seen once a day on a system disk during program updates).
+#[must_use]
+pub fn name_claimed_twice(changes: &[FileChange]) -> Option<u64> {
+    let mut seen: HashSet<(u64, &str)> = HashSet::new();
+    changes
+        .iter()
+        .filter_map(|c| c.state.as_ref())
+        .flat_map(|s| s.names.iter())
+        .find(|n| !seen.insert((n.parent_ref, n.name.as_str())))
+        .map(|n| n.parent_ref)
+}
+
 /// Applies `changes` to the catalog of `volume` (see the module documentation).
 ///
 /// # Errors

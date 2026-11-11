@@ -58,10 +58,11 @@ impl AppState {
         let (volumes, db_size) = self
             .store
             .read(|c| Ok((store::volumes(c)?, store::database_size(c)?)))?;
-        let mut entries = 0u64;
+        let mut counts = Vec::with_capacity(volumes.len());
         for v in &volumes {
-            entries += self.store.read(|c| store::entry_count(c, v.id))?;
+            counts.push(self.store.read(|c| store::entry_count(c, v.id))?);
         }
+        let entries: u64 = counts.iter().sum();
         let settings = self.settings();
         let online = self.online();
         let mut r = String::new();
@@ -106,11 +107,14 @@ impl AppState {
                 ""
             }
         );
+        // Entries and analysis progress of every disk, and the disk of every job: a package
+        // showed 185,000 entries fewer and a day-long analysis without saying where (REVIEW
+        // L29, L30).
         let _ = writeln!(r, "Disks:");
-        for v in &volumes {
-            let _ = writeln!(
+        for (v, count) in volumes.iter().zip(&counts) {
+            let _ = write!(
                 r,
-                "  #{} {} - {} {} {} GB, {}, {}",
+                "  #{} {} - {} {} {} GB, {}, {}, {count} entries",
                 v.id.0,
                 disk_name(v),
                 v.info.kind.as_str(),
@@ -123,11 +127,33 @@ impl AppState {
                     "not connected"
                 }
             );
+            if let Some(s) = self.hashing.progress(v.id) {
+                let _ = write!(
+                    r,
+                    ", analysed {}/{} files, {}/{} images, {}/{} videos",
+                    s.hashed, s.total, s.printed, s.images, s.videos_printed, s.videos
+                );
+            }
+            let _ = writeln!(r);
         }
         drop(online);
         let _ = writeln!(r, "Jobs:");
+        let now = prism_core::model::unix_millis_now();
         for j in self.engine.jobs().iter().filter(|j| !j.state.is_finished()) {
-            let _ = writeln!(r, "  {} {} ({})", j.kind, j.state.as_str(), j.phase);
+            let disk = j.volume.map_or_else(String::new, |v| format!(" #{}", v.0));
+            let _ = write!(
+                r,
+                "  {}{disk} {} ({}) {}/{}",
+                j.kind,
+                j.state.as_str(),
+                j.phase,
+                j.done,
+                j.total
+            );
+            if let Some(started) = j.started_at {
+                let _ = write!(r, ", for {} min", (now - started).max(0) / 60_000);
+            }
+            let _ = writeln!(r);
         }
         Ok(r)
     }

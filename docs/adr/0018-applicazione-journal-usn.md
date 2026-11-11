@@ -39,7 +39,10 @@ risultato. Quando il volume diventa `reindex_needed` la posizione si cancella.
    codice `entry_meta`). Un file che non esiste più è cancellato. Se una lista di attributi non
    residente non è ancora coerente sul disco (`FetchError::Stale`) l'aggiornamento si ferma
    senza avanzare la posizione e riprova più tardi; dopo alcuni tentativi, riconciliazione
-   completa.
+   completa. Gli stati si leggono uno dopo l'altro mentre i programmi lavorano: se due file
+   risultano con lo stesso nome nella stessa cartella (uno rinominato sopra l'altro fra le due
+   letture), l'aggiornamento riprova allo stesso modo, invece di scontrarsi col vincolo di
+   unicità del catalogo (REVIEW L30).
 4. **Cartelle toccate**: i genitori nel catalogo delle voci dei file toccati (vecchie
    posizioni), i genitori attuali di tutti i loro nomi (nuove posizioni, e tutti i nomi dei file
    con hard link, perché il nome che conta lo spazio può cambiare), e i genitori indicati dai

@@ -224,6 +224,12 @@ pub fn update_ntfs(
         fetch_ms = (started.elapsed() - read).as_millis(),
         "journal read"
     );
+    // Files that changed while being read: the next round reads them again (REVIEW L30).
+    if let Some(folder) = changes::name_claimed_twice(&changes) {
+        return Err(NtfsError::Retry(format!(
+            "two changed files have the same name in folder {folder:#x}"
+        )));
+    }
     store.write(move |w| store::set_volume_status(w, volume, VolumeStatus::Indexing))?;
     let applied = changes::apply_changes(
         store,
