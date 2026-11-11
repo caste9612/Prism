@@ -99,8 +99,14 @@ fn f06_hashes_and_f10_ac1_duplicate_groups() {
     assert_ne!(a.quick, d.quick);
     assert_eq!(a.full, b.full);
     assert_ne!(a.full, c.full);
+    // Alone in its size: not in the quick pass. Small, it is read whole by the full pass, which
+    // keeps its quick hash too (REVIEW L31).
     let alone = h(r"e\alone.bin").unwrap();
-    assert!(alone.quick.is_none() && alone.full.is_some());
+    assert!(alone.full.is_some());
+    assert_eq!(
+        alone.quick,
+        Some(prism_core::hashing::quick_hash(&sb.path(r"e\alone.bin"), 1234).unwrap())
+    );
     assert!(h("z.bin").is_none(), "empty files are not hashed");
 
     // F10-AC1: one group, a and b.

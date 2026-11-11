@@ -12,13 +12,15 @@
   rileggeva interi sottoalberi, analisi delle cartelle di rete che non avanzavano, L27) e le
   correzioni del quarto pacchetto (analisi fermate da attese di pochi secondi, giri troppo
   frequenti su C:, L28); il quinto pacchetto la conferma (L29). La 2.1.2 e la 2.1.3 non sono
-  state pubblicate. Su `develop` la **2.1.5**, non ancora pubblicata: le correzioni del sesto
-  pacchetto (REVIEW L30: aggiornamento di C: fallito per due file letti con lo stesso nome, voci
-  degli hard link scambiate a ogni rilettura, motivo delle riletture e voci per disco nella
-  diagnostica). Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: release 2.1.5 col via libera dell'utente; poi un pacchetto diagnostico
-  con le voci e l'avanzamento di ogni disco. Resta aperto REVIEW L29 (2). Prima di avviare
-  l'app di sviluppo va chiusa quella installata (CLAUDE.md).
+  state pubblicate. Su `develop` la **2.2.0**, non ancora pubblicata, da provare sul PC
+  aziendale con un installer locale: comprende la 2.1.5 (mai pubblicata: correzioni del sesto
+  pacchetto, REVIEW L30) e un'analisi del contenuto più veloce sulle cartelle di rete (L31: ogni
+  file aperto una volta, file piccoli e immagini letti una volta sola, 4 file alla volta sulla
+  rete, nuove righe di log). Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: un pacchetto diagnostico del PC aziendale con la 2.2.0 di prova, per
+  misurare il guadagno sulla rete (righe `hashing finished` e `hashing progress`); poi la
+  release col via libera dell'utente. Resta aperto REVIEW L29 (2). Prima di avviare l'app di
+  sviluppo va chiusa quella installata (CLAUDE.md).
   Consigliata una copia della chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
 - **Decisioni in sospeso**: firma del codice (U1, per ora nessuna, come Orbit); riduzioni della
@@ -28,6 +30,17 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-11 — 2.2.0: analisi più veloce sulle cartelle di rete
+
+- Dai tempi del sesto pacchetto: l'archivio di rete (2,5 milioni di file) ha richiesto 27 ore,
+  21 e mezza per gli hash un file alla volta; le impronte, con 4 thread, andavano 3 volte più
+  veloci sugli stessi file. Ogni file ora si apre una volta, i file piccoli e le immagini si
+  leggono una volta sola (hash e impronta dagli stessi byte), sulla rete 4 file alla volta;
+  l'avanzamento di immagini e video si conta senza caricare tutti i file. Nuove righe di log
+  per misurare (REVIEW L31). `prism-cli hash-bench` confronta la lettura della 2.1 con quella
+  nuova: su un SSD NVMe la lettura in parallelo non cambia nulla di misurabile, quindi sui
+  dischi locali si legge un file alla volta.
 
 ### 2026-11-11 — 2.1.5: dal pacchetto di una giornata intera
 

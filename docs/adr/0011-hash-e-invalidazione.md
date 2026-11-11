@@ -22,6 +22,16 @@ Nel catalogo reale, inoltre, nessun hash era memorizzato.
 - Prima di qualunque eliminazione basata sui duplicati, l'hash completo viene **ricalcolato**
   sul file reale (F16-AC3).
 
+### Aggiornamento 2026-11-11 (REVIEW L31)
+
+Su un file server aziendale l'analisi di 2,5 milioni di file ha richiesto 21 ore e mezza, un
+file alla volta: il tempo se ne andava ad aspettare il server per ogni file più che a leggerlo.
+Ogni file si apre una volta sola (dimensione e data dal file aperto); i file fino a 1 MiB si
+leggono interi nella prima passata, che ne tiene anche l'hash completo; le immagini lette
+intere si stampano dagli stessi byte; sulle unità di rete si leggono 4 file alla volta. Gli
+hash restano gli stessi (stesso BLAKE3 sugli stessi byte); un file letto intero ha anche l'hash
+rapido, che non costa altro.
+
 ## Conseguenze
 
 - Duplicati, verifica backup e confronto per contenuto diventano istantanei una volta

@@ -94,6 +94,15 @@ pub fn disk_meta(path: &Path) -> std::io::Result<(bool, EntryMeta)> {
     Ok(meta_from(&std::fs::symlink_metadata(path)?))
 }
 
+/// As [`disk_meta`], from a file already open: on a network share it spares the server an
+/// opening of the file by name (REVIEW L31).
+///
+/// # Errors
+/// I/O errors.
+pub fn open_meta(file: &std::fs::File) -> std::io::Result<(bool, EntryMeta)> {
+    Ok(meta_from(&file.metadata()?))
+}
+
 #[cfg(windows)]
 fn filetime(raw: u64) -> Option<FileTime> {
     (raw != 0).then(|| FileTime(i64::try_from(raw).unwrap_or(i64::MAX)))

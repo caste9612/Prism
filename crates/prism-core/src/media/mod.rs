@@ -114,7 +114,16 @@ fn decode(data: &[u8], format: Option<ImageFormat>) -> Result<DynamicImage, Medi
 /// # Errors
 /// [`MediaError`] when the file cannot be read or decoded.
 pub fn print_image(path: &Path) -> Result<ImagePrint, MediaError> {
-    let (img, (width, height)) = load(path)?;
+    print_bytes(&std::fs::read(path)?, path)
+}
+
+/// Prints the content of the image at `path`, already read (the analysis prints the images it
+/// reads whole for their hashes from the same bytes, REVIEW L31). `path` gives the format.
+///
+/// # Errors
+/// [`MediaError`] when the content cannot be decoded.
+pub fn print_bytes(data: &[u8], path: &Path) -> Result<ImagePrint, MediaError> {
+    let (img, (width, height)) = load_bytes(data, path)?;
     Ok(ImagePrint {
         dhash: dhash(&img),
         width,
@@ -124,18 +133,22 @@ pub fn print_image(path: &Path) -> Result<ImagePrint, MediaError> {
 
 /// The decoded image (the preview for a RAW file) and the size to show for it.
 fn load(path: &Path) -> Result<(DynamicImage, (u32, u32)), MediaError> {
-    let data = std::fs::read(path)?;
+    load_bytes(&std::fs::read(path)?, path)
+}
+
+/// As [`load`], from the content of the file at `path`.
+fn load_bytes(data: &[u8], path: &Path) -> Result<(DynamicImage, (u32, u32)), MediaError> {
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     if RAW_EXTENSIONS.contains(&ext.as_str()) {
-        let preview = raw::preview(&data).ok_or(MediaError::NoPreview)?;
+        let preview = raw::preview(data).ok_or(MediaError::NoPreview)?;
         let img = decode(preview.data, Some(ImageFormat::Jpeg))?;
-        let size = raw::largest_size(&data).unwrap_or((img.width(), img.height()));
+        let size = raw::largest_size(data).unwrap_or((img.width(), img.height()));
         return Ok((img, size));
     }
-    let img = decode(&data, None)?;
+    let img = decode(data, None)?;
     let size = (img.width(), img.height());
     Ok((img, size))
 }
@@ -197,7 +210,13 @@ pub struct PrintReport {
 
 /// Whether a file of the catalog is an image Prism prints: printable and not too large.
 fn wants_print(s: &store::PrintState) -> bool {
-    is_printable(&s.name) && s.size <= MAX_IMAGE_BYTES
+    is_image_to_print(&s.name, s.size)
+}
+
+/// Whether a file (stored name and size) is an image Prism prints: printable and not too large.
+#[must_use]
+pub fn is_image_to_print(stored_name: &str, size: u64) -> bool {
+    is_printable(stored_name) && size <= MAX_IMAGE_BYTES
 }
 
 /// Images of a volume Prism prints, with and without a valid print (decoded or not). Images
@@ -210,14 +229,7 @@ pub fn print_progress(
     conn: &rusqlite::Connection,
     volume: VolumeId,
 ) -> Result<(u64, u64), StoreError> {
-    let states = store::print_states(conn, volume)?;
-    let images = states.iter().filter(|s| wants_print(s));
-    let (mut total, mut done) = (0, 0);
-    for s in images {
-        total += 1;
-        done += u64::from(s.printed);
-    }
-    Ok((total, done))
+    store::count_prints(conn, volume, "image_prints", &is_image_to_print)
 }
 
 /// Prints the images of a volume reached at `root` that have no valid print, with the worker
@@ -520,15 +532,7 @@ pub mod video {
         conn: &rusqlite::Connection,
         volume: VolumeId,
     ) -> Result<(u64, u64), StoreError> {
-        let (mut total, mut done) = (0, 0);
-        for s in store::video_print_states(conn, volume)?
-            .iter()
-            .filter(|s| is_video(&s.name))
-        {
-            total += 1;
-            done += u64::from(s.printed);
-        }
-        Ok((total, done))
+        store::count_prints(conn, volume, "video_prints", &|name, _| is_video(name))
     }
 
     /// Prints the videos of a volume reached at `root` that have no valid print.

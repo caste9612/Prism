@@ -88,6 +88,9 @@ pub struct HashState {
     pub modified: Option<FileTime>,
     pub quick: Option<Digest>,
     pub full: Option<Digest>,
+    /// Whether the file has a valid image print (decoded or not): an image read whole for its
+    /// hashes is printed from the same bytes when it has none (REVIEW L31).
+    pub printed: bool,
 }
 
 /// The quick hash of `e` stored in `h`, if still valid for its size and time.
@@ -109,8 +112,10 @@ const VALID_FULL: &str =
 /// SQLite errors.
 pub fn hash_state(conn: &Connection, entry: EntryId) -> Result<Option<HashState>, StoreError> {
     let mut stmt = conn.prepare_cached(&format!(
-        "SELECT e.id, e.size, e.modified_at, e.parent_id, e.name, {VALID_QUICK}, {VALID_FULL} \
+        "SELECT e.id, e.size, e.modified_at, e.parent_id, e.name, {VALID_QUICK}, {VALID_FULL}, \
+                p.entry_id IS NOT NULL AND p.size = e.size AND p.modified_at IS e.modified_at \
          FROM entries e LEFT JOIN content_hashes h ON h.entry_id = e.id \
+           LEFT JOIN image_prints p ON p.entry_id = e.id \
          WHERE e.id = ?1 AND e.is_dir = 0 AND e.size > 0"
     ))?;
     Ok(stmt
@@ -123,6 +128,7 @@ pub fn hash_state(conn: &Connection, entry: EntryId) -> Result<Option<HashState>
                 name: r.get(4)?,
                 quick: digest(r.get(5)?),
                 full: digest(r.get(6)?),
+                printed: r.get(7)?,
             })
         })
         .optional()?)

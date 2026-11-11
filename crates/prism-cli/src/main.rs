@@ -6,6 +6,7 @@
 
 mod bench;
 mod format;
+mod hash_bench;
 mod mem_bench;
 mod print_bench;
 mod replicate;
@@ -134,6 +135,17 @@ enum Command {
         #[arg(long, value_delimiter = ',', default_value = "1,2,4")]
         threads: Vec<usize>,
     },
+    /// Read the files of a folder as the content analysis does, with 1, 2, 4… files at the
+    /// same time, against the reading of 2.1 (REVIEW L31). Read-only.
+    HashBench {
+        folder: PathBuf,
+        /// Files read at most (shared among the runs).
+        #[arg(long, default_value_t = 2000)]
+        limit: usize,
+        /// Files read at the same time, one run each.
+        #[arg(long, value_delimiter = ',', default_value = "1,4,8")]
+        readers: Vec<usize>,
+    },
     /// Catalog size and counters.
     Stats,
     /// Check the consistency of the catalog.
@@ -227,6 +239,11 @@ fn main() -> ExitCode {
             limit,
             threads,
         } => print_bench::run(folder, *limit, threads),
+        Command::HashBench {
+            folder,
+            limit,
+            readers,
+        } => hash_bench::run(folder, *limit, readers),
         command => match open_store(cli.db.as_deref()) {
             Ok(store) => run(&store, command),
             Err(e) => Err(e),
@@ -289,7 +306,7 @@ fn run(store: &Store, command: &Command) -> CliResult {
         Command::MemBench => mem_bench::run(store),
         Command::Stats => stats(store),
         Command::Check => check(store),
-        Command::Bench { .. } | Command::PrintBench { .. } => Ok(()),
+        Command::Bench { .. } | Command::PrintBench { .. } | Command::HashBench { .. } => Ok(()),
     }
 }
 

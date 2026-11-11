@@ -402,3 +402,123 @@ fn f12_background_video_prints_and_groups() {
         (5, 4)
     );
 }
+
+// REVIEW L31: the analysis reads each image once. With several readers, the images read whole
+// for their hashes are printed from the same bytes, with the prints the print pass gives, and
+// the print pass has nothing left; the hashes are those of a run that reads one file at a time.
+#[test]
+fn images_are_printed_from_the_bytes_read_for_their_hashes() {
+    use prism_core::hashing::{
+        HashOptions, HashProgress, SMALL_FILE, hash_volume, hash_volume_with,
+    };
+    let sb = Sandbox::new();
+    let base = DynamicImage::ImageRgb8(photo(400, 300));
+    let files: Vec<(&str, Vec<u8>)> = vec![
+        ("a.png", encode(&base, ImageFormat::Png)),
+        ("b.jpg", jpeg(&base, 50)),
+        ("copy/b.jpg", jpeg(&base, 50)),
+        (
+            "c.gif",
+            encode(&DynamicImage::ImageRgb8(other(400, 300)), ImageFormat::Gif),
+        ),
+        ("broken.jpg", b"\xFF\xD8\xFF garbage".to_vec()),
+        ("notes.txt", b"not an image".to_vec()),
+        (
+            "big.bin",
+            (0..2 * SMALL_FILE + 5).map(|i| (i % 249) as u8).collect(),
+        ),
+    ];
+    sb.fs.create_dir_all(&sb.path("copy")).unwrap();
+    for (rel, data) in &files {
+        sb.fs.write(&sb.path(rel), data).unwrap();
+    }
+    let state = |cat: &TestCatalog, volume| {
+        let prints = cat.store.read(store::valid_prints).unwrap();
+        files
+            .iter()
+            .map(|(rel, _)| {
+                let id = cat
+                    .store
+                    .read(|c| store::resolve_relative_path(c, volume, &rel.replace('/', "\\")))
+                    .unwrap()
+                    .unwrap()
+                    .id;
+                let hashes = cat
+                    .store
+                    .read(|c| store::valid_hashes(c, id))
+                    .unwrap()
+                    .unwrap();
+                let print = prints.iter().find(|p| p.entry == id).map(|p| p.dhash);
+                (hashes.full, print)
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // As before: one file at a time, then the print pass.
+    let before = TestCatalog::new();
+    let v1 = before.add_volume(&sb.root().to_string_lossy());
+    before.index(v1, sb.root());
+    let cancel = CancelToken::new();
+    hash_volume(
+        &before.store,
+        v1,
+        sb.root(),
+        None,
+        &cancel,
+        &|| false,
+        &HashProgress::default(),
+    )
+    .unwrap();
+    print_volume(
+        &before.store,
+        v1,
+        sb.root(),
+        &Workers::one(),
+        &cancel,
+        &|| false,
+        &JobProgress::default(),
+    )
+    .unwrap();
+
+    let now = TestCatalog::new();
+    let v2 = now.add_volume(&sb.root().to_string_lossy());
+    now.index(v2, sb.root());
+    let started = std::sync::atomic::AtomicUsize::new(0);
+    let init = || {
+        started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    };
+    let options = HashOptions {
+        readers: 4,
+        decoders: 2,
+        init: &init,
+    };
+    let report = hash_volume_with(
+        &now.store,
+        v2,
+        sb.root(),
+        None,
+        &cancel,
+        &|| false,
+        &HashProgress::default(),
+        &options,
+    )
+    .unwrap();
+    assert_eq!(report.full, 7);
+    assert_eq!((report.printed, report.not_printed), (4, 1));
+    let total: u64 = files.iter().map(|(_, d)| d.len() as u64).sum();
+    assert!(report.bytes >= total, "{} < {total}", report.bytes);
+    assert!(started.load(std::sync::atomic::Ordering::Relaxed) >= 4);
+    let again = print_volume(
+        &now.store,
+        v2,
+        sb.root(),
+        &Workers::one(),
+        &cancel,
+        &|| false,
+        &JobProgress::default(),
+    )
+    .unwrap();
+    assert_eq!(again.printed + again.unreadable + again.changed, 0);
+    assert_eq!(now.store.read(|c| print_progress(c, v2)).unwrap(), (5, 5));
+    assert_eq!(state(&now, v2), state(&before, v1));
+}

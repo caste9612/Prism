@@ -302,8 +302,15 @@ Sorveglianza cartelle (volumi senza journal, ADR-0007):
 2. hash **completo** dei file con dimensione e hash rapido condivisi (i possibili duplicati);
 3. hash completo di tutti gli altri file (servirà alla verifica dei backup, T7), dal più piccolo.
 
-Subito dopo aver letto un file si confrontano dimensione e data sul disco con il catalogo: se
-il file è cambiato l'hash non si salva (lo si ricalcola dopo l'aggiornamento del catalogo). Gli
+Subito dopo aver letto un file se ne confrontano dimensione e data, lette dal file ancora
+aperto, con il catalogo: se il file è cambiato l'hash non si salva (lo si ricalcola dopo
+l'aggiornamento del catalogo). La lettura (`hashing::read_file`, REVIEW L31) apre ogni file una
+volta sola: i file fino a 1 MiB si leggono interi già nella prima passata, che ne tiene anche
+l'hash completo; le immagini senza impronta lette intere (fino a 32 MiB nella passata
+completa) si stampano dagli stessi byte (`media::print_bytes`), e la passata delle impronte
+non le rilegge. `hash_volume_with` legge `HashOptions::readers` file alla volta e decodifica
+`HashOptions::decoders` immagini alla volta (`pipeline`: il catalogo si legge e si scrive solo
+dal thread chiamante, i thread leggono i file; `Permits` limita letture e decodifiche). Gli
 hash si salvano a gruppi in `content_hashes` con lo stato del file; ogni lettura li considera
 validi solo se dimensione e data coincidono con la voce (F06-AC3), e restano quando il volume va
 offline (F06-AC6). La passata si ferma pulita tra un file e l'altro su richiesta (pausa,
@@ -320,13 +327,21 @@ Nell'app (`prism-app/src/hash_jobs.rs`) un thread, 20 s dopo l'avvio e poi ogni 
 
 - conta per ogni volume indicizzato file e file con hash valido (ogni 5 minuti, ogni minuto
   mentre l'analisi gira: il conteggio costa centinaia di ms su un catalogo grande) e lo mette
-  sulle schede (`VolumeView.hashes`, F06-AC5);
+  sulle schede (`VolumeView.hashes`, F06-AC5); immagini e video si contano riga per riga
+  (`store::count_prints`) senza caricare in memoria tutti i file del volume, e un conteggio che
+  dura più di un secondo va nel log (`analysis progress counted`, REVIEW L31);
 - accoda un job `hash` a priorità *background* per ogni volume collegato, indicizzato, con
   lavoro da fare, non escluso dall'utente (F21-AC3) e senza altri job, al massimo ogni 2
   minuti dopo un giro interrotto e ogni 10 dopo un giro completo (REVIEW L28). I file modificati negli ultimi 10 minuti (o fino a 10 minuti nel futuro, orologio di
   un server avanti) aspettano un giro successivo e contano come saltati: un file riscritto di
   continuo non si ricalcola a ogni giro (REVIEW L27). Anche le unità di rete (REVIEW D58): il loro job occupa la risorsa `net:<server>`,
-  quindi le cartelle di uno stesso NAS si leggono una alla volta;
+  quindi le cartelle di uno stesso NAS si leggono una alla volta; dentro il job, però, si
+  leggono 4 file alla volta (sui dischi locali uno: su un disco meccanico due letture insieme
+  fanno saltare le testine, su un SSD NVMe un file costa mezzo millisecondo comunque), e le
+  immagini lette intere si decodificano con i thread delle impronte (REVIEW L31, D60). Il log
+  dice quando parte una passata di almeno 1000 file (`hashing pass started`), ogni 10 minuti
+  quanto ha fatto (`hashing progress`) e alla fine byte letti, durata, impronte fatte e thread
+  (`hashing finished`), e la durata delle passate delle impronte;
 - per ogni volume con file ancora da leggere e nessun job dice perché aspetta
   (`HashesView.waiting`, REVIEW D61): escluso, in pausa, un altro job sul disco, file che
   l'ultimo giro completo non ha potuto leggere (cambiati durante la lettura o illeggibili,
@@ -401,7 +416,8 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   (`media::bktree::groups`) uniscono le immagini entro una distanza di Hamming con un BK-tree:
   ogni immagine cerca le vicine visitando solo i rami con distanza compatibile, senza
   confrontare tutte le coppie (F11-AC2). Nell'app le impronte si calcolano nello stesso job di
-  background degli hash, dopo di essi (`hash_jobs.rs`); `similar_images` restituisce i 200
+  background degli hash: durante la lettura per gli hash per le immagini lette intere, dopo di
+  essi per le altre (`hash_jobs.rs`, REVIEW L31); `similar_images` restituisce i 200
   gruppi con più immagini (la più grande per prima, con la distanza dalla prima) e
   `image_thumbnail` una miniatura JPEG di 192 px dei file collegati, come byte grezzi
   (`tauri::ipc::Response`), con una cache in memoria di 600 miniature.

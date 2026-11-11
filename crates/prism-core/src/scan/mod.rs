@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
-pub use walk::{WalkEnumerator, disk_meta};
+pub use walk::{WalkEnumerator, disk_meta, open_meta};
 
 use crate::cancel::{CancelToken, Cancelled};
 use crate::exclusion::ExclusionPolicy;

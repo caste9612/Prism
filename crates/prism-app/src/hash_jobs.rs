@@ -13,8 +13,9 @@ use std::time::{Duration, Instant};
 use prism_core::hashing;
 use prism_core::jobs::{JobSpec, Priority};
 use prism_core::media;
-use prism_core::model::{FileTime, VolumeId, VolumeStatus};
+use prism_core::model::{FileTime, VolumeId, VolumeKind, VolumeStatus};
 use prism_core::store;
+use prism_core::volumes::DetectedVolume;
 
 use crate::state::{AppState, access_path, job_disks};
 
@@ -55,6 +56,24 @@ const YIELD_CHECK: Duration = Duration::from_millis(500);
 /// Files modified less than this long ago (or this far in the future, a server clock ahead of
 /// the PC) are probably still being written: left for a later round.
 const SETTLING: Duration = Duration::from_secs(10 * 60);
+/// Files a network share reads at the same time in the analysis (REVIEW L31): the time goes
+/// in waiting for the server for each file (2.5 million files in 21 hours, one at a time, on a
+/// company file server; the print pass, with 4 threads, went 3 times faster on the same
+/// files). Local disks read one at a time: on a hard disk two files at once make the heads jump
+/// between them, and on an NVMe SSD a file costs half a millisecond either way (`prism-cli
+/// hash-bench`: from 1 to 8 at a time, within the noise).
+const NETWORK_READERS: usize = 4;
+/// Counting the progress of a volume taking longer than this goes to the log.
+const SLOW_COUNT: Duration = Duration::from_secs(1);
+
+/// How many files the analysis of a volume reads at the same time.
+fn readers_for(detected: &DetectedVolume) -> usize {
+    if detected.info.kind == VolumeKind::Network {
+        NETWORK_READERS
+    } else {
+        1
+    }
+}
 
 /// The modification times of files still being written, around now.
 fn settling_window() -> std::ops::Range<FileTime> {
@@ -232,6 +251,7 @@ impl HashingState {
 
 /// Counts the progress of a volume again (after hashing or deleting).
 pub fn refresh(state: &AppState, volume: VolumeId) {
+    let started = Instant::now();
     let counted = state.store.read(|c| {
         Ok((
             store::hash_progress(c, volume)?,
@@ -239,6 +259,13 @@ pub fn refresh(state: &AppState, volume: VolumeId) {
             media::video::video_progress(c, volume)?,
         ))
     });
+    if started.elapsed() >= SLOW_COUNT {
+        tracing::info!(
+            volume = volume.0,
+            ms = started.elapsed().as_millis(),
+            "analysis progress counted"
+        );
+    }
     if let Ok(((total, hashed), (images, printed), (videos, videos_printed))) = counted {
         let status = HashStatus {
             total,
@@ -348,6 +375,7 @@ pub fn tick(state: &Arc<AppState>) -> bool {
         let Some(root) = access_path(&detected) else {
             continue;
         };
+        let readers = readers_for(&detected);
         state.hashing.last_run().insert(id, Instant::now());
         let s = Arc::clone(state);
         state.engine.submit(JobSpec {
@@ -367,7 +395,12 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                     }
                     yielding.get() || s.hashing.should_pause()
                 };
-                let result = hashing::hash_volume(
+                // The other threads of the analysis, each in background mode like this one: the
+                // readers, and the decoders of the images read whole (REVIEW L31, D60).
+                let background = || std::mem::forget(prism_win::process::BackgroundMode::enter());
+                let decoders = media::print_workers();
+                let started = Instant::now();
+                let result = hashing::hash_volume_with(
                     &s.store,
                     id,
                     &root,
@@ -375,6 +408,11 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                     &ctx.cancel,
                     &pause,
                     &ctx.progress,
+                    &hashing::HashOptions {
+                        readers,
+                        decoders,
+                        init: &background,
+                    },
                 );
                 let report = match result {
                     Ok(r) => r,
@@ -392,18 +430,24 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                     unreadable = report.unreadable,
                     recent = report.recent,
                     interrupted = report.interrupted,
+                    printed = report.printed,
+                    not_printed = report.not_printed,
+                    mb = report.bytes / 1_000_000,
+                    ms = started.elapsed().as_millis(),
+                    readers,
+                    decoders,
                     "hashing finished"
                 );
-                // Then the prints of the images (F11), in the same background job.
+                // Then the prints of the images not printed while hashing (F11), in the same
+                // background job.
                 if !report.interrupted {
                     // Decoding pictures is limited by the processor: a few threads, each in
                     // background mode like this one (REVIEW D60).
-                    let background =
-                        || std::mem::forget(prism_win::process::BackgroundMode::enter());
                     let workers = media::Workers {
-                        count: media::print_workers(),
+                        count: decoders,
                         init: &background,
                     };
+                    let started = Instant::now();
                     let prints = media::print_volume(
                         &s.store,
                         id,
@@ -424,6 +468,7 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                                 unreadable = p.unreadable,
                                 changed = p.changed,
                                 interrupted = p.interrupted,
+                                ms = started.elapsed().as_millis(),
                                 "image prints finished"
                             );
                             skipped_prints = skipped_prints
@@ -436,6 +481,7 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                         }
                     }
                     // And of the videos, decoded by Windows (F12, ADR-0013).
+                    let started = Instant::now();
                     let videos = media::video::print_videos(
                         &s.store,
                         id,
@@ -453,6 +499,7 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                                 unreadable = p.unreadable,
                                 changed = p.changed,
                                 interrupted = p.interrupted,
+                                ms = started.elapsed().as_millis(),
                                 "video prints finished"
                             );
                             skipped_prints = skipped_prints

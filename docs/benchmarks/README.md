@@ -14,6 +14,7 @@ Misure ripetibili delle prestazioni di Prism, in **sola lettura** sui dischi rea
 | [2026-11-07-t10-memory.md](2026-11-07-t10-memory.md) | T10 | NF2 e NF3 con 5,7 milioni di voci: byte per voce, memoria del nucleo e dell'app a regime, memoria dell'analisi del contenuto |
 | [2026-11-08-prints-threads.md](2026-11-08-prints-threads.md) | Rilascio | Impronte delle immagini con 1, 2, 4 e 8 thread su 300 foto (REVIEW D60) |
 | [2026-11-08-catalog-size.md](2026-11-08-catalog-size.md) | 2.0.0 | Peso del catalogo vero dell'utente (3,5 milioni di voci) tabella per tabella, costo dell'analisi del contenuto |
+| [2026-11-11-hash-readers.md](2026-11-11-hash-readers.md) | 2.2.0 | Lettura dei file dell'analisi: la 2.1 contro la nuova, con 1, 2, 4 e 8 file alla volta, su SSD e in rete (REVIEW L31) |
 
 ## Come ripetere
 

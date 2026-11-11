@@ -80,6 +80,39 @@ pub fn video_print_states(
     states(conn, volume, "video_prints")
 }
 
+/// The files of a volume `keep` accepts (by stored name and size) and how many of them have a
+/// valid print in `table` (decoded or not), counted row by row: the progress of every volume is
+/// counted every few minutes, and loading 3 million files to count them took memory and time
+/// (REVIEW L31). `table` is one of the print tables of this module, never user input.
+///
+/// # Errors
+/// SQLite errors.
+pub fn count_prints(
+    conn: &Connection,
+    volume: VolumeId,
+    table: &str,
+    keep: &dyn Fn(&str, u64) -> bool,
+) -> Result<(u64, u64), StoreError> {
+    debug_assert!(table == "image_prints" || table == "video_prints");
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT e.name, e.size, \
+                p.entry_id IS NOT NULL AND p.size = e.size AND p.modified_at IS e.modified_at \
+         FROM entries e LEFT JOIN {table} p ON p.entry_id = e.id \
+         WHERE e.volume_id = ?1 AND e.is_dir = 0 AND e.size > 0 AND {LOCAL_CONTENT}",
+        LOCAL_CONTENT = super::hashes::LOCAL_CONTENT
+    ))?;
+    let mut rows = stmt.query([volume.0])?;
+    let (mut total, mut done) = (0u64, 0u64);
+    while let Some(r) = rows.next()? {
+        let name = r.get_ref(0)?.as_str().unwrap_or_default();
+        if keep(name, from_db(r.get(1)?)) {
+            total += 1;
+            done += u64::from(r.get::<_, bool>(2)?);
+        }
+    }
+    Ok((total, done))
+}
+
 /// `table` is one of the print tables of this module, never user input.
 fn states(conn: &Connection, volume: VolumeId, table: &str) -> Result<Vec<PrintState>, StoreError> {
     let mut stmt = conn.prepare_cached(&format!(
