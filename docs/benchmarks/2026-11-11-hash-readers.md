@@ -50,8 +50,18 @@ volta cambiano verso da una prova all'altra: sono dentro il rumore (cache di Win
 **Sui dischi locali l'app legge un file alla volta.** L'apertura unica dà +26 % nella prima
 prova e niente nella seconda.
 
-## Rete
+## Rete (PC aziendale, 2.2.0 di prova, settimo pacchetto diagnostico)
 
-Da misurare sul PC aziendale con la 2.2.0 di prova: le righe `hashing finished` del log
-riportano file, byte, durata e thread di ogni giro, da confrontare con i 33 file al secondo
-della 2.1.4 sulla stessa cartella.
+Cartella `Organ` del file server aziendale, rete da 1 Gbit/s, 4 file alla volta, notte fra l'11
+e il 12 novembre: 1.457.222 file da leggere per l'hash completo (la 2.1.4 aveva fatto solo
+quelli rapidi).
+
+| Tratto | File | Dati | Tempo | File/s | MB/s |
+|---|---|---|---|---|---|
+| Primi 173 minuti (file piccoli e medi) | 1.422.529 | 433 GB | 2 h 53 min | 137 | 42 |
+| Resto (file grandi) | 38.448 | 2,7 TB | 6 h 31 min | 1,6 | 115 |
+| Totale | 1.460.977 | 3,1 TB | 9 h 25 min | 43 | 92 |
+
+Con la 2.1.4, un file alla volta, la cartella d'archivio dello stesso server andava a 33 file
+al secondo: sui file piccoli la 2.2 legge 4 volte più in fretta, sui file grandi arriva al
+limite della rete. Durante la lettura sono state stampate 205.407 immagini dagli stessi byte.

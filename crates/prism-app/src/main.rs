@@ -235,8 +235,21 @@ fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     }
 }
 
+/// Writes panics to the log (REVIEW L32): the window has no console, and a panic of a thread
+/// left no trace. The jobs survive their panics (the engine catches them); the log tells which
+/// and where.
+fn log_panics() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        tracing::error!(thread = thread.name().unwrap_or("unnamed"), panic = %info, "panic");
+        default(info);
+    }));
+}
+
 fn main() {
     let mut logs = init_logging();
+    log_panics();
     let app = tauri::Builder::default()
         // F19-AC4: starting Prism again brings the running instance to the front.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

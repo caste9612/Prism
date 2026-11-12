@@ -215,7 +215,14 @@ impl Store {
             .unwrap_or(false);
         if unclean {
             tracing::warn!("previous session did not close cleanly; checking catalog integrity");
+            let started = std::time::Instant::now();
             let result: String = conn.query_row("PRAGMA quick_check", [], |r| r.get(0))?;
+            // The window and the tray icon wait for it (REVIEW L32).
+            tracing::info!(
+                ok = result == "ok",
+                ms = started.elapsed().as_millis(),
+                "catalog integrity checked"
+            );
             if result != "ok" {
                 return Err(StoreError::Corrupt(result));
             }

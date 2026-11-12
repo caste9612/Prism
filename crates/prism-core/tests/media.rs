@@ -403,6 +403,126 @@ fn f12_background_video_prints_and_groups() {
     );
 }
 
+/// The fake decoder, noting each video it decodes with the video the catalog names as being
+/// decoded at that moment.
+struct Watching {
+    store: store::Store,
+    seen: std::sync::Mutex<Vec<(String, String)>>,
+}
+
+impl prism_core::media::video::VideoDecoder for Watching {
+    fn print(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<prism_core::media::video::VideoPrint, String> {
+        let named = self
+            .store
+            .read(|c| store::setting(c, prism_core::media::video::DECODING_KEY))
+            .unwrap()
+            .unwrap_or_default();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        self.seen.lock().unwrap().push((name, named));
+        FakeDecoder.print(path)
+    }
+}
+
+// REVIEW L32: each video is named in the catalog while Windows decodes it. When Prism went down
+// during a decoding (a codec crash takes the whole process), the next video pass, whatever its
+// volume, saves that video as not decodable and it is never decoded again; the name is cleared.
+#[test]
+fn a_video_that_brought_prism_down_is_not_decoded_again() {
+    use prism_core::media::video::{DECODING_KEY, decoding_marker, print_videos, video_progress};
+
+    let (one, two) = (Sandbox::new(), Sandbox::new());
+    one.fs.write(&one.path("a.mp4"), b"VID1").unwrap();
+    one.fs.write(&one.path("crash.mp4"), b"VID2").unwrap();
+    two.fs.write(&two.path("b.mp4"), b"VID3").unwrap();
+    let cat = TestCatalog::new();
+    let v1 = cat.add_volume(&one.root().to_string_lossy());
+    let v2 = cat.add_volume(&two.root().to_string_lossy());
+    cat.index(v1, one.root());
+    cat.index(v2, two.root());
+    let states = cat
+        .store
+        .read(|c| store::video_print_states(c, v1))
+        .unwrap();
+    let state = |name: &str| states.iter().find(|s| s.name == name).unwrap().clone();
+    // The last session went down while decoding crash.mp4.
+    let marker = decoding_marker(v1, &state("crash.mp4"));
+    cat.store
+        .write(move |w| store::set_setting(w, DECODING_KEY, &marker))
+        .unwrap();
+    let named = || {
+        cat.store
+            .read(|c| store::setting(c, DECODING_KEY))
+            .unwrap()
+            .unwrap_or_default()
+    };
+    let decoder = Watching {
+        store: cat.store.clone(),
+        seen: std::sync::Mutex::new(Vec::new()),
+    };
+    let pass = |volume, root: &std::path::Path| {
+        print_videos(
+            &cat.store,
+            volume,
+            root,
+            &decoder,
+            &CancelToken::new(),
+            &|| false,
+            &JobProgress::default(),
+        )
+        .unwrap()
+    };
+
+    // The pass of the other volume comes first: it handles the video all the same.
+    let report = pass(v2, two.root());
+    assert_eq!((report.printed, report.unreadable), (1, 0));
+    assert_eq!(named(), "", "cleared after each video");
+    assert_eq!(
+        cat.store.read(|c| video_progress(c, v1)).unwrap(),
+        (2, 1),
+        "crash.mp4 saved as not decodable"
+    );
+    let report = pass(v1, one.root());
+    assert_eq!((report.printed, report.unreadable), (1, 0));
+    let seen = decoder.seen.lock().unwrap().clone();
+    let b = cat
+        .store
+        .read(|c| store::video_print_states(c, v2))
+        .unwrap()
+        .remove(0);
+    assert_eq!(
+        seen,
+        [
+            ("b.mp4".to_owned(), decoding_marker(v2, &b)),
+            ("a.mp4".to_owned(), decoding_marker(v1, &state("a.mp4"))),
+        ],
+        "named while decoded; crash.mp4 never decoded again"
+    );
+    assert_eq!(named(), "");
+    assert_eq!(cat.store.read(|c| video_progress(c, v1)).unwrap(), (2, 2));
+
+    // On its own volume, the pass counts it among the videos it could not decode.
+    one.fs.write(&one.path("c.mp4"), b"VID4").unwrap();
+    cat.index(v1, one.root());
+    let c = cat
+        .store
+        .read(|c| store::video_print_states(c, v1))
+        .unwrap()
+        .into_iter()
+        .find(|s| s.name == "c.mp4")
+        .unwrap();
+    let marker = decoding_marker(v1, &c);
+    cat.store
+        .write(move |w| store::set_setting(w, DECODING_KEY, &marker))
+        .unwrap();
+    let report = pass(v1, one.root());
+    assert_eq!((report.printed, report.unreadable), (0, 1));
+    assert_eq!(decoder.seen.lock().unwrap().len(), 2);
+    assert_eq!(cat.store.read(|c| video_progress(c, v1)).unwrap(), (3, 3));
+}
+
 // REVIEW L31: the analysis reads each image once. With several readers, the images read whole
 // for their hashes are printed from the same bytes, with the prints the print pass gives, and
 // the print pass has nothing left; the hashes are those of a run that reads one file at a time.

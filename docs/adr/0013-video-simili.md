@@ -56,3 +56,21 @@ formati della libreria reale coperti, velocità adatta a un job in background.
   resta sotto la soglia scelta.
 - Se un giorno servissero più formati, ffmpeg resta un'alternativa dietro la stessa funzione
   (`sample_frames`), senza cambiare il resto.
+
+## Aggiornamento 2026-11-12 (REVIEW L32)
+
+Media Foundation esegue i decodificatori installati in Windows dentro il processo di Prism: un
+errore di memoria in un decodificatore, o nella copia dei pixel di Prism, chiude l'intero
+programma senza una riga nel log. Sul PC aziendale Prism si è chiuso così durante la prima
+passata dei video di una cartella condivisa.
+
+- I pixel di un fotogramma si leggono solo dentro il buffer che Media Foundation blocca
+  (`IMF2DBuffer2::Lock2DSize`, che dà inizio e lunghezza): un fotogramma più piccolo della
+  dimensione attesa dà un errore, il video resta non decodificabile.
+- Il video in decodifica si annota nel catalogo (`settings.video_decoding`) e l'annotazione si
+  cancella dopo: se Prism si chiude durante una decodifica, al riavvio quel video si salva come
+  non decodificabile, col percorso nel log, e non si riprova finché il file non cambia. Un
+  decodificatore che cade su un file costa così un solo riavvio, non uno a ogni giro.
+- Alternativa scartata per ora: decodificare in un processo separato (un crash chiuderebbe solo
+  quello). È più robusta ma aggiunge l'avvio di un processo per video e un protocollo fra i due;
+  da riprendere se i crash dei decodificatori si ripetono.

@@ -432,7 +432,10 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   entro la soglia; i gruppi si formano scorrendo i video ordinati per durata. Nell'app le
   impronte dei video si calcolano nello stesso job, dopo quelle delle immagini; la miniatura è
   il fotogramma a metà, a colori. Le passate di immagini e video condividono il ciclo
-  (`run_pass`: file invariato prima e dopo la lettura, salvataggio a gruppi, pausa).
+  (`run_pass`: file invariato prima e dopo la lettura, salvataggio a gruppi, pausa). I pixel si
+  leggono solo dentro il buffer bloccato; il video in decodifica si annota in
+  `settings.video_decoding` e, se Prism si chiude durante la decodifica, la passata successiva
+  lo salva come non decodificabile (ADR-0013, REVIEW L32).
 - **Verifica, confronto, copia** (`prism-core::backup`, T7): lavorano sul catalogo, quindi
   anche con i dischi scollegati. `store::subtree_files` legge i file sotto una cartella con il
   percorso relativo e l'hash completo se valido (una CTE ricorsiva sulle cartelle).
@@ -578,7 +581,8 @@ Implementazione (`store::Store`, T1):
 - Un job dello scrittore che va in panico annulla la propria transazione senza fermare lo
   scrittore.
 - All'apertura: migrazioni, volumi `indexing` → `reindex_needed`, e `PRAGMA quick_check` se la
-  sessione precedente non si è chiusa in modo pulito (indicatore in `settings`). Alla chiusura
+  sessione precedente non si è chiusa in modo pulito (indicatore in `settings`; la durata va nel
+  log: su un catalogo di 3 GB da 16 a oltre 50 secondi, prima della finestra, REVIEW L32). Alla chiusura
   (`Store::close`, che l'app chiama all'uscita e prima di installare un aggiornamento perché
   Tauri termina il processo senza rilasciare lo stato; oppure al rilascio dello `Store`):
   indicatore azzerato e checkpoint del WAL.

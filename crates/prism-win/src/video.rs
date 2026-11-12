@@ -10,12 +10,13 @@
 use std::path::Path;
 
 use windows::Win32::Media::MediaFoundation::{
-    IMF2DBuffer, IMFAttributes, IMFMediaBuffer, IMFMediaType, IMFSample, IMFSourceReader,
+    IMF2DBuffer2, IMFAttributes, IMFMediaBuffer, IMFMediaType, IMFSample, IMFSourceReader,
     MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE, MF_PD_DURATION,
     MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_VIDEO_STREAM,
-    MF_SOURCE_READER_MEDIASOURCE, MF_SOURCE_READERF_ENDOFSTREAM, MF_VERSION, MFCreateAttributes,
-    MFCreateMediaType, MFCreateSourceReaderFromURL, MFMediaType_Video, MFSTARTUP_LITE, MFShutdown,
-    MFStartup, MFVideoFormat_NV12, MFVideoFormat_RGB32,
+    MF_SOURCE_READER_MEDIASOURCE, MF_SOURCE_READERF_ENDOFSTREAM, MF_VERSION,
+    MF2DBuffer_LockFlags_Read, MFCreateAttributes, MFCreateMediaType, MFCreateSourceReaderFromURL,
+    MFMediaType_Video, MFSTARTUP_LITE, MFShutdown, MFStartup, MFVideoFormat_NV12,
+    MFVideoFormat_RGB32,
 };
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
@@ -29,6 +30,8 @@ pub enum VideoError {
     NoDuration,
     #[error("no frame could be decoded")]
     NoFrame,
+    #[error("a decoded frame is smaller than {width}x{height}")]
+    ShortFrame { width: u32, height: u32 },
 }
 
 /// A decoded frame as grey levels, top row first, one byte per pixel.
@@ -128,29 +131,38 @@ fn open(path: &Path, nv12: bool) -> Result<(IMFSourceReader, Pixels), VideoError
     Ok((reader, pixels))
 }
 
-/// The rows of a locked frame, `row_len` bytes each, top row first.
-fn rows(base: *const u8, pitch: i32, len: usize, row_len: usize, height: u32) -> Vec<u8> {
+/// Where row `y` of a frame starts, as an offset from the start of its locked buffer, when the
+/// whole row (`row_len` bytes) lies inside the `len` bytes of the buffer. The first row starts
+/// `first` bytes into the buffer and the rows are `pitch` bytes apart (a negative pitch means
+/// they are stored bottom-up).
+fn row_offset(first: usize, pitch: i32, y: usize, row_len: usize, len: usize) -> Option<usize> {
+    let start = isize::try_from(first)
+        .ok()?
+        .checked_add(isize::try_from(y).ok()?.checked_mul(pitch as isize)?)?;
+    let start = usize::try_from(start).ok()?;
+    (start.checked_add(row_len)? <= len).then_some(start)
+}
+
+/// The rows of a locked frame, `row_len` bytes each, top row first, read from the `len` bytes
+/// locked at `buffer`; `None` when a row would fall outside them. REVIEW L32: a frame smaller
+/// than the size Prism expects (a video changing size midway) was read past its end.
+fn rows(
+    buffer: *const u8,
+    len: usize,
+    first: usize,
+    pitch: i32,
+    row_len: usize,
+    height: u32,
+) -> Option<Vec<u8>> {
     let h = height as usize;
-    let mut out = vec![0u8; row_len * h];
-    let step = pitch.unsigned_abs() as usize;
+    let mut out = vec![0u8; row_len.checked_mul(h)?];
     for y in 0..h {
-        // A negative pitch means the rows are stored bottom-up from `base`.
-        let offset = if pitch < 0 {
-            -(y as isize) * step as isize
-        } else {
-            (y * step) as isize
-        };
-        // With a positive pitch the rows must lie inside the locked length; a negative pitch
-        // comes from `Lock2D`, which guarantees `height` rows.
-        if pitch >= 0 && offset as usize + row_len > len {
-            break;
-        }
-        // SAFETY: the caller locked a buffer of `len` bytes (positive pitch) or a 2D buffer
-        // whose rows are `pitch` apart starting at `base`; each row read is `row_len` bytes.
-        let row = unsafe { std::slice::from_raw_parts(base.offset(offset), row_len) };
+        let offset = row_offset(first, pitch, y, row_len, len)?;
+        // SAFETY: the caller locked `len` bytes at `buffer`; the row lies inside them.
+        let row = unsafe { std::slice::from_raw_parts(buffer.add(offset), row_len) };
         out[y * row_len..(y + 1) * row_len].copy_from_slice(row);
     }
-    out
+    Some(out)
 }
 
 /// The pixels of a decoded sample: one byte per pixel for NV12 (its luma plane), four for RGB32.
@@ -162,25 +174,36 @@ fn copy_pixels(
 ) -> Result<Vec<u8>, VideoError> {
     let row_len = width as usize * if pixels == Pixels::Nv12 { 1 } else { 4 };
     // SAFETY: the sample is valid; its buffer is locked while read and unlocked right after.
+    // Every row read is checked against the length the lock reports.
     unsafe {
         let buffer: IMFMediaBuffer = sample.ConvertToContiguousBuffer()?;
-        if let Ok(two_d) = buffer.cast::<IMF2DBuffer>() {
+        let out = if let Ok(two_d) = buffer.cast::<IMF2DBuffer2>() {
             let mut scan0: *mut u8 = std::ptr::null_mut();
             let mut pitch = 0i32;
-            two_d.Lock2D(&raw mut scan0, &raw mut pitch)?;
-            let len = pitch.unsigned_abs() as usize * height as usize;
-            let out = rows(scan0, pitch, len, row_len, height);
+            let mut start: *mut u8 = std::ptr::null_mut();
+            let mut len = 0u32;
+            two_d.Lock2DSize(
+                MF2DBuffer_LockFlags_Read,
+                &raw mut scan0,
+                &raw mut pitch,
+                &raw mut start,
+                &raw mut len,
+            )?;
+            let first = (scan0 as usize).wrapping_sub(start as usize);
+            let out = rows(start, len as usize, first, pitch, row_len, height);
             two_d.Unlock2D()?;
-            Ok(out)
+            out
         } else {
+            // A buffer locked as a whole holds its rows one after the other.
             let mut data: *mut u8 = std::ptr::null_mut();
             let mut len = 0u32;
             buffer.Lock(&raw mut data, None, Some(&raw mut len))?;
             let pitch = i32::try_from(row_len).unwrap_or(i32::MAX);
-            let out = rows(data, pitch, len as usize, row_len, height);
+            let out = rows(data, len as usize, 0, pitch, row_len, height);
             buffer.Unlock()?;
-            Ok(out)
-        }
+            out
+        };
+        out.ok_or(VideoError::ShortFrame { width, height })
     }
 }
 
@@ -208,17 +231,29 @@ fn copy_frame(
     })
 }
 
+/// The frame size of the current output of an open reader. Asked before decoding, it is the size
+/// of the picture; once the decoder runs it may include the rows it adds to fill its blocks
+/// (320x192 for a 320x180 H.264 clip), so the frames are copied at the size asked first, and
+/// a frame smaller than that gives an error instead of a read past its end (REVIEW L32).
+fn frame_size(reader: &IMFSourceReader) -> Result<(u32, u32), VideoError> {
+    // SAFETY: plain COM calls on a valid reader.
+    unsafe {
+        let current = reader.GetCurrentMediaType(VIDEO_STREAM)?;
+        let size = current.GetUINT64(&MF_MT_FRAME_SIZE)?;
+        Ok(((size >> 32) as u32, (size & 0xFFFF_FFFF) as u32))
+    }
+}
+
 /// Duration (100 ns units) and frame size of an open reader.
 fn describe(reader: &IMFSourceReader) -> Result<(u64, u32, u32), VideoError> {
     // SAFETY: plain COM calls on a valid reader; the PROPVARIANT is owned here.
-    unsafe {
+    let duration = unsafe {
         let d = reader
             .GetPresentationAttribute(MF_SOURCE_READER_MEDIASOURCE.0 as u32, &MF_PD_DURATION)?;
-        let duration = u64::try_from(&d).map_err(|_| VideoError::NoDuration)?;
-        let current = reader.GetCurrentMediaType(VIDEO_STREAM)?;
-        let size = current.GetUINT64(&MF_MT_FRAME_SIZE)?;
-        Ok((duration, (size >> 32) as u32, (size & 0xFFFF_FFFF) as u32))
-    }
+        u64::try_from(&d).map_err(|_| VideoError::NoDuration)?
+    };
+    let (width, height) = frame_size(reader)?;
+    Ok((duration, width, height))
 }
 
 /// Seeks to `target` (100 ns units) and returns the first frame at or after it, decoding at
@@ -491,6 +526,25 @@ mod tests {
         let text = dir.path().join("notes.mp4");
         std::fs::write(&text, b"not a video").unwrap();
         assert!(sample_frames(&text, &[0.5], 0).is_err());
+    }
+
+    // REVIEW L32: rows are read only inside the locked buffer, top-down or bottom-up, and a frame
+    // smaller than expected gives no rows instead of a read past its end.
+    #[test]
+    fn rows_stay_inside_the_locked_buffer() {
+        // Three rows of 2 pixels, 4 bytes apart (2 bytes of padding each).
+        let buffer: Vec<u8> = (0u8..12).collect();
+        let top_down = rows(buffer.as_ptr(), buffer.len(), 0, 4, 2, 3).unwrap();
+        assert_eq!(top_down, [0, 1, 4, 5, 8, 9]);
+        // Bottom-up: the first row is the last one in memory.
+        let bottom_up = rows(buffer.as_ptr(), buffer.len(), 8, -4, 2, 3).unwrap();
+        assert_eq!(bottom_up, [8, 9, 4, 5, 0, 1]);
+        // The media type says 4 rows, the buffer holds 3.
+        assert!(rows(buffer.as_ptr(), buffer.len(), 0, 4, 2, 4).is_none());
+        assert!(rows(buffer.as_ptr(), buffer.len(), 8, -4, 2, 4).is_none());
+        // Rows wider than the buffer allows.
+        assert!(rows(buffer.as_ptr(), buffer.len(), 0, 4, 5, 3).is_none());
+        assert_eq!(row_offset(usize::MAX, 4, 1, 1, 12), None);
     }
 
     // F12: the colour frame of the thumbnails and the decoder of the background job.

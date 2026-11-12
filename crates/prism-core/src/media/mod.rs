@@ -484,6 +484,7 @@ fn run_pass<T>(
 
 /// Videos (F12): extensions, prints and groups.
 pub mod video {
+    use std::collections::HashMap;
     use std::path::Path;
 
     use super::{MediaError, PrintReport, print_one, run_pass};
@@ -535,6 +536,112 @@ pub mod video {
         store::count_prints(conn, volume, "video_prints", &|name, _| is_video(name))
     }
 
+    /// The catalog setting naming the video being decoded (REVIEW L32): written before the
+    /// decoder of Windows opens it and cleared after. A decoder that brings Prism down leaves it
+    /// behind, and the next pass marks that video as not decodable instead of trying it again
+    /// (and going down again at every round).
+    pub const DECODING_KEY: &str = "video_decoding";
+
+    /// The value of [`DECODING_KEY`] for a video of `volume`: the file as the catalog knows it.
+    #[must_use]
+    pub fn decoding_marker(volume: VolumeId, s: &store::PrintState) -> String {
+        format!(
+            "{}:{}:{}:{}",
+            volume.0,
+            s.entry.0,
+            s.size,
+            s.modified.map_or(String::new(), |t| t.0.to_string())
+        )
+    }
+
+    fn set_marker(store: &Store, value: String) {
+        if let Err(e) = store.write(move |w| store::set_setting(w, DECODING_KEY, &value)) {
+            tracing::warn!(error = %e, "cannot record the video being decoded");
+        }
+    }
+
+    /// Saves the prints of `batch`, `None` for a video that cannot be decoded.
+    fn save_videos(
+        store: &Store,
+        batch: Vec<(store::PrintState, Option<VideoPrint>)>,
+    ) -> Result<(), StoreError> {
+        let records: Vec<VideoPrintRecord> = batch
+            .into_iter()
+            .map(|(s, p)| VideoPrintRecord {
+                entry: s.entry,
+                size: s.size,
+                modified: s.modified,
+                duration_ms: p.as_ref().map(|p| p.duration_ms),
+                width: p.as_ref().map(|p| p.width),
+                height: p.as_ref().map(|p| p.height),
+                frames: p.map(|p| p.frames),
+            })
+            .collect();
+        store.write(move |w| store::set_video_prints(w, &records, unix_millis_now()))
+    }
+
+    /// The video whose decoding brought Prism down in the last session, saved as not decodable
+    /// (and taken out of `todo` when it is on this volume); `true` when it is on this volume.
+    /// Handled by the first video pass, whatever its volume: the pass of another volume would
+    /// otherwise overwrite the marker before the pass of its own.
+    fn skip_crashed(
+        store: &Store,
+        volume: VolumeId,
+        root: &Path,
+        todo: &mut Vec<store::PrintState>,
+    ) -> Result<bool, MediaError> {
+        let Some(marker) = store
+            .read(|c| store::setting(c, DECODING_KEY))?
+            .filter(|m| !m.is_empty())
+        else {
+            return Ok(false);
+        };
+        let entry = marker
+            .split(':')
+            .nth(1)
+            .and_then(|id| id.parse().ok())
+            .map(crate::model::EntryId);
+        let found = match entry {
+            Some(id) => store.read(|c| store::entry(c, id))?,
+            None => None,
+        };
+        let crashed = found
+            .map(|e| store::PrintState {
+                entry: e.id,
+                parent: e.parent,
+                name: e.name,
+                size: e.meta.size,
+                modified: e.meta.modified,
+                printed: false,
+            })
+            .filter(|s| !s.name.is_empty())
+            .and_then(|s| {
+                let on = marker.split(':').next()?.parse().ok().map(VolumeId)?;
+                // Still the file that was being decoded (not changed since).
+                (decoding_marker(on, &s) == marker).then_some((on, s))
+            });
+        let mut here = false;
+        if let Some((on, s)) = crashed {
+            here = on == volume;
+            let path = if here {
+                todo.retain(|t| t.entry != s.entry);
+                super::file_path(store, root, &mut HashMap::new(), &s)?
+                    .map(|p| p.display().to_string())
+            } else {
+                None
+            };
+            tracing::warn!(
+                volume = on.0,
+                entry = s.entry.0,
+                path = path.as_deref().unwrap_or(&s.name),
+                "video not decoded: Prism stopped while decoding it"
+            );
+            save_videos(store, vec![(s, None)])?;
+        }
+        set_marker(store, String::new());
+        Ok(here)
+    }
+
     /// Prints the videos of a volume reached at `root` that have no valid print.
     ///
     /// # Errors
@@ -548,14 +655,16 @@ pub mod video {
         pause: &dyn Fn() -> bool,
         progress: &JobProgress,
     ) -> Result<PrintReport, MediaError> {
-        let todo: Vec<store::PrintState> = store
+        let mut todo: Vec<store::PrintState> = store
             .read(|c| store::video_print_states(c, volume))?
             .into_iter()
             .filter(|s| !s.printed && is_video(&s.name))
             .collect();
-        // One video at a time, on this thread: the decoder is Windows Media Foundation.
-        let compute = |path: &Path| decoder.print(path);
-        run_pass(
+        let crashed = skip_crashed(store, volume, root, &mut todo)?;
+        // One video at a time, on this thread: the decoder is Windows Media Foundation, which
+        // runs the codecs installed in Windows inside Prism. The video is named in the catalog
+        // while it is decoded (REVIEW L32).
+        let mut report = run_pass(
             store,
             root,
             &todo,
@@ -567,25 +676,21 @@ pub mod video {
             &|items| {
                 items
                     .iter()
-                    .map(|(s, p)| print_one(s, p, cancel, &compute))
+                    .map(|(s, p)| {
+                        let compute = |path: &Path| {
+                            set_marker(store, decoding_marker(volume, s));
+                            let print = decoder.print(path);
+                            set_marker(store, String::new());
+                            print
+                        };
+                        print_one(s, p, cancel, &compute)
+                    })
                     .collect()
             },
-            &|batch: Vec<(store::PrintState, Option<VideoPrint>)>| {
-                let records: Vec<VideoPrintRecord> = batch
-                    .into_iter()
-                    .map(|(s, p)| VideoPrintRecord {
-                        entry: s.entry,
-                        size: s.size,
-                        modified: s.modified,
-                        duration_ms: p.as_ref().map(|p| p.duration_ms),
-                        width: p.as_ref().map(|p| p.width),
-                        height: p.as_ref().map(|p| p.height),
-                        frames: p.map(|p| p.frames),
-                    })
-                    .collect();
-                store.write(move |w| store::set_video_prints(w, &records, unix_millis_now()))
-            },
-        )
+            &|batch| save_videos(store, batch),
+        )?;
+        report.unreadable += u64::from(crashed);
+        Ok(report)
     }
 
     /// Mean Hamming distance of the frame prints, when both have the same number of frames.
