@@ -5,24 +5,24 @@
 
 ## Stato attuale
 
-- **Stato**: pubblicate la **2.0.0**, la **2.1.0** (2026-11-08), la **2.1.1** (2026-11-09) e
-  la **2.1.4** (2026-11-10). Il PC aziendale dell'utente si è aggiornato da solo alla 2.1.1 e ha
+- **Stato**: pubblicate la **2.0.0**, la **2.1.0** (2026-11-08), la **2.1.1** (2026-11-09),
+  la **2.1.4** (2026-11-10) e la **2.2.2** (2026-11-14). Il PC aziendale dell'utente si è aggiornato da solo alla 2.1.1 e ha
   provato la 2.1.2, la 2.1.3 e la 2.1.4 da installer locali. La 2.1.4 comprende la 2.1.2
   (journal fermato da record presi per rovinati, REVIEW L26), la 2.1.3 (aggiornamento mirato che
   rileggeva interi sottoalberi, analisi delle cartelle di rete che non avanzavano, L27) e le
   correzioni del quarto pacchetto (analisi fermate da attese di pochi secondi, giri troppo
   frequenti su C:, L28); il quinto pacchetto la conferma (L29). La 2.1.2 e la 2.1.3 non sono
-  state pubblicate. Su `develop` la **2.2.2**, non ancora pubblicata, da provare sul PC
-  aziendale con un installer locale: comprende la 2.1.5 (correzioni del sesto pacchetto, REVIEW
+  state pubblicate. La **2.2.2** comprende la 2.1.5 (correzioni del sesto pacchetto, REVIEW
   L30), la 2.2.0 (analisi del contenuto più veloce sulle cartelle di rete, L31: misurata col
   settimo pacchetto, 135 file al secondo invece di 33), la 2.2.1 (chiusura di Prism durante le
   impronte dei video, L32: confermata dall'ottavo pacchetto, 20 ore senza cadute) e le
   correzioni dell'ottavo pacchetto (L33). La 2.1.5, la 2.2.0 e la 2.2.1 non sono state
-  pubblicate. Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: la release della 2.2.2 col via libera dell'utente (prima, se vuole, una
-  prova breve sul PC aziendale); nel pacchetto successivo controllare che i giri del disco 1
-  non leggano più 38 GB e leggere le righe `files not decoded`. Restano aperti REVIEW L29 (2)
-  e i punti aperti di L32 e L33. Prima di avviare l'app di
+  pubblicate; la 2.2.2 è stata pubblicata senza una prova sul PC aziendale, su scelta
+  dell'utente. Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: un pacchetto diagnostico del PC aziendale con la 2.2.2, per controllare
+  che i giri del disco 1 non leggano più 38 GB (`mb=` nella riga `hashing finished volume=1`),
+  che l'avanzamento si riconti meno spesso e leggere le righe `files not decoded`. Restano
+  aperti REVIEW L29 (2) e i punti aperti di L32 e L33. Prima di avviare l'app di
   sviluppo va chiusa quella installata (CLAUDE.md).
   Consigliata una copia della chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
@@ -44,6 +44,8 @@
   conteggio dell'avanzamento ogni 30 secondi (il 13% del tempo a leggere il catalogo), 38 GB
   letti ogni 30 minuti sul disco 1 per tre file sempre in uso, i `.d.mts` di TypeScript
   contati come video, nessun motivo nel log per i video non decodificati (REVIEW L33).
+- 2026-11-14: **2.2.2 pubblicata** col via libera dell'utente (tag `v2.2.2` su 4e8727c,
+  installer, firma e `latest.json` verificati).
 
 ### 2026-11-12 — 2.2.1: Prism chiuso durante le impronte dei video
 
