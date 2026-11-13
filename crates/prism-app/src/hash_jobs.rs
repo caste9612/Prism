@@ -65,6 +65,19 @@ const SETTLING: Duration = Duration::from_secs(10 * 60);
 const NETWORK_READERS: usize = 4;
 /// Counting the progress of a volume taking longer than this goes to the log.
 const SLOW_COUNT: Duration = Duration::from_secs(1);
+/// A volume updated since its progress was counted is counted again at once, but its counts
+/// take at most one part in this many of the time. Seen in a diagnostic package: the journal
+/// updates a system disk all the time, and counting its 1.5 million entries at every tick took
+/// 1 to 4 seconds every 30, all day (REVIEW L33).
+const COUNT_SHARE: u32 = 50;
+/// A count quicker than this is never put off.
+const QUICK_COUNT: Duration = Duration::from_millis(100);
+
+/// Whether a volume whose last count took `cost` and ended `since` ago may be counted again
+/// because it was updated.
+fn may_count_again(since: Duration, cost: Duration) -> bool {
+    cost < QUICK_COUNT || since >= cost.saturating_mul(COUNT_SHARE)
+}
 
 /// How many files the analysis of a volume reads at the same time.
 fn readers_for(detected: &DetectedVolume) -> usize {
@@ -92,6 +105,8 @@ pub struct HashingState {
     /// Volumes the user excluded from the analysis (F21-AC3).
     excluded: Mutex<HashSet<VolumeId>>,
     status: Mutex<HashMap<VolumeId, (HashStatus, Instant)>>,
+    /// How long the last count of each volume took.
+    count_cost: Mutex<HashMap<VolumeId, Duration>>,
     last_run: Mutex<HashMap<VolumeId, Instant>>,
     /// What the last complete round could not do.
     skipped: Mutex<HashMap<VolumeId, Skipped>>,
@@ -147,6 +162,12 @@ impl HashingState {
         self.last_run.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    fn count_cost(&self) -> MutexGuard<'_, HashMap<VolumeId, Duration>> {
+        self.count_cost
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     pub fn is_excluded(&self, volume: VolumeId) -> bool {
         self.excluded
             .lock()
@@ -187,6 +208,7 @@ impl HashingState {
     /// Forgets the counts and the runs (after a reset of the catalog).
     pub fn clear(&self) {
         self.status().clear();
+        self.count_cost().clear();
         self.last_run().clear();
         self.skipped().clear();
         self.complete().clear();
@@ -259,10 +281,12 @@ pub fn refresh(state: &AppState, volume: VolumeId) {
             media::video::video_progress(c, volume)?,
         ))
     });
-    if started.elapsed() >= SLOW_COUNT {
+    let cost = started.elapsed();
+    state.hashing.count_cost().insert(volume, cost);
+    if cost >= SLOW_COUNT {
         tracing::info!(
             volume = volume.0,
-            ms = started.elapsed().as_millis(),
+            ms = cost.as_millis(),
             "analysis progress counted"
         );
     }
@@ -327,11 +351,13 @@ pub fn tick(state: &Arc<AppState>) -> bool {
         };
         let before = state.hashing.status().get(&v.id).copied();
         // Indexed or updated since it was counted: count now, so the new files are analysed
-        // at the next round instead of minutes later.
+        // at the next round instead of minutes later; a little later when counting is slow.
+        let cost = state.hashing.count_cost().get(&v.id).copied();
         let indexed_since = before.is_some_and(|(_, at)| {
             let counted =
                 unix_millis_now() - i64::try_from(at.elapsed().as_millis()).unwrap_or(i64::MAX);
             v.last_indexed_at.is_some_and(|t| t > counted)
+                && may_count_again(at.elapsed(), cost.unwrap_or_default())
         });
         if indexed_since || before.is_none_or(|(_, at)| at.elapsed() >= every) {
             refresh(state, v.id);
@@ -558,6 +584,19 @@ fn unix_millis_now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // REVIEW L33: an updated volume is counted again at once when counting is quick, and after
+    // 50 times the time of its last count when it is slow.
+    #[test]
+    fn slow_counts_are_spaced_out() {
+        let ms = Duration::from_millis;
+        assert!(may_count_again(ms(0), ms(0)));
+        assert!(may_count_again(ms(0), ms(99)));
+        assert!(!may_count_again(ms(4_000), ms(100)));
+        assert!(may_count_again(ms(30_000), ms(600)));
+        assert!(!may_count_again(ms(30_000), ms(2_500)));
+        assert!(may_count_again(ms(125_000), ms(2_500)));
+    }
 
     // Files that stay unreadable (open, changing) do not make a round every 2 minutes; new files
     // or images without a print do.

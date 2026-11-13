@@ -434,8 +434,9 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   il fotogramma a metà, a colori. Le passate di immagini e video condividono il ciclo
   (`run_pass`: file invariato prima e dopo la lettura, salvataggio a gruppi, pausa). I pixel si
   leggono solo dentro il buffer bloccato; il video in decodifica si annota in
-  `settings.video_decoding` e, se Prism si chiude durante la decodifica, la passata successiva
-  lo salva come non decodificabile (ADR-0013, REVIEW L32).
+  `settings.video_decoding.<id del disco>` e, se Prism si chiude durante la decodifica, la
+  passata successiva di quel disco lo salva come non decodificabile (ADR-0013, REVIEW L32,
+  L33). A fine passata il log riporta i motivi più frequenti dei file non decodificati.
 - **Verifica, confronto, copia** (`prism-core::backup`, T7): lavorano sul catalogo, quindi
   anche con i dischi scollegati. `store::subtree_files` legge i file sotto una cartella con il
   percorso relativo e l'hash completo se valido (una CTE ricorsiva sulle cartelle).

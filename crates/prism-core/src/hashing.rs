@@ -163,6 +163,12 @@ pub struct FileRead {
 /// ends for the quick hash. A content that does not have `size` bytes gives no hash (the file
 /// changed). `on_read` gets the bytes read as they come.
 ///
+/// A file read in pieces for its full hash is first asked its size and date, and not read when
+/// `unchanged` refuses them (it changed since the catalog was updated): seen in a diagnostic
+/// package, three files always in use, 38 GB in all, were read to the end every 30 minutes to
+/// find at the end that their date was not the one of the catalog (REVIEW L33). The small files
+/// are not asked first: on a network share the question costs as much as their content.
+///
 /// # Errors
 /// I/O errors; `Interrupted` if cancelled.
 pub fn read_file(
@@ -170,11 +176,20 @@ pub fn read_file(
     size: u64,
     full: bool,
     keep: bool,
+    unchanged: &dyn Fn(u64, Option<FileTime>) -> bool,
     cancel: &CancelToken,
     on_read: &(dyn Fn(u64) + Sync),
 ) -> std::io::Result<FileRead> {
     let mut f = File::open(path)?;
     let mut out = FileRead::default();
+    if full && !keep && size > SMALL_FILE {
+        let (_, meta) = open_meta(&f)?;
+        if !unchanged(meta.size, meta.modified) {
+            out.size = meta.size;
+            out.modified = meta.modified;
+            return Ok(out);
+        }
+    }
     if size <= SMALL_FILE || keep {
         // One byte more than expected tells a file that grew, without reading all of it.
         let mut data = Vec::with_capacity(usize::try_from(size).unwrap_or(0).saturating_add(1));
@@ -479,9 +494,19 @@ impl Readers<'_> {
                 p.fetch_add(n, Ordering::Relaxed);
             }
         };
-        let read = self
-            .io
-            .run(|| read_file(&task.path, s.size, task.full, keep, self.cancel, &on_read));
+        let unchanged =
+            |size: u64, modified: Option<FileTime>| size == s.size && modified == s.modified;
+        let read = self.io.run(|| {
+            read_file(
+                &task.path,
+                s.size,
+                task.full,
+                keep,
+                &unchanged,
+                self.cancel,
+                &on_read,
+            )
+        });
         let read = match read {
             Ok(r) => r,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => return Outcome::Stopped,
@@ -939,23 +964,44 @@ mod tests {
                 read_bytes.fetch_add(n, Ordering::Relaxed);
             };
             // Quick pass: small files read whole, with their full hash.
-            let r = read_file(&path, size, false, false, &cancel, &count).unwrap();
+            let r = read_file(&path, size, false, false, &|_, _| true, &cancel, &count).unwrap();
             assert_eq!(r.quick, Some(quick), "{size}");
             assert_eq!(r.full, (size <= small).then_some(full), "{size}");
             assert_eq!(r.content.is_some(), size <= small, "{size}");
             assert_eq!((r.size, r.modified.is_some()), (size, true));
             // Full pass, and an image kept whole for its print.
-            let r = read_file(&path, size, true, false, &cancel, &count).unwrap();
+            let r = read_file(&path, size, true, false, &|_, _| true, &cancel, &count).unwrap();
             assert_eq!(r.full, Some(full), "{size}");
-            let r = read_file(&path, size, true, true, &cancel, &count).unwrap();
+            let r = read_file(&path, size, true, true, &|_, _| true, &cancel, &count).unwrap();
             assert_eq!((r.quick, r.full), (Some(quick), Some(full)), "{size}");
             assert_eq!(r.content.as_deref(), Some(&data[..]));
             assert!(read_bytes.load(Ordering::Relaxed) >= 2 * size.min(2 * chunk));
         }
         // A file that is not as large as the catalog says gives no hash.
         let path = dir.path().join("f1");
-        let r = read_file(&path, 2, false, false, &cancel, &|_| {}).unwrap();
+        let r = read_file(&path, 2, false, false, &|_, _| true, &cancel, &|_| {}).unwrap();
         assert_eq!((r.quick, r.full, r.size), (None, None, 1));
+        // REVIEW L33: a file read in pieces that no longer has the size and date of the catalog
+        // is not read at all; a small one is read (asking first would cost as much).
+        let large = 3 * small + 7;
+        let read_bytes = AtomicU64::new(0);
+        let count = |n: u64| {
+            read_bytes.fetch_add(n, Ordering::Relaxed);
+        };
+        let path = dir.path().join(format!("f{large}"));
+        let asked = Cell::new((0u64, false));
+        let changed = |size: u64, modified: Option<FileTime>| {
+            asked.set((size, modified.is_some()));
+            false
+        };
+        let r = read_file(&path, large, true, false, &changed, &cancel, &count).unwrap();
+        assert_eq!((r.full, r.size, r.modified.is_some()), (None, large, true));
+        assert_eq!(asked.get(), (large, true));
+        assert_eq!(read_bytes.load(Ordering::Relaxed), 0);
+        let path = dir.path().join(format!("f{small}"));
+        let r = read_file(&path, small, true, false, &changed, &cancel, &count).unwrap();
+        assert!(r.full.is_some());
+        assert_eq!(read_bytes.load(Ordering::Relaxed), small);
     }
 
     #[test]

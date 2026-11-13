@@ -256,6 +256,7 @@ pub fn print_volume(
     let one = |s: &store::PrintState, path: &Path| print_one(s, path, cancel, &compute);
     run_pass(
         store,
+        volume,
         root,
         &todo,
         "prints",
@@ -419,10 +420,12 @@ type Process<'a, T> = &'a dyn Fn(&[(&store::PrintState, PathBuf)]) -> Vec<Outcom
 /// One printing pass over `todo` (images or videos), `chunk` files at a time: each file is
 /// printed only if it still has the size and date of the catalog before and after being read
 /// (otherwise it is left for after the next update); results are saved in batches through
-/// `save`, an undecodable file with `None`. `pause` is asked between chunks.
+/// `save`, an undecodable file with `None`. `pause` is asked between chunks. The most frequent
+/// reasons of the files not decoded go to the log, with how many files each.
 #[allow(clippy::too_many_arguments)]
 fn run_pass<T>(
     store: &Store,
+    volume: VolumeId,
     root: &Path,
     todo: &[store::PrintState],
     phase: &str,
@@ -439,6 +442,7 @@ fn run_pass<T>(
     let mut report = PrintReport::default();
     let mut folders: HashMap<EntryId, PathBuf> = HashMap::new();
     let mut pending: Batch<T> = Vec::new();
+    let mut reasons: HashMap<String, u64> = HashMap::new();
     for slice in todo.chunks(chunk.max(1)) {
         if cancel.is_cancelled() || pause() {
             report.interrupted = true;
@@ -458,6 +462,7 @@ fn run_pass<T>(
                 }
                 Outcome::Unreadable(e) => {
                     tracing::debug!(path = %path.display(), error = %e, "not printed");
+                    *reasons.entry(e).or_default() += 1;
                     report.unreadable += 1;
                     pending.push(((*s).clone(), None));
                 }
@@ -479,7 +484,18 @@ fn run_pass<T>(
     if !pending.is_empty() {
         save(pending)?;
     }
+    for (reason, files) in most_frequent(reasons, 5) {
+        tracing::info!(volume = volume.0, phase, files, reason, "files not decoded");
+    }
     Ok(report)
+}
+
+/// The `most` entries of `counts` with the highest counts, highest first (then by name).
+fn most_frequent(counts: HashMap<String, u64>, most: usize) -> Vec<(String, u64)> {
+    let mut sorted: Vec<(String, u64)> = counts.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    sorted.truncate(most);
+    sorted
 }
 
 /// Videos (F12): extensions, prints and groups.
@@ -520,9 +536,15 @@ pub mod video {
         fn print(&self, path: &Path) -> Result<VideoPrint, String>;
     }
 
+    /// `.mts` is a camcorder video (AVCHD) and a TypeScript module: the declarations
+    /// (`.d.mts`), thousands in a `node_modules` folder, are never videos (REVIEW L33).
     #[must_use]
     pub fn is_video(stored_name: &str) -> bool {
-        VIDEO_EXTENSIONS.contains(&space::extension(stored_name).as_str())
+        const DECLARATION: &[u8] = b".d.mts";
+        let name = stored_name.as_bytes();
+        let declaration = name.len() >= DECLARATION.len()
+            && name[name.len() - DECLARATION.len()..].eq_ignore_ascii_case(DECLARATION);
+        !declaration && VIDEO_EXTENSIONS.contains(&space::extension(stored_name).as_str())
     }
 
     /// Videos of a volume with and without a valid print (decoded or not).
@@ -536,26 +558,32 @@ pub mod video {
         store::count_prints(conn, volume, "video_prints", &|name, _| is_video(name))
     }
 
-    /// The catalog setting naming the video being decoded (REVIEW L32): written before the
-    /// decoder of Windows opens it and cleared after. A decoder that brings Prism down leaves it
-    /// behind, and the next pass marks that video as not decodable instead of trying it again
-    /// (and going down again at every round).
-    pub const DECODING_KEY: &str = "video_decoding";
-
-    /// The value of [`DECODING_KEY`] for a video of `volume`: the file as the catalog knows it.
+    /// The catalog setting naming the video of `volume` being decoded (REVIEW L32): written
+    /// before the decoder of Windows opens it and cleared after. A decoder that brings Prism
+    /// down leaves it behind, and the next pass of the volume marks that video as not decodable
+    /// instead of trying it again (and going down again at every round). One setting per
+    /// volume: the passes of two volumes run at the same time, and with one setting for all,
+    /// each took the video the other was decoding for one that had brought Prism down
+    /// (REVIEW L33).
     #[must_use]
-    pub fn decoding_marker(volume: VolumeId, s: &store::PrintState) -> String {
+    pub fn decoding_key(volume: VolumeId) -> String {
+        format!("video_decoding.{}", volume.0)
+    }
+
+    /// The value of [`decoding_key`] for a video: the file as the catalog knows it.
+    #[must_use]
+    pub fn decoding_marker(s: &store::PrintState) -> String {
         format!(
-            "{}:{}:{}:{}",
-            volume.0,
+            "{}:{}:{}",
             s.entry.0,
             s.size,
             s.modified.map_or(String::new(), |t| t.0.to_string())
         )
     }
 
-    fn set_marker(store: &Store, value: String) {
-        if let Err(e) = store.write(move |w| store::set_setting(w, DECODING_KEY, &value)) {
+    fn set_marker(store: &Store, volume: VolumeId, value: String) {
+        let key = decoding_key(volume);
+        if let Err(e) = store.write(move |w| store::set_setting(w, &key, &value)) {
             tracing::warn!(error = %e, "cannot record the video being decoded");
         }
     }
@@ -580,66 +608,43 @@ pub mod video {
         store.write(move |w| store::set_video_prints(w, &records, unix_millis_now()))
     }
 
-    /// The video whose decoding brought Prism down in the last session, saved as not decodable
-    /// (and taken out of `todo` when it is on this volume); `true` when it is on this volume.
-    /// Handled by the first video pass, whatever its volume: the pass of another volume would
-    /// otherwise overwrite the marker before the pass of its own.
+    /// The video of this volume whose decoding Prism did not finish (it went down, or was
+    /// stopped, in the middle): taken out of `todo` and saved as not decodable, if it is still
+    /// the same file. `true` when there was one. Only one pass runs on a volume at a time, and
+    /// it clears the name after each video: a name found at the start was left by a pass that
+    /// never came back from the decoder.
     fn skip_crashed(
         store: &Store,
         volume: VolumeId,
         root: &Path,
         todo: &mut Vec<store::PrintState>,
     ) -> Result<bool, MediaError> {
+        let key = decoding_key(volume);
         let Some(marker) = store
-            .read(|c| store::setting(c, DECODING_KEY))?
+            .read(|c| store::setting(c, &key))?
             .filter(|m| !m.is_empty())
         else {
             return Ok(false);
         };
-        let entry = marker
-            .split(':')
-            .nth(1)
-            .and_then(|id| id.parse().ok())
-            .map(crate::model::EntryId);
-        let found = match entry {
-            Some(id) => store.read(|c| store::entry(c, id))?,
-            None => None,
-        };
-        let crashed = found
-            .map(|e| store::PrintState {
-                entry: e.id,
-                parent: e.parent,
-                name: e.name,
-                size: e.meta.size,
-                modified: e.meta.modified,
-                printed: false,
-            })
-            .filter(|s| !s.name.is_empty())
-            .and_then(|s| {
-                let on = marker.split(':').next()?.parse().ok().map(VolumeId)?;
-                // Still the file that was being decoded (not changed since).
-                (decoding_marker(on, &s) == marker).then_some((on, s))
-            });
-        let mut here = false;
-        if let Some((on, s)) = crashed {
-            here = on == volume;
-            let path = if here {
-                todo.retain(|t| t.entry != s.entry);
-                super::file_path(store, root, &mut HashMap::new(), &s)?
-                    .map(|p| p.display().to_string())
-            } else {
-                None
-            };
+        // Still the file that was being decoded (a changed file is tried again).
+        let crashed = todo
+            .iter()
+            .position(|s| decoding_marker(s) == marker)
+            .map(|at| todo.remove(at));
+        let found = crashed.is_some();
+        if let Some(s) = crashed {
+            let path = super::file_path(store, root, &mut HashMap::new(), &s)?
+                .map(|p| p.display().to_string());
             tracing::warn!(
-                volume = on.0,
+                volume = volume.0,
                 entry = s.entry.0,
                 path = path.as_deref().unwrap_or(&s.name),
                 "video not decoded: Prism stopped while decoding it"
             );
             save_videos(store, vec![(s, None)])?;
         }
-        set_marker(store, String::new());
-        Ok(here)
+        set_marker(store, volume, String::new());
+        Ok(found)
     }
 
     /// Prints the videos of a volume reached at `root` that have no valid print.
@@ -666,6 +671,7 @@ pub mod video {
         // while it is decoded (REVIEW L32).
         let mut report = run_pass(
             store,
+            volume,
             root,
             &todo,
             "videoPrints",
@@ -678,9 +684,9 @@ pub mod video {
                     .iter()
                     .map(|(s, p)| {
                         let compute = |path: &Path| {
-                            set_marker(store, decoding_marker(volume, s));
+                            set_marker(store, volume, decoding_marker(s));
                             let print = decoder.print(path);
-                            set_marker(store, String::new());
+                            set_marker(store, volume, String::new());
                             print
                         };
                         print_one(s, p, cancel, &compute)

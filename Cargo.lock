@@ -3132,7 +3132,7 @@ checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
 name = "prism-app"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
  "crossbeam-channel",
  "image",
@@ -3155,7 +3155,7 @@ dependencies = [
 
 [[package]]
 name = "prism-cli"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
  "clap",
  "prism-core",
@@ -3168,7 +3168,7 @@ dependencies = [
 
 [[package]]
 name = "prism-core"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
  "blake3",
  "crossbeam-channel",
@@ -3184,14 +3184,14 @@ dependencies = [
 
 [[package]]
 name = "prism-shell"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
  "prism-win",
 ]
 
 [[package]]
 name = "prism-win"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
  "notify",
  "prism-core",

@@ -343,6 +343,10 @@ fn f12_background_video_prints_and_groups() {
     sb.fs
         .write(&sb.path("app.ts"), b"VID1 but TypeScript")
         .unwrap();
+    // A TypeScript declaration, not a camcorder video (REVIEW L33).
+    sb.fs
+        .write(&sb.path("index.d.mts"), b"VID1 but TypeScript")
+        .unwrap();
     let cat = TestCatalog::new();
     let volume = cat.add_volume(&sb.root().to_string_lossy());
     cat.index(volume, sb.root());
@@ -403,11 +407,26 @@ fn f12_background_video_prints_and_groups() {
     );
 }
 
-/// The fake decoder, noting each video it decodes with the video the catalog names as being
-/// decoded at that moment.
+/// The fake decoder, noting each video it decodes with the videos the catalog names as being
+/// decoded at that moment (one setting per volume in `keys`).
 struct Watching {
     store: store::Store,
-    seen: std::sync::Mutex<Vec<(String, String)>>,
+    keys: Vec<String>,
+    seen: std::sync::Mutex<Vec<(String, Vec<String>)>>,
+}
+
+impl Watching {
+    fn named(&self) -> Vec<String> {
+        self.keys
+            .iter()
+            .map(|k| {
+                self.store
+                    .read(|c| store::setting(c, k))
+                    .unwrap()
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
 }
 
 impl prism_core::media::video::VideoDecoder for Watching {
@@ -415,23 +434,20 @@ impl prism_core::media::video::VideoDecoder for Watching {
         &self,
         path: &std::path::Path,
     ) -> Result<prism_core::media::video::VideoPrint, String> {
-        let named = self
-            .store
-            .read(|c| store::setting(c, prism_core::media::video::DECODING_KEY))
-            .unwrap()
-            .unwrap_or_default();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        self.seen.lock().unwrap().push((name, named));
+        self.seen.lock().unwrap().push((name, self.named()));
         FakeDecoder.print(path)
     }
 }
 
-// REVIEW L32: each video is named in the catalog while Windows decodes it. When Prism went down
-// during a decoding (a codec crash takes the whole process), the next video pass, whatever its
-// volume, saves that video as not decodable and it is never decoded again; the name is cleared.
+// REVIEW L32, L33: each video is named in the catalog while Windows decodes it, in a setting of
+// its volume. When Prism went down during a decoding (a codec crash takes the whole process),
+// the next video pass of that volume saves the video as not decodable and it is never decoded
+// again; the name is cleared. The pass of another volume leaves the name alone: the passes of
+// two volumes run at the same time, and the video one is decoding did not bring Prism down.
 #[test]
 fn a_video_that_brought_prism_down_is_not_decoded_again() {
-    use prism_core::media::video::{DECODING_KEY, decoding_marker, print_videos, video_progress};
+    use prism_core::media::video::{decoding_key, decoding_marker, print_videos, video_progress};
 
     let (one, two) = (Sandbox::new(), Sandbox::new());
     one.fs.write(&one.path("a.mp4"), b"VID1").unwrap();
@@ -442,24 +458,26 @@ fn a_video_that_brought_prism_down_is_not_decoded_again() {
     let v2 = cat.add_volume(&two.root().to_string_lossy());
     cat.index(v1, one.root());
     cat.index(v2, two.root());
-    let states = cat
-        .store
-        .read(|c| store::video_print_states(c, v1))
-        .unwrap();
-    let state = |name: &str| states.iter().find(|s| s.name == name).unwrap().clone();
-    // The last session went down while decoding crash.mp4.
-    let marker = decoding_marker(v1, &state("crash.mp4"));
-    cat.store
-        .write(move |w| store::set_setting(w, DECODING_KEY, &marker))
-        .unwrap();
-    let named = || {
+    let state = |volume, name: &str| {
         cat.store
-            .read(|c| store::setting(c, DECODING_KEY))
+            .read(|c| store::video_print_states(c, volume))
             .unwrap()
-            .unwrap_or_default()
+            .into_iter()
+            .find(|s| s.name == name)
+            .unwrap()
     };
+    let name_decoding = |volume, name: &str| {
+        let (key, marker) = (decoding_key(volume), decoding_marker(&state(volume, name)));
+        cat.store
+            .write(move |w| store::set_setting(w, &key, &marker))
+            .unwrap();
+    };
+    // The last session went down while decoding crash.mp4.
+    name_decoding(v1, "crash.mp4");
+    let crash = decoding_marker(&state(v1, "crash.mp4"));
     let decoder = Watching {
         store: cat.store.clone(),
+        keys: vec![decoding_key(v1), decoding_key(v2)],
         seen: std::sync::Mutex::new(Vec::new()),
     };
     let pass = |volume, root: &std::path::Path| {
@@ -475,51 +493,42 @@ fn a_video_that_brought_prism_down_is_not_decoded_again() {
         .unwrap()
     };
 
-    // The pass of the other volume comes first: it handles the video all the same.
+    // The pass of the other volume comes first: the video named on the first is not its own.
     let report = pass(v2, two.root());
     assert_eq!((report.printed, report.unreadable), (1, 0));
-    assert_eq!(named(), "", "cleared after each video");
-    assert_eq!(
-        cat.store.read(|c| video_progress(c, v1)).unwrap(),
-        (2, 1),
-        "crash.mp4 saved as not decodable"
-    );
+    assert_eq!(decoder.named(), [crash.clone(), String::new()]);
+    assert_eq!(cat.store.read(|c| video_progress(c, v1)).unwrap(), (2, 0));
+    // The pass of its volume counts it among the videos it could not decode.
     let report = pass(v1, one.root());
-    assert_eq!((report.printed, report.unreadable), (1, 0));
+    assert_eq!((report.printed, report.unreadable), (1, 1));
     let seen = decoder.seen.lock().unwrap().clone();
-    let b = cat
-        .store
-        .read(|c| store::video_print_states(c, v2))
-        .unwrap()
-        .remove(0);
     assert_eq!(
         seen,
         [
-            ("b.mp4".to_owned(), decoding_marker(v2, &b)),
-            ("a.mp4".to_owned(), decoding_marker(v1, &state("a.mp4"))),
+            (
+                "b.mp4".to_owned(),
+                vec![crash, decoding_marker(&state(v2, "b.mp4"))]
+            ),
+            (
+                "a.mp4".to_owned(),
+                vec![decoding_marker(&state(v1, "a.mp4")), String::new()]
+            ),
         ],
         "named while decoded; crash.mp4 never decoded again"
     );
-    assert_eq!(named(), "");
+    assert_eq!(decoder.named(), ["", ""], "cleared after each video");
     assert_eq!(cat.store.read(|c| video_progress(c, v1)).unwrap(), (2, 2));
 
-    // On its own volume, the pass counts it among the videos it could not decode.
+    // A video changed since Prism went down on it is decoded again.
     one.fs.write(&one.path("c.mp4"), b"VID4").unwrap();
     cat.index(v1, one.root());
-    let c = cat
-        .store
-        .read(|c| store::video_print_states(c, v1))
-        .unwrap()
-        .into_iter()
-        .find(|s| s.name == "c.mp4")
-        .unwrap();
-    let marker = decoding_marker(v1, &c);
-    cat.store
-        .write(move |w| store::set_setting(w, DECODING_KEY, &marker))
-        .unwrap();
+    name_decoding(v1, "c.mp4");
+    one.fs.write(&one.path("c.mp4"), b"VID4 edited").unwrap();
+    cat.index(v1, one.root());
     let report = pass(v1, one.root());
-    assert_eq!((report.printed, report.unreadable), (0, 1));
-    assert_eq!(decoder.seen.lock().unwrap().len(), 2);
+    assert_eq!((report.printed, report.unreadable), (1, 0));
+    assert_eq!(decoder.seen.lock().unwrap().len(), 3);
+    assert_eq!(decoder.named(), ["", ""]);
     assert_eq!(cat.store.read(|c| video_progress(c, v1)).unwrap(), (3, 3));
 }
 

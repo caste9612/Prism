@@ -67,10 +67,22 @@ passata dei video di una cartella condivisa.
 - I pixel di un fotogramma si leggono solo dentro il buffer che Media Foundation blocca
   (`IMF2DBuffer2::Lock2DSize`, che dà inizio e lunghezza): un fotogramma più piccolo della
   dimensione attesa dà un errore, il video resta non decodificabile.
-- Il video in decodifica si annota nel catalogo (`settings.video_decoding`) e l'annotazione si
-  cancella dopo: se Prism si chiude durante una decodifica, al riavvio quel video si salva come
-  non decodificabile, col percorso nel log, e non si riprova finché il file non cambia. Un
-  decodificatore che cade su un file costa così un solo riavvio, non uno a ogni giro.
+- Il video in decodifica si annota nel catalogo (`settings.video_decoding.<id del disco>`) e
+  l'annotazione si cancella dopo: se Prism si chiude durante una decodifica, la passata
+  successiva di quel disco salva il video come non decodificabile, col percorso nel log, e non
+  lo riprova finché il file non cambia. Un decodificatore che cade su un file costa così un
+  solo riavvio, non uno a ogni giro. L'annotazione è una per disco (REVIEW L33): le passate di
+  due dischi girano insieme, e con un'annotazione sola ciascuna prendeva per caduto il video che
+  l'altra stava decodificando. Vale anche per una chiusura brusca che non dipende dal video
+  (corrente, processo terminato): quel video resta non decodificabile finché non cambia.
 - Alternativa scartata per ora: decodificare in un processo separato (un crash chiuderebbe solo
   quello). È più robusta ma aggiunge l'avvio di un processo per video e un protocollo fra i due;
   da riprendere se i crash dei decodificatori si ripetono.
+
+## Aggiornamento 2026-11-13 (REVIEW L33)
+
+- `.mts` è l'estensione dei video AVCHD e dei moduli TypeScript: le dichiarazioni `.d.mts`,
+  migliaia in una cartella `node_modules`, non sono video. Gli altri `.mts` si provano: un file
+  di testo fallisce subito.
+- A fine passata il log riporta i motivi più frequenti dei video non decodificati (`files not
+  decoded`): senza, un numero alto di video non decodificabili non si distingue da un difetto.

@@ -32,6 +32,15 @@ intere si stampano dagli stessi byte; sulle unità di rete si leggono 4 file all
 hash restano gli stessi (stesso BLAKE3 sugli stessi byte); un file letto intero ha anche l'hash
 rapido, che non costa altro.
 
+### Aggiornamento 2026-11-13 (REVIEW L33)
+
+La dimensione e la data si leggevano dal file aperto solo dopo il contenuto: tre file sempre in
+uso, 38 GB in tutto, venivano letti fino in fondo ogni 30 minuti per scoprire alla fine che la
+data non era quella del catalogo. Un file letto a pezzi per l'hash completo (oltre 1 MiB) viene
+ora interrogato prima, e non si legge se dimensione o data non sono quelle del catalogo; resta
+il controllo dopo la lettura, per i file che cambiano mentre si leggono. I file fino a 1 MiB
+non si interrogano prima: su una cartella di rete la domanda costa quanto il contenuto.
+
 ## Conseguenze
 
 - Duplicati, verifica backup e confronto per contenuto diventano istantanei una volta

@@ -99,7 +99,7 @@ pub fn run(folder: &Path, limit: usize, readers: &[usize]) -> Result<(), String>
         let count = |n: u64| {
             bytes.fetch_add(n, Ordering::Relaxed);
         };
-        hashing::read_file(path, size, true, false, &cancel, &count)
+        hashing::read_file(path, size, true, false, &|s, _| s == size, &cancel, &count)
             .is_ok_and(|r| r.full.is_some() && r.size == size)
     };
     for run in 0..runs {

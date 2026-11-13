@@ -12,16 +12,17 @@
   rileggeva interi sottoalberi, analisi delle cartelle di rete che non avanzavano, L27) e le
   correzioni del quarto pacchetto (analisi fermate da attese di pochi secondi, giri troppo
   frequenti su C:, L28); il quinto pacchetto la conferma (L29). La 2.1.2 e la 2.1.3 non sono
-  state pubblicate. Su `develop` la **2.2.1**, non ancora pubblicata, da provare sul PC
+  state pubblicate. Su `develop` la **2.2.2**, non ancora pubblicata, da provare sul PC
   aziendale con un installer locale: comprende la 2.1.5 (correzioni del sesto pacchetto, REVIEW
   L30), la 2.2.0 (analisi del contenuto più veloce sulle cartelle di rete, L31: misurata col
-  settimo pacchetto, 135 file al secondo invece di 33) e la correzione della chiusura di Prism
-  durante le impronte dei video (L32). La 2.1.5 e la 2.2.0 non sono state pubblicate. Il lavoro
-  continua direttamente su `develop`.
-- **Prossimo passo**: confermare la causa della chiusura del 2026-11-12 col registro eventi di
-  Windows del PC aziendale; provare lì la 2.2.1 e leggere un pacchetto diagnostico (nessuna
-  chiusura, eventuale riga `video not decoded`); poi la release col via libera dell'utente.
-  Restano aperti REVIEW L29 (2) e i punti aperti di L32. Prima di avviare l'app di
+  settimo pacchetto, 135 file al secondo invece di 33), la 2.2.1 (chiusura di Prism durante le
+  impronte dei video, L32: confermata dall'ottavo pacchetto, 20 ore senza cadute) e le
+  correzioni dell'ottavo pacchetto (L33). La 2.1.5, la 2.2.0 e la 2.2.1 non sono state
+  pubblicate. Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: la release della 2.2.2 col via libera dell'utente (prima, se vuole, una
+  prova breve sul PC aziendale); nel pacchetto successivo controllare che i giri del disco 1
+  non leggano più 38 GB e leggere le righe `files not decoded`. Restano aperti REVIEW L29 (2)
+  e i punti aperti di L32 e L33. Prima di avviare l'app di
   sviluppo va chiusa quella installata (CLAUDE.md).
   Consigliata una copia della chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
@@ -32,6 +33,17 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-13 — 2.2.2: l'ottavo pacchetto conferma la correzione e mostra quattro sprechi
+
+- Ottavo pacchetto del PC aziendale, con la 2.2.1 di prova: 20 ore e mezza senza cadute, i
+  2.140 video di `Organ` finiti in 25 minuti (la 2.2.0 era caduta due volte dopo 2 minuti). Ma
+  la correzione aveva un difetto: con una sola annotazione per tutti i dischi, le passate di C:
+  e Data hanno segnato come "video che ha fatto cadere Prism" due video che la passata di
+  `Organ` stava decodificando. Ora l'annotazione è una per disco. Dal pacchetto anche:
+  conteggio dell'avanzamento ogni 30 secondi (il 13% del tempo a leggere il catalogo), 38 GB
+  letti ogni 30 minuti sul disco 1 per tre file sempre in uso, i `.d.mts` di TypeScript
+  contati come video, nessun motivo nel log per i video non decodificati (REVIEW L33).
 
 ### 2026-11-12 — 2.2.1: Prism chiuso durante le impronte dei video
 

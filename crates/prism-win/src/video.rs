@@ -177,33 +177,35 @@ fn copy_pixels(
     // Every row read is checked against the length the lock reports.
     unsafe {
         let buffer: IMFMediaBuffer = sample.ConvertToContiguousBuffer()?;
-        let out = if let Ok(two_d) = buffer.cast::<IMF2DBuffer2>() {
+        let short = VideoError::ShortFrame { width, height };
+        if let Ok(two_d) = buffer.cast::<IMF2DBuffer2>() {
             let mut scan0: *mut u8 = std::ptr::null_mut();
             let mut pitch = 0i32;
             let mut start: *mut u8 = std::ptr::null_mut();
             let mut len = 0u32;
-            two_d.Lock2DSize(
+            let locked = two_d.Lock2DSize(
                 MF2DBuffer_LockFlags_Read,
                 &raw mut scan0,
                 &raw mut pitch,
                 &raw mut start,
                 &raw mut len,
-            )?;
-            let first = (scan0 as usize).wrapping_sub(start as usize);
-            let out = rows(start, len as usize, first, pitch, row_len, height);
-            two_d.Unlock2D()?;
-            out
-        } else {
-            // A buffer locked as a whole holds its rows one after the other.
-            let mut data: *mut u8 = std::ptr::null_mut();
-            let mut len = 0u32;
-            buffer.Lock(&raw mut data, None, Some(&raw mut len))?;
-            let pitch = i32::try_from(row_len).unwrap_or(i32::MAX);
-            let out = rows(data, len as usize, 0, pitch, row_len, height);
-            buffer.Unlock()?;
-            out
-        };
-        out.ok_or(VideoError::ShortFrame { width, height })
+            );
+            // A buffer that cannot be locked this way is locked as a whole, below.
+            if locked.is_ok() {
+                let first = (scan0 as usize).wrapping_sub(start as usize);
+                let out = rows(start, len as usize, first, pitch, row_len, height);
+                two_d.Unlock2D()?;
+                return out.ok_or(short);
+            }
+        }
+        // A buffer locked as a whole holds its rows one after the other.
+        let mut data: *mut u8 = std::ptr::null_mut();
+        let mut len = 0u32;
+        buffer.Lock(&raw mut data, None, Some(&raw mut len))?;
+        let pitch = i32::try_from(row_len).unwrap_or(i32::MAX);
+        let out = rows(data, len as usize, 0, pitch, row_len, height);
+        buffer.Unlock()?;
+        out.ok_or(short)
     }
 }
 
