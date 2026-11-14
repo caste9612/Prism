@@ -10,7 +10,7 @@
   import type { VolumeView } from './lib/bindings/VolumeView';
   import { backend, errorMessage, type Unlisten } from './lib/api';
   import { setLanguage, t, type LangPreference } from './lib/i18n.svelte';
-  import { cardJob, newVolumePrompts, volumeName } from './lib/catalog';
+  import { mergeVolumes, newVolumePrompts, volumeName, withCardJobs } from './lib/catalog';
   import { CATALOG_TABS, nav } from './lib/nav.svelte';
   import { setTheme, type ThemePreference } from './lib/theme';
   import CatalogView from './components/CatalogView.svelte';
@@ -65,7 +65,7 @@
 
   async function refresh() {
     try {
-      volumes = await backend.volumes();
+      volumes = mergeVolumes(volumes, await backend.volumes());
     } catch (e) {
       showToast(errorMessage(e));
     }
@@ -161,10 +161,11 @@
       const offSettings = await backend.onSettingsChanged(async () => {
         settings = await backend.getSettings().catch(() => settings);
       });
-      // Job progress: update the matching cards without reloading the whole list.
+      // Job progress: update the matching cards without reloading the whole list, and only the
+      // cards whose job changed (REVIEW L34).
       const offJobs = await backend.onJobsChanged((list) => {
         jobs = list;
-        volumes = volumes.map((v) => ({ ...v, job: cardJob(list, v.id) }));
+        volumes = withCardJobs(volumes, list);
       });
       if (alive) unlisten.push(offVolumes, offShell, offSettings, offJobs);
       else [offVolumes, offShell, offSettings, offJobs].forEach((f) => f());

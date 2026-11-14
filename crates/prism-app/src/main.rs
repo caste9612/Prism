@@ -119,6 +119,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         hashing: hash_jobs::HashingState::default(),
         backup: backup_state::BackupState::default(),
         thumbnails: similar_views::Thumbnails::default(),
+        similar: similar_state::SimilarCache::default(),
         identities: identity::Identities::default(),
         health: health_state::HealthState::default(),
         // REVIEW D66: development builds keep their NAS logins apart (TESTING S4).
@@ -305,6 +306,7 @@ fn main() {
             commands::copy_start,
             commands::copy_result,
             commands::similar_images,
+            commands::similar_image_groups,
             commands::image_thumbnail,
             commands::similar_videos,
             commands::open_logs,

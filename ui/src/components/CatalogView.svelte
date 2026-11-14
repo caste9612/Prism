@@ -112,7 +112,8 @@
     categories.request(volumes);
   });
 
-  // Totals of the functions on the whole catalog, asked once when the screen opens.
+  // Totals of the functions on the whole catalog, asked once when the screen opens. Only the
+  // number of groups of similar images: the backend keeps the groups (REVIEW L34).
   let recoverable = $state<number | null>(null);
   let similarGroups = $state<number | null>(null);
   let recent = $state<ActionView[]>([]);
@@ -120,7 +121,7 @@
     void backend
       .duplicateGroups({ minSize: 1_000_000, category: null, volumeId: null, folder: null }, [])
       .then((d) => (recoverable = d.totalRecoverable), () => (recoverable = null));
-    void backend.similarImages(6, null).then((s) => (similarGroups = s.totalGroups), () => (similarGroups = null));
+    void backend.similarImageGroups(6).then((n) => (similarGroups = n), () => (similarGroups = null));
   });
   $effect(() => {
     void volumes;
@@ -128,10 +129,12 @@
   });
   const batches = $derived(batchActions(recent, 4));
 
-  // Disks to identify: asked again whenever the list of volumes changes.
+  // Disks to identify: asked again when disks come, go or change state, not at every update of
+  // their figures.
   let ambiguous = $state<AmbiguousView[]>([]);
+  const presence = $derived(volumes.map((v) => `${v.id}:${v.online}:${v.status}`).join('|'));
   $effect(() => {
-    void volumes;
+    void presence;
     void backend.ambiguousVolumes().then(
       (list) => (ambiguous = list),
       () => (ambiguous = []),

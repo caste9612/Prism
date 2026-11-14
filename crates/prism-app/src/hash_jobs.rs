@@ -464,6 +464,9 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                     decoders,
                     "hashing finished"
                 );
+                if report.printed > 0 {
+                    s.similar.invalidate();
+                }
                 // Then the prints of the images not printed while hashing (F11), in the same
                 // background job.
                 if !report.interrupted {
@@ -488,6 +491,9 @@ pub fn tick(state: &Arc<AppState>) -> bool {
                     let mut skipped_prints = Some(0u64);
                     match prints {
                         Ok(p) => {
+                            if p.printed > 0 {
+                                s.similar.invalidate();
+                            }
                             tracing::info!(
                                 volume = id.0,
                                 printed = p.printed,

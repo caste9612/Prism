@@ -10,6 +10,10 @@ use ts_rs::TS;
 
 /// Groups sent at most (most images first); the total counts all of them.
 pub const MAX_GROUPS: usize = 200;
+/// Files of a group sent at most (the largest resolutions first); the group says how many it
+/// has. On a real catalog one group joined 35,538 icons, one similar to the next: the screen
+/// drew them all, and the backend looked up the path of each (REVIEW L34).
+pub const MAX_FILES: usize = 60;
 /// The largest distance the interface may ask for (beyond it everything looks alike).
 pub const MAX_DISTANCE: u32 = 20;
 /// Side of the thumbnails, in pixels.
@@ -47,7 +51,11 @@ pub struct SimilarFileView {
 #[ts(export)]
 pub struct SimilarGroupView {
     pub key: String,
+    /// The first [`MAX_FILES`] files of the group.
     pub files: Vec<SimilarFileView>,
+    /// Files in the group, those not sent included.
+    #[ts(type = "number")]
+    pub count: u64,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]

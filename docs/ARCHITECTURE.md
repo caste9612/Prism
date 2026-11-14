@@ -413,14 +413,19 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   si decodifica resta segnato finché non cambia; oltre 512 MB non si decodifica, e non conta
   tra le immagini da fare (REVIEW L27: contate, facevano ripartire l'analisi ogni 2 minuti su
   una cartella di vetrini virtuali). I gruppi
-  (`media::bktree::groups`) uniscono le immagini entro una distanza di Hamming con un BK-tree:
-  ogni immagine cerca le vicine visitando solo i rami con distanza compatibile, senza
-  confrontare tutte le coppie (F11-AC2). Nell'app le impronte si calcolano nello stesso job di
-  background degli hash: durante la lettura per gli hash per le immagini lette intere, dopo di
-  essi per le altre (`hash_jobs.rs`, REVIEW L31); `similar_images` restituisce i 200
-  gruppi con più immagini (la più grande per prima, con la distanza dalla prima) e
-  `image_thumbnail` una miniatura JPEG di 192 px dei file collegati, come byte grezzi
-  (`tauri::ipc::Response`), con una cache in memoria di 600 miniature.
+  (`media::bktree::groups`) uniscono le immagini entro una distanza di Hamming: le impronte
+  uguali sono un solo nodo, e un indice dei quattro blocchi di 16 bit trova le vicine (due
+  impronte entro t bit hanno almeno un blocco entro t/4 bit), senza confrontare tutte le coppie
+  (F11-AC2, REVIEW L34; il BK-tree resta per le ricerche singole). Nell'app le impronte si
+  calcolano nello stesso job di background degli hash: durante la lettura per gli hash per le
+  immagini lette intere, dopo di essi per le altre (`hash_jobs.rs`, REVIEW L31). I gruppi si
+  tengono in memoria (`similar_state::SimilarCache`) finché le impronte non cambiano o per 10
+  minuti, un calcolo alla volta; le immagini con impronta 0 (senza dettagli) non entrano nei
+  gruppi. `similar_images` restituisce i 200 gruppi con più immagini (la più grande per prima,
+  con la distanza dalla prima), al più 60 file per gruppo con il numero totale;
+  `similar_image_groups` solo il numero dei gruppi (il Catalogo); `image_thumbnail` una
+  miniatura JPEG di 192 px dei file collegati, come byte grezzi (`tauri::ipc::Response`), con
+  una cache in memoria di 600 miniature.
 - **Video simili** (`prism-core::media::video`, `prism-win::video`, T8, F12, ADR-0013): Media
   Foundation decodifica il primo flusso video (NV12, o RGB32 se il decoder non lo offre); al 10,
   30, 50, 70 e 90 % della durata si salta e si decodifica fino al fotogramma del tempo esatto (al
@@ -603,8 +608,9 @@ Implementazione (`store::Store`, T1):
 - Ogni job ha un token di annullamento e un reporter di avanzamento. Il motore è in memoria
   (nessuna tabella `jobs`, REVIEW D10): un lavoro interrotto si riconosce dallo stato del
   catalogo e riparte da lì (vedi sotto, NF4).
-- Eventi verso l'interfaccia, limitati a circa 4 al secondo: `jobs-changed`, `volumes-changed`,
-  `settings-changed`, `update-changed`, `search-focus`, `shell-request`.
+- Eventi verso l'interfaccia, limitati a circa 4 al secondo: `jobs-changed` (solo quando lo
+  stato dei lavori è cambiato, REVIEW L34), `volumes-changed`, `settings-changed`,
+  `update-changed`, `search-focus`, `shell-request`.
 
 Implementazione (`prism-core::jobs::JobEngine`, T3): alcuni thread di lavoro prendono il job in
 coda più urgente i cui dischi fisici sono liberi (FIFO a parità di priorità); ogni job riceve
@@ -675,6 +681,11 @@ journal: senza, Prism non sa che cosa è cambiato mentre era chiuso.
 - Tipi TypeScript generati dai tipi Rust con **ts-rs** (REVIEW D11): niente interfacce
   duplicate a mano.
 - Lo stato vive nel backend; i componenti si iscrivono agli eventi e rileggono ciò che serve.
+  `App.svelte` cambia solo i dischi che cambiano davvero (`catalog.ts`: `withCardJobs` per i
+  lavori sulle schede, `mergeVolumes` per l'elenco riletto): una schermata che dipende dai
+  dischi non si rifà, e non richiede nulla al backend, a ogni avanzamento di un lavoro (REVIEW
+  L34). La mappa dello spazio si rilegge subito dopo una lettura completa del disco, dopo gli
+  aggiornamenti del journal al più ogni 5 minuti (`spaceReloadDelay`).
 - Gli errori del backend arrivano come **codice + parametri**; l'interfaccia li traduce (i18n).
   Anche le etichette del tray sono fornite dall'interfaccia nella lingua scelta.
 - Liste lunghe limitate invece che virtualizzate (200 risultati di ricerca, 300 gruppi di
@@ -694,7 +705,10 @@ Implementazione (T3):
   stato `new`, riconosciuti aggiornati, ambigui in attesa della scelta dell'utente, REVIEW D43); alla
   riconnessione di un volume indicizzato accoda un aggiornamento (F05-AC2); ogni 15 s applica
   il journal ai volumi NTFS indicizzati e collegati (F05-AC1, job `journal`); inoltra
-  all'interfaccia gli eventi `jobs-changed` (al massimo ~4 al secondo) e `volumes-changed`.
+  all'interfaccia gli eventi `jobs-changed` (al massimo ~4 al secondo, solo se cambiati) e
+  `volumes-changed`. I comandi che leggono il catalogo girano fuori dal thread principale
+  (`commands::blocking`), e quelli oltre 1 secondo vanno nel log con nome e durata (`slow
+  command`, REVIEW L34).
 - Identità ambigue (F02-AC3, `identity.rs`): `monitor::apply_detection` (separata dal
   rilevamento, così si prova senza finestra) tiene i volumi `Ambiguous` in attesa con i
   candidati; la scelta dell'utente (un candidato, o un disco nuovo) si applica al giro

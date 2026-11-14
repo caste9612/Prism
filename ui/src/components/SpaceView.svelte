@@ -6,9 +6,9 @@
   import type { LargeFileView } from '../lib/bindings/LargeFileView';
   import type { SpaceFolderView } from '../lib/bindings/SpaceFolderView';
   import type { VolumeView } from '../lib/bindings/VolumeView';
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { backend, errorMessage } from '../lib/api';
-  import { volumeName } from '../lib/catalog';
+  import { spaceReloadDelay, volumeName } from '../lib/catalog';
   import { ago, formatBytes, formatCount } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
   import { CATEGORIES, type Cell } from '../lib/treemap';
@@ -34,10 +34,14 @@
   let selected = $state<number | null>(null);
   let loading = $state(false);
 
+  /** When the folder on screen was last read. */
+  let loadedAt = 0;
+
   async function load(id: number | null) {
     loading = true;
     try {
       view = await backend.spaceFolder(volume.id, id);
+      loadedAt = Date.now();
       largest = null;
       selected = null;
       if (mode === 'largest') void loadLargest();
@@ -67,18 +71,40 @@
   });
 
   // After an update of the disk the folder on screen is read again, staying where it is (the
-  // root if the folder is gone).
+  // root if the folder is gone): at once after a full reading of the disk, at most every few
+  // minutes after the updates of its journal (REVIEW L34).
   const indexedAt = $derived(volume.lastIndexedAt);
   let seenIndexedAt: number | null | undefined;
+  let fullReading = false;
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    if (volume.job !== null) fullReading = true;
+  });
   $effect(() => {
     const stamp = indexedAt;
-    if (seenIndexedAt !== undefined && stamp !== seenIndexedAt) untrack(() => void reload());
+    if (seenIndexedAt !== undefined && stamp !== seenIndexedAt) untrack(() => scheduleReload());
     seenIndexedAt = stamp;
   });
+  function scheduleReload() {
+    const wait = spaceReloadDelay(fullReading, loadedAt, Date.now());
+    fullReading = false;
+    if (wait === 0) {
+      clearTimeout(pending);
+      pending = undefined;
+      void reload();
+    } else if (pending === undefined) {
+      pending = setTimeout(() => {
+        pending = undefined;
+        void reload();
+      }, wait);
+    }
+  }
+  onDestroy(() => clearTimeout(pending));
   async function reload() {
     const here = view?.folderId ?? folderId;
     try {
       view = await backend.spaceFolder(volume.id, here);
+      loadedAt = Date.now();
       if (mode === 'largest') void loadLargest();
     } catch {
       await load(null);

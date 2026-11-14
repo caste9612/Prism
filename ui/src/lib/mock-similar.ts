@@ -68,7 +68,7 @@ function build(source: Sample[][], volumes: VolumeView[], maxDistance: number, v
             distance,
           };
         });
-      return { key: String(files[0]?.entryId ?? 0), files };
+      return { key: String(files[0]?.entryId ?? 0), files, count: files.length };
     });
   return { groups, totalGroups: groups.length, pending: 3_210 };
 }

@@ -162,7 +162,7 @@
       {@const maxDiff = Math.max(...g.files.map((f) => f.distance))}
       <article class="group card" aria-label={name(g.files[0]!)}>
         <header>
-          <h2>{t(kind === 'images' ? 'similar.images' : 'similar.videos', { count: formatCount(g.files.length, lang) })}</h2>
+          <h2>{t(kind === 'images' ? 'similar.images' : 'similar.videos', { count: formatCount(g.count, lang) })}</h2>
           <span class="mono muted">{t('similar.groupDiff', { value: maxDiff })}</span>
         </header>
         <ul class="tiles">
@@ -196,6 +196,9 @@
             </li>
           {/each}
         </ul>
+        {#if g.count > g.files.length}
+          <p class="muted">{t('similar.moreFiles', { count: formatCount(g.count - g.files.length, lang) })}</p>
+        {/if}
       </article>
     {/each}
     {#if view.groups.length > shown}

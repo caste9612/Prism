@@ -109,7 +109,10 @@ pub async fn check_share_path(
     path: String,
 ) -> R<SharePathView> {
     let s = Arc::clone(&state);
-    blocking(move || s.check_share_path(VolumeId(id), &path)).await
+    blocking("check_share_path", move || {
+        s.check_share_path(VolumeId(id), &path)
+    })
+    .await
 }
 
 /// Gives a share of the catalog its new network path, after the user confirmed it (REVIEW D59).
@@ -121,7 +124,7 @@ pub async fn move_share(
     path: String,
 ) -> R<()> {
     let s = Arc::clone(&state);
-    blocking(move || s.move_share(VolumeId(id), &path)).await?;
+    blocking("move_share", move || s.move_share(VolumeId(id), &path)).await?;
     emit_volumes(&app);
     Ok(())
 }
@@ -164,12 +167,29 @@ pub fn open_volume(state: State<'_, Arc<AppState>>, id: i64) -> R<()> {
     prism_win::shell::open(&root).map_err(|e| ApiError::new("open_failed", e))
 }
 
-/// Runs a catalog read away from the main thread and the async runtime: the space queries can
-/// take a few hundred milliseconds on large volumes (NF1).
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> R<T> + Send + 'static) -> R<T> {
-    tauri::async_runtime::spawn_blocking(f)
+/// A command that takes longer than this goes to the log, with its name and duration: the
+/// diagnostic package then shows which screens wait (REVIEW L34).
+const SLOW_COMMAND: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Runs the work of command `name` away from the main thread and the async runtime: the space
+/// queries can take a few hundred milliseconds on large volumes (NF1).
+async fn blocking<T: Send + 'static>(
+    name: &'static str,
+    f: impl FnOnce() -> R<T> + Send + 'static,
+) -> R<T> {
+    let started = std::time::Instant::now();
+    let result = tauri::async_runtime::spawn_blocking(f)
         .await
-        .map_err(|e| ApiError::new("unknown", e))?
+        .map_err(|e| ApiError::new("unknown", e))?;
+    if started.elapsed() >= SLOW_COMMAND {
+        tracing::info!(
+            command = name,
+            ms = started.elapsed().as_millis(),
+            ok = result.is_ok(),
+            "slow command"
+        );
+    }
+    result
 }
 
 /// A folder of a volume (its root if `folder_id` is missing) with its treemap (F08-AC1/AC2).
@@ -180,7 +200,10 @@ pub async fn space_folder(
     folder_id: Option<i64>,
 ) -> R<SpaceFolderView> {
     let s = Arc::clone(&state);
-    blocking(move || s.space_folder(VolumeId(volume_id), folder_id.map(EntryId))).await
+    blocking("space_folder", move || {
+        s.space_folder(VolumeId(volume_id), folder_id.map(EntryId))
+    })
+    .await
 }
 
 /// The largest files below a folder (F08-AC2).
@@ -192,7 +215,10 @@ pub async fn largest_files(
     limit: usize,
 ) -> R<Vec<LargeFileView>> {
     let s = Arc::clone(&state);
-    blocking(move || s.largest_files(VolumeId(volume_id), folder_id.map(EntryId), limit)).await
+    blocking("largest_files", move || {
+        s.largest_files(VolumeId(volume_id), folder_id.map(EntryId), limit)
+    })
+    .await
 }
 
 /// Statistics by type of a volume, or of the whole catalog without `volume_id` (F08-AC3).
@@ -202,7 +228,7 @@ pub async fn type_stats(
     volume_id: Option<i64>,
 ) -> R<TypeStatsView> {
     let s = Arc::clone(&state);
-    blocking(move || s.type_stats(volume_id.map(VolumeId))).await
+    blocking("type_stats", move || s.type_stats(volume_id.map(VolumeId))).await
 }
 
 /// The most recent file operations of the actions log (F16-AC6).
@@ -212,7 +238,7 @@ pub async fn recent_actions(
     limit: usize,
 ) -> R<Vec<crate::dto::ActionView>> {
     let s = Arc::clone(&state);
-    blocking(move || s.recent_actions(limit)).await
+    blocking("recent_actions", move || s.recent_actions(limit)).await
 }
 
 /// Opens a file or folder of the catalog with the user's normal rights (ADR-0003).
@@ -238,7 +264,7 @@ pub async fn search(
     utc_offset_min: i32,
 ) -> R<SearchResultView> {
     let s = Arc::clone(&state);
-    blocking(move || s.search(&text, utc_offset_min)).await
+    blocking("search", move || s.search(&text, utc_offset_min)).await
 }
 
 /// Hides the search window (Esc, or after opening a result).
@@ -253,7 +279,7 @@ pub fn hide_search(app: AppHandle) {
 #[tauri::command]
 pub async fn cleanup_scan(state: State<'_, Arc<AppState>>) -> R<CleanupView> {
     let s = Arc::clone(&state);
-    blocking(move || s.cleanup_scan()).await
+    blocking("cleanup_scan", move || s.cleanup_scan()).await
 }
 
 /// Deletes the chosen entries of a volume through the safe deletion path (ADR-0012, F16).
@@ -268,9 +294,10 @@ pub async fn delete_entries(
 ) -> R<CleanupResultView> {
     let s = Arc::clone(&state);
     let entries: Vec<EntryId> = entry_ids.into_iter().map(EntryId).collect();
-    let result =
-        blocking(move || s.delete_entries(VolumeId(volume_id), &entries, empty_folders, permanent))
-            .await;
+    let result = blocking("delete_entries", move || {
+        s.delete_entries(VolumeId(volume_id), &entries, empty_folders, permanent)
+    })
+    .await;
     emit_volumes(&app);
     result
 }
@@ -283,7 +310,7 @@ pub async fn duplicate_groups(
     rules: Vec<RuleInput>,
 ) -> R<DuplicatesView> {
     let s = Arc::clone(&state);
-    blocking(move || s.duplicates(&filter, &rules)).await
+    blocking("duplicate_groups", move || s.duplicates(&filter, &rules)).await
 }
 
 /// Deletes copies of duplicates on the connected disks (F16-AC3/AC4).
@@ -297,8 +324,10 @@ pub async fn delete_duplicates(
 ) -> R<CleanupResultView> {
     let s = Arc::clone(&state);
     let entries: Vec<EntryId> = entry_ids.into_iter().map(EntryId).collect();
-    let result =
-        blocking(move || s.delete_duplicates(&entries, allow_offline_only, permanent)).await;
+    let result = blocking("delete_duplicates", move || {
+        s.delete_duplicates(&entries, allow_offline_only, permanent)
+    })
+    .await;
     emit_volumes(&app);
     result
 }
@@ -311,7 +340,10 @@ pub async fn backup_verify(
     destinations: Vec<SideInput>,
 ) -> R<VerifySummaryView> {
     let s = Arc::clone(&state);
-    blocking(move || s.backup_verify(&source, &destinations)).await
+    blocking("backup_verify", move || {
+        s.backup_verify(&source, &destinations)
+    })
+    .await
 }
 
 /// Two folders side by side, by path or by content (F14).
@@ -323,7 +355,10 @@ pub async fn backup_compare(
     by_content: bool,
 ) -> R<CompareSummaryView> {
     let s = Arc::clone(&state);
-    blocking(move || s.backup_compare(&a, &b, by_content)).await
+    blocking("backup_compare", move || {
+        s.backup_compare(&a, &b, by_content)
+    })
+    .await
 }
 
 /// One level of the result tree of a check or a comparison (F13-AC4, F14-AC3).
@@ -335,7 +370,10 @@ pub async fn backup_folder(
     filter: ReportFilterInput,
 ) -> R<ReportFolderView> {
     let s = Arc::clone(&state);
-    blocking(move || s.backup_folder(report_id, &folder, &filter)).await
+    blocking("backup_folder", move || {
+        s.backup_folder(report_id, &folder, &filter)
+    })
+    .await
 }
 
 /// Files, size and free space before copying the missing files (F15-AC1/AC2).
@@ -346,7 +384,7 @@ pub async fn copy_preview(
     dest: SideInput,
 ) -> R<CopyPreviewView> {
     let s = Arc::clone(&state);
-    blocking(move || s.copy_preview(report_id, &dest)).await
+    blocking("copy_preview", move || s.copy_preview(report_id, &dest)).await
 }
 
 /// Starts copying the missing files of a check (F15); returns the job.
@@ -374,7 +412,20 @@ pub async fn similar_images(
     volume_id: Option<i64>,
 ) -> R<SimilarView> {
     let s = Arc::clone(&state);
-    blocking(move || s.similar_images(max_distance, volume_id.map(VolumeId))).await
+    blocking("similar_images", move || {
+        s.similar_images(max_distance, volume_id.map(VolumeId))
+    })
+    .await
+}
+
+/// How many groups of similar images there are on every disk (the catalog screen, F11).
+#[tauri::command]
+pub async fn similar_image_groups(state: State<'_, Arc<AppState>>, max_distance: u32) -> R<u64> {
+    let s = Arc::clone(&state);
+    blocking("similar_image_groups", move || {
+        s.similar_image_groups(max_distance)
+    })
+    .await
 }
 
 /// Groups of similar videos on every disk (F12), optionally with a copy on one volume.
@@ -385,7 +436,10 @@ pub async fn similar_videos(
     volume_id: Option<i64>,
 ) -> R<SimilarView> {
     let s = Arc::clone(&state);
-    blocking(move || s.similar_videos(max_distance, volume_id.map(VolumeId))).await
+    blocking("similar_videos", move || {
+        s.similar_videos(max_distance, volume_id.map(VolumeId))
+    })
+    .await
 }
 
 /// A JPEG thumbnail of the middle frame of a connected video, as raw bytes (F12).
@@ -396,7 +450,10 @@ pub async fn video_thumbnail(
     entry_id: i64,
 ) -> R<tauri::ipc::Response> {
     let s = Arc::clone(&state);
-    let jpeg = blocking(move || s.video_thumbnail(VolumeId(volume_id), EntryId(entry_id))).await?;
+    let jpeg = blocking("video_thumbnail", move || {
+        s.video_thumbnail(VolumeId(volume_id), EntryId(entry_id))
+    })
+    .await?;
     Ok(tauri::ipc::Response::new(jpeg))
 }
 
@@ -408,7 +465,10 @@ pub async fn image_thumbnail(
     entry_id: i64,
 ) -> R<tauri::ipc::Response> {
     let s = Arc::clone(&state);
-    let jpeg = blocking(move || s.image_thumbnail(VolumeId(volume_id), EntryId(entry_id))).await?;
+    let jpeg = blocking("image_thumbnail", move || {
+        s.image_thumbnail(VolumeId(volume_id), EntryId(entry_id))
+    })
+    .await?;
     Ok(tauri::ipc::Response::new(jpeg))
 }
 
@@ -435,7 +495,7 @@ pub fn install_update(app: AppHandle, updates: State<'_, Arc<UpdateState>>) -> R
 #[tauri::command]
 pub async fn locate_path(state: State<'_, Arc<AppState>>, path: String) -> R<LocatedView> {
     let s = Arc::clone(&state);
-    blocking(move || s.locate_path(&path)).await
+    blocking("locate_path", move || s.locate_path(&path)).await
 }
 
 /// The health of the disk of a connected volume, with its history (F17).
@@ -445,14 +505,14 @@ pub async fn disk_health(
     volume_id: i64,
 ) -> R<Option<DiskHealthView>> {
     let s = Arc::clone(&state);
-    blocking(move || s.disk_health(VolumeId(volume_id))).await
+    blocking("disk_health", move || s.disk_health(VolumeId(volume_id))).await
 }
 
 /// Adds a network folder to the catalog by its path, after checking that it answers (F02-AC5).
 #[tauri::command]
 pub async fn add_share(app: AppHandle, state: State<'_, Arc<AppState>>, path: String) -> R<i64> {
     let s = Arc::clone(&state);
-    let id = blocking(move || s.add_share(&path)).await?;
+    let id = blocking("add_share", move || s.add_share(&path)).await?;
     emit_volumes(&app);
     Ok(id.0)
 }
@@ -461,7 +521,7 @@ pub async fn add_share(app: AppHandle, state: State<'_, Arc<AppState>>, path: St
 #[tauri::command]
 pub async fn nas_servers(state: State<'_, Arc<AppState>>) -> R<Vec<NasServerView>> {
     let s = Arc::clone(&state);
-    blocking(move || s.nas_servers()).await
+    blocking("nas_servers", move || s.nas_servers()).await
 }
 
 /// Reads a NAS with the login the user typed and, when it works, saves the login in the Windows
@@ -475,7 +535,10 @@ pub async fn nas_connect(
     password: String,
 ) -> R<()> {
     let s = Arc::clone(&state);
-    blocking(move || s.nas_connect(&server, &user, &password)).await?;
+    blocking("nas_connect", move || {
+        s.nas_connect(&server, &user, &password)
+    })
+    .await?;
     emit_volumes(&app);
     Ok(())
 }
@@ -488,7 +551,7 @@ pub async fn nas_disconnect(
     server: String,
 ) -> R<()> {
     let s = Arc::clone(&state);
-    blocking(move || s.nas_disconnect(&server)).await?;
+    blocking("nas_disconnect", move || s.nas_disconnect(&server)).await?;
     emit_volumes(&app);
     Ok(())
 }
@@ -500,7 +563,7 @@ pub async fn nas_health(
     volume_id: i64,
 ) -> R<Option<NasHealthView>> {
     let s = Arc::clone(&state);
-    blocking(move || s.nas_health(VolumeId(volume_id))).await
+    blocking("nas_health", move || s.nas_health(VolumeId(volume_id))).await
 }
 
 /// Connected disks Prism cannot tell apart, waiting for the user's choice (F02-AC3).
@@ -523,7 +586,7 @@ pub fn resolve_ambiguous(
 #[tauri::command]
 pub async fn reset_catalog(app: AppHandle, state: State<'_, Arc<AppState>>) -> R<usize> {
     let s = Arc::clone(&state);
-    let removed = blocking(move || s.reset_catalog()).await;
+    let removed = blocking("reset_catalog", move || s.reset_catalog()).await;
     emit_volumes(&app);
     let _ = app.emit("settings-changed", ());
     removed
@@ -541,14 +604,14 @@ pub fn open_logs(state: State<'_, Arc<AppState>>) -> R<()> {
 #[tauri::command]
 pub async fn diagnostics_preview(state: State<'_, Arc<AppState>>) -> R<DiagnosticsView> {
     let s = Arc::clone(&state);
-    blocking(move || s.diagnostics_preview()).await
+    blocking("diagnostics_preview", move || s.diagnostics_preview()).await
 }
 
 /// Writes the diagnostic package and shows it in Explorer; returns its path (F20-AC2).
 #[tauri::command]
 pub async fn export_diagnostics(state: State<'_, Arc<AppState>>) -> R<String> {
     let s = Arc::clone(&state);
-    let path = blocking(move || s.export_diagnostics()).await?;
+    let path = blocking("export_diagnostics", move || s.export_diagnostics()).await?;
     let _ = prism_win::shell::reveal(&path);
     Ok(path.to_string_lossy().into_owned())
 }
@@ -567,6 +630,7 @@ pub fn remove_volume(app: AppHandle, state: State<'_, Arc<AppState>>, id: i64) -
     state
         .store
         .write(move |w| store::remove_volume(w, volume))?;
+    state.similar.invalidate();
     state.online().remove(&volume);
     emit_volumes(&app);
     Ok(())

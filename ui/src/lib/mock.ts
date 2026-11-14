@@ -317,6 +317,7 @@ export function mockBackend(): Backend {
     },
     copyResult: async (jobId) => copyResults.get(jobId) ?? null,
     similarImages: async (maxDistance, volumeId) => mockSimilar(volumes, maxDistance, volumeId),
+    similarImageGroups: async (maxDistance) => mockSimilar(volumes, maxDistance, null).totalGroups,
     imageThumbnail: async (volumeId, entryId) => (find(volumeId).online ? mockThumbnail(entryId) : null),
     similarVideos: async (maxDistance, volumeId) => mockSimilarVideos(volumes, maxDistance, volumeId),
     videoThumbnail: async (volumeId, entryId) => (find(volumeId).online ? mockThumbnail(entryId) : null),

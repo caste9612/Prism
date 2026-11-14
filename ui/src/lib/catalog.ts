@@ -169,6 +169,71 @@ export function cardJob(jobs: JobView[], volumeId: number): JobView | null {
   );
 }
 
+/** A map of the space is read again after an update of its disk at most this often. */
+export const SPACE_RELOAD_MS = 5 * 60_000;
+
+/**
+ * How long to wait before reading the map of a disk again after an update of the disk: at once
+ * after a full reading (an indexing or update the user sees on the card), otherwise not before
+ * `every` since the last reading. The journal updates a system disk every 15 seconds: the map
+ * was read again (a second or more on a large disk) and redrawn each time (REVIEW L34).
+ */
+export function spaceReloadDelay(fullReading: boolean, loadedAt: number, now: number, every = SPACE_RELOAD_MS): number {
+  return fullReading ? 0 : Math.max(0, loadedAt + every - now);
+}
+
+/** Whether two card jobs say the same (the same job, at the same point). */
+export function sameJob(a: JobView | null, b: JobView | null): boolean {
+  if (a === null || b === null) return a === b;
+  return (
+    a.id === b.id &&
+    a.kind === b.kind &&
+    a.state === b.state &&
+    a.done === b.done &&
+    a.total === b.total &&
+    a.phase === b.phase &&
+    a.error === b.error
+  );
+}
+
+/**
+ * The volumes with the job of their card from `jobs`. The volumes whose job did not change are
+ * the same objects, and the list itself when none changed: a screen that depends on the volumes
+ * is not updated (and does not ask the backend again) at every progress of a job. Seen in a
+ * diagnostic package: while the analysis ran, the job list came 4 times a second all day, and
+ * the whole catalog screen was redone each time (REVIEW L34).
+ */
+export function withCardJobs(volumes: VolumeView[], jobs: JobView[]): VolumeView[] {
+  let changed = false;
+  const next = volumes.map((v) => {
+    const job = cardJob(jobs, v.id);
+    if (sameJob(v.job, job)) return v;
+    changed = true;
+    return { ...v, job };
+  });
+  return changed ? next : volumes;
+}
+
+/**
+ * The volumes just read from the backend, keeping the objects of `old` that did not change (and
+ * `old` itself when nothing changed): the list is read again at every end of a job, a journal
+ * update every 15 seconds on a system disk.
+ */
+export function mergeVolumes(old: VolumeView[], fresh: VolumeView[]): VolumeView[] {
+  const before = new Map(old.map((v) => [v.id, v]));
+  let changed = old.length !== fresh.length;
+  const next = fresh.map((v, i) => {
+    const o = before.get(v.id);
+    if (o && JSON.stringify(o) === JSON.stringify(v)) {
+      if (old[i] !== o) changed = true;
+      return o;
+    }
+    changed = true;
+    return v;
+  });
+  return changed ? next : old;
+}
+
 /** The main action of a card: index a volume never indexed, update one already indexed. */
 export function primaryAction(v: VolumeView): 'index' | 'update' | null {
   if (!v.online || v.job !== null || v.status === 'ignored') return null;

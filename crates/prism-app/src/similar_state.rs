@@ -2,17 +2,58 @@
 //! thumbnails of the connected files on demand.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use prism_core::media::{self, bktree, video};
 use prism_core::model::{EntryId, VolumeId};
 use prism_core::names;
-use prism_core::store;
+use prism_core::store::{self, StoreError};
 
 use crate::dto::ApiError;
 use crate::similar_views::{
-    self, MAX_DISTANCE, MAX_GROUPS, SimilarFileView, SimilarGroupView, SimilarView, THUMB_SIDE,
+    self, MAX_DISTANCE, MAX_FILES, MAX_GROUPS, SimilarFileView, SimilarGroupView, SimilarView,
+    THUMB_SIDE,
 };
 use crate::state::{AppState, access_path};
+
+/// Groups found at one distance are kept this long, unless the prints change before: the files
+/// the catalog updates meanwhile (moved, changed, deleted outside Prism) show in them until then.
+const KEEP_GROUPS: Duration = Duration::from_secs(10 * 60);
+
+/// The print of an image without detail: at 9×8 pixels no pixel is darker than the one on its
+/// right, as in an image all of one colour (a blank or transparent picture). On a real catalog
+/// 10,022 images had it; they are not similar photos, and they joined everything else.
+const BLANK_PRINT: u64 = 0;
+
+/// The groups of similar images at one distance, with the images in them only.
+struct ImageGroups {
+    generation: u64,
+    max: u32,
+    at: Instant,
+    items: Vec<Item>,
+    hashes: Vec<u64>,
+    /// Positions in `items`.
+    groups: Vec<Vec<usize>>,
+}
+
+/// The last groups of similar images (REVIEW L34). Grouping every image of a large catalog takes
+/// seconds: the screens that ask at the same time wait for one grouping, and ask again only when
+/// the prints changed or the groups are [`KEEP_GROUPS`] old.
+#[derive(Default)]
+pub struct SimilarCache {
+    /// Changed when prints are added or images deleted.
+    generation: AtomicU64,
+    images: Mutex<Option<Arc<ImageGroups>>>,
+}
+
+impl SimilarCache {
+    /// The groups kept are out of date (new prints, files deleted, disks removed).
+    pub fn invalidate(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+}
 
 /// A printed image or video, whatever its print.
 struct Item {
@@ -51,6 +92,7 @@ impl AppState {
         if let Some(v) = volume {
             found.retain(|g| g.iter().any(|&i| items[i].volume == v));
         }
+        let started = Instant::now();
         let bytes = |g: &Vec<usize>| g.iter().map(|&i| items[i].size).sum::<u64>();
         found.sort_by(|a, b| b.len().cmp(&a.len()).then(bytes(b).cmp(&bytes(a))));
         let total_groups = found.len() as u64;
@@ -73,10 +115,17 @@ impl AppState {
                     )
                 });
                 let first = members[0];
+                let count = members.len() as u64;
+                members.truncate(MAX_FILES);
                 let mut files = Vec::with_capacity(members.len());
                 for &i in &members {
                     let it = &items[i];
-                    let rel = store::relative_path(c, it.entry)?;
+                    // A file gone from the catalog since the groups were made is left out.
+                    let rel = match store::relative_path(c, it.entry) {
+                        Ok(rel) => rel,
+                        Err(StoreError::NotFound(_)) => continue,
+                        Err(e) => return Err(e),
+                    };
                     let path = rel
                         .split('\\')
                         .filter(|s| !s.is_empty())
@@ -112,16 +161,27 @@ impl AppState {
                         distance: if i == first { 0 } else { distance(first, i) },
                     });
                 }
+                if files.len() < 2 {
+                    continue;
+                }
                 out.push(SimilarGroupView {
                     key: files
                         .first()
                         .map(|f| f.entry_id.to_string())
                         .unwrap_or_default(),
                     files,
+                    count,
                 });
             }
             Ok(out)
         })?;
+        if started.elapsed() >= Duration::from_secs(1) {
+            tracing::info!(
+                groups = groups.len(),
+                ms = started.elapsed().as_millis(),
+                "similar groups described"
+            );
+        }
         Ok(SimilarView {
             groups,
             total_groups,
@@ -129,32 +189,93 @@ impl AppState {
         })
     }
 
+    /// The groups of similar images within `max` bits, made again when the prints changed or
+    /// the groups kept are too old; one grouping at a time, the others wait for it.
+    fn image_groups(&self, max: u32) -> Result<Arc<ImageGroups>, ApiError> {
+        let mut kept = self
+            .similar
+            .images
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let generation = self.similar.generation.load(Ordering::Relaxed);
+        if let Some(g) = kept
+            .as_ref()
+            .filter(|g| g.generation == generation && g.max == max && g.at.elapsed() < KEEP_GROUPS)
+        {
+            return Ok(Arc::clone(g));
+        }
+        let started = Instant::now();
+        let prints: Vec<store::ImagePrint> = self
+            .store
+            .read(store::valid_prints)?
+            .into_iter()
+            .filter(|p| p.dhash != BLANK_PRINT)
+            .collect();
+        let hashes: Vec<u64> = prints.iter().map(|p| p.dhash).collect();
+        let found = bktree::groups(&hashes, max);
+        // Only the images in a group are kept.
+        let mut items = Vec::new();
+        let mut kept_hashes = Vec::new();
+        let mut groups = Vec::with_capacity(found.len());
+        for g in found {
+            let mut positions = Vec::with_capacity(g.len());
+            for i in g {
+                let p = &prints[i];
+                positions.push(items.len());
+                items.push(Item {
+                    entry: p.entry,
+                    volume: p.volume,
+                    width: p.width,
+                    height: p.height,
+                    size: p.size,
+                    duration_ms: None,
+                });
+                kept_hashes.push(p.dhash);
+            }
+            groups.push(positions);
+        }
+        tracing::info!(
+            max,
+            prints = prints.len(),
+            groups = groups.len(),
+            largest = groups.iter().map(Vec::len).max().unwrap_or(0),
+            ms = started.elapsed().as_millis(),
+            "similar images grouped"
+        );
+        let made = Arc::new(ImageGroups {
+            generation,
+            max,
+            at: Instant::now(),
+            items,
+            hashes: kept_hashes,
+            groups,
+        });
+        *kept = Some(Arc::clone(&made));
+        Ok(made)
+    }
+
+    /// How many groups of similar images there are within `max_distance` bits, on every disk:
+    /// the figure of the catalog screen, without the files of the groups.
+    pub fn similar_image_groups(&self, max_distance: u32) -> Result<u64, ApiError> {
+        Ok(self
+            .image_groups(max_distance.min(MAX_DISTANCE))?
+            .groups
+            .len() as u64)
+    }
+
     /// Groups of images within `max_distance` bits of each other, optionally only those with a
-    /// copy on `volume` (F11-AC1/AC2/AC3).
+    /// copy on `volume` (F11-AC1/AC2/AC3). Images without detail are left out.
     pub fn similar_images(
         &self,
         max_distance: u32,
         volume: Option<VolumeId>,
     ) -> Result<SimilarView, ApiError> {
-        let prints = self.store.read(store::valid_prints)?;
-        let hashes: Vec<u64> = prints.iter().map(|p| p.dhash).collect();
-        let found = bktree::groups(&hashes, max_distance.min(MAX_DISTANCE));
-        let items: Vec<Item> = prints
-            .iter()
-            .map(|p| Item {
-                entry: p.entry,
-                volume: p.volume,
-                width: p.width,
-                height: p.height,
-                size: p.size,
-                duration_ms: None,
-            })
-            .collect();
+        let made = self.image_groups(max_distance.min(MAX_DISTANCE))?;
         self.similar_view(
-            &items,
-            found,
+            &made.items,
+            made.groups.clone(),
             volume,
-            &|a, b| bktree::distance(hashes[a], hashes[b]),
+            &|a, b| bktree::distance(made.hashes[a], made.hashes[b]),
             self.hashing.pending_images(volume),
         )
     }

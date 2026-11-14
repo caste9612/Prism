@@ -58,6 +58,7 @@ fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
         hashing: crate::hash_jobs::HashingState::default(),
         backup: crate::backup_state::BackupState::default(),
         thumbnails: crate::similar_views::Thumbnails::default(),
+        similar: crate::similar_state::SimilarCache::default(),
         identities: crate::identity::Identities::default(),
         health: crate::health_state::HealthState::default(),
         nas: crate::nas_state::NasState::new(
@@ -1327,4 +1328,77 @@ fn one_file_under_two_paths_is_not_deleted_as_a_duplicate() {
             .unwrap()
             .is_empty()
     );
+}
+
+// Timings of the commands the screens call, on a copy of a real catalog (REVIEW L34). Not run by
+// default: `PRISM_UI_BENCH_DB=<copy of catalog.db> cargo test -p prism-app --release
+// ui_commands_on_a_real_catalog -- --ignored --nocapture` (with `__COMPAT_LAYER=RunAsInvoker`
+// when the test binary asks for elevation). Never point it at the catalog of an installed Prism:
+// the store runs its migrations on open. Each command runs three times: the first shows the cost
+// without what the app keeps in memory (the groups of similar images).
+#[test]
+#[ignore = "needs a copy of a real catalog"]
+fn ui_commands_on_a_real_catalog() {
+    use crate::duplicates_views::DupFilterInput;
+    let Ok(path) = std::env::var("PRISM_UI_BENCH_DB") else {
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let app = state(Store::open(Path::new(&path)).unwrap(), false, tmp.path());
+    let time = |label: &str, f: &dyn Fn() -> String| {
+        let mut runs = Vec::new();
+        let mut out = String::new();
+        for _ in 0..3 {
+            let started = std::time::Instant::now();
+            out = f();
+            runs.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        println!(
+            "{label:<32} {:>9.1} {:>9.1} {:>9.1} ms  {out}",
+            runs[0], runs[1], runs[2]
+        );
+    };
+    time("volume_views", &|| {
+        format!("{} volumes", app.volume_views().unwrap().len())
+    });
+    time("recent_actions(200)", &|| {
+        format!("{}", app.recent_actions(200).unwrap().len())
+    });
+    time("duplicates(>=1MB, catalog)", &|| {
+        let f = DupFilterInput {
+            min_size: 1_000_000,
+            category: None,
+            volume_id: None,
+            folder: None,
+        };
+        format!("{} groups", app.duplicates(&f, &[]).unwrap().groups.len())
+    });
+    time("similar_image_groups(6)", &|| {
+        format!("{} groups", app.similar_image_groups(6).unwrap())
+    });
+    time("similar_images(6, catalog)", &|| {
+        let v = app.similar_images(6, None).unwrap();
+        let files: usize = v.groups.iter().map(|g| g.files.len()).sum();
+        let largest = v.groups.iter().map(|g| g.count).max().unwrap_or(0);
+        format!(
+            "{} groups, {files} files sent, largest group {largest}",
+            v.total_groups
+        )
+    });
+    time("similar_images(10, catalog)", &|| {
+        format!(
+            "{} groups",
+            app.similar_images(10, None).unwrap().total_groups
+        )
+    });
+    time("type_stats(catalog)", &|| {
+        format!("{}", app.type_stats(None).unwrap().categories.len())
+    });
+    let volumes = app.store.read(store::volumes).unwrap();
+    for v in volumes.iter().filter(|v| v.last_indexed_at.is_some()) {
+        let id = v.id;
+        time(&format!("space_folder(#{}, root)", id.0), &|| {
+            format!("{} items", app.space_folder(id, None).unwrap().items.len())
+        });
+    }
 }

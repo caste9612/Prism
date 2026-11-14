@@ -5,7 +5,8 @@
 //!   indexed volume when it comes back (F05-AC2) and, while Prism runs, applies the NTFS change
 //!   journal every 15 seconds (F05-AC1);
 //! - the **job relay** forwards job changes to the interface as `jobs-changed` events, at most
-//!   about 4 per second (ADR-0009), and refreshes the volume list when a job ends;
+//!   about 4 per second and only when something changed (ADR-0009, REVIEW L34), and refreshes
+//!   the volume list when a job ends;
 //! - the **network probe** checks that mapped shares answer and reads their free space
 //!   (`netprobe`, REVIEW L5): a share counts as connected only once its server has answered;
 //! - **new-disk notifications** while the window is hidden (`notices`, REVIEW L8);
@@ -558,6 +559,9 @@ fn is_local_ntfs(d: &DetectedVolume) -> bool {
 
 fn job_relay(app: &AppHandle, state: &AppState) {
     let events = state.engine.subscribe();
+    // What the interface was last sent: a job waiting, paused or between files does not send
+    // the same list again every 250 ms (REVIEW L34).
+    let mut sent: Vec<crate::dto::JobView> = Vec::new();
     loop {
         // Wait for a change, or poll progress while something runs (~4 per second).
         let event = events.recv_timeout(Duration::from_millis(250));
@@ -567,7 +571,10 @@ fn job_relay(app: &AppHandle, state: &AppState) {
         crate::tray::set_job_count(app, active);
         if event.is_ok() || running {
             let views: Vec<_> = jobs.iter().map(job_view).collect();
-            let _ = app.emit("jobs-changed", views);
+            if views != sent {
+                let _ = app.emit("jobs-changed", &views);
+                sent = views;
+            }
         }
         if let Ok(job) = event
             && job.state.is_finished()

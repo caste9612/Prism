@@ -629,6 +629,7 @@
     "open": "Show in Explorer",
     "more": "Show more groups",
     "capped": "Showing the {count} largest groups.",
+    "moreFiles": "And {count} more, not shown: the group is too large to show whole.",
     "tabImages": "Images",
     "tabVideos": "Videos",
     "pendingVideos": "The content analysis still has {count} videos to read: more groups may appear.",

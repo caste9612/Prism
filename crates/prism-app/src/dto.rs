@@ -92,7 +92,7 @@ pub struct HashesView {
 }
 
 /// A job of the engine (ADR-0009).
-#[derive(Clone, Debug, Serialize, TS)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct JobView {

@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { dictionaries, interpolate, keys, setLanguage, t } from './i18n.svelte';
 import { ago, formatBytes, formatCount, usedFraction } from './format';
-import { cardJob, displayName, groupPrompts, newVolumePrompts, primaryAction, visibleVolumes } from './catalog';
+import {
+  cardJob,
+  displayName,
+  groupPrompts,
+  mergeVolumes,
+  spaceReloadDelay,
+  newVolumePrompts,
+  primaryAction,
+  visibleVolumes,
+  withCardJobs,
+} from './catalog';
 import { mockBackend, sampleVolumes } from './mock';
 
 describe('i18n', () => {
@@ -104,6 +114,40 @@ describe('catalog screen', () => {
     expect(cardJob([job(1, 'journal', 'running'), job(3, 'update', 'running')], 1)?.id).toBe(3);
     expect(cardJob([job(4, 'index', 'done')], 1)).toBeNull();
     expect(cardJob([job(5, 'index', 'queued')], 2)).toBeNull();
+  });
+
+  // REVIEW L34: the progress of a job changes only the card it is on; a list read again without
+  // changes is the same list, so the screens are not redone.
+  it('card jobs and volumes read again keep what did not change', () => {
+    const vols = sampleVolumes();
+    const job = (id: number, volumeId: number, done: number) =>
+      ({ id, kind: 'update', volumeId, state: 'running', done, total: 10, phase: 'scanning', error: null });
+    expect(withCardJobs(vols, [])).toBe(vols);
+    expect(withCardJobs(vols, [{ ...job(7, 1, 0), kind: 'hash' }])).toBe(vols);
+    const first = withCardJobs(vols, [job(7, 1, 2)]);
+    expect(first).not.toBe(vols);
+    expect(first[0]!.job?.done).toBe(2);
+    expect(first[1]).toBe(vols[1]);
+    expect(withCardJobs(first, [job(7, 1, 2)])).toBe(first);
+    expect(withCardJobs(first, [job(7, 1, 3)])[0]!.job?.done).toBe(3);
+
+    const again = vols.map((v) => JSON.parse(JSON.stringify(v)));
+    expect(mergeVolumes(vols, again)).toBe(vols);
+    again[2] = { ...again[2], freeSpace: 1 };
+    const merged = mergeVolumes(vols, again);
+    expect(merged).not.toBe(vols);
+    expect(merged[0]).toBe(vols[0]);
+    expect(merged[2]!.freeSpace).toBe(1);
+    expect(mergeVolumes(vols, again.slice(1))).toHaveLength(vols.length - 1);
+  });
+
+  // REVIEW L34: after a full reading the map is read again at once, after the journal updates
+  // at most every 5 minutes.
+  it('the map of a disk is read again at once after a full reading, otherwise now and then', () => {
+    const minute = 60_000;
+    expect(spaceReloadDelay(true, 1000, 1000)).toBe(0);
+    expect(spaceReloadDelay(false, 0, minute)).toBe(4 * minute);
+    expect(spaceReloadDelay(false, 0, 6 * minute)).toBe(0);
   });
 
   it('primary action of a card', () => {

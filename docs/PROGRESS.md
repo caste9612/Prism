@@ -18,11 +18,15 @@
   impronte dei video, L32: confermata dall'ottavo pacchetto, 20 ore senza cadute) e le
   correzioni dell'ottavo pacchetto (L33). La 2.1.5, la 2.2.0 e la 2.2.1 non sono state
   pubblicate; la 2.2.2 è stata pubblicata senza una prova sul PC aziendale, su scelta
-  dell'utente. Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: un pacchetto diagnostico del PC aziendale con la 2.2.2, per controllare
-  che i giri del disco 1 non leggano più 38 GB (`mb=` nella riga `hashing finished volume=1`),
-  che l'avanzamento si riconti meno spesso e leggere le righe `files not decoded`. Restano
-  aperti REVIEW L29 (2) e i punti aperti di L32 e L33. Prima di avviare l'app di
+  dell'utente. Su `develop` la **2.2.3**, non ancora pubblicata, da provare sul PC aziendale
+  con un installer locale: interfaccia più leggera (REVIEW L34). Il lavoro continua
+  direttamente su `develop`.
+- **Prossimo passo**: l'utente prova la 2.2.3 sul PC aziendale (schermate Catalogo, Simili,
+  mappa dello spazio di C:) e manda un pacchetto diagnostico: righe `slow command` e `similar
+  images grouped`; poi la release col suo via libera. Dallo stesso pacchetto, per la 2.2.2: i
+  giri del disco 1 senza 38 GB (`mb=` nella riga `hashing finished volume=1`), l'avanzamento
+  ricontato meno spesso, le righe `files not decoded`. Restano aperti REVIEW L29 (2) e i punti
+  aperti di L32, L33 e L34. Prima di avviare l'app di
   sviluppo va chiusa quella installata (CLAUDE.md).
   Consigliata una copia della chiave fuori dal PC (REVIEW U7).
 - **Bloccanti**: nessuno.
@@ -33,6 +37,17 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-14 — 2.2.3: interfaccia lenta e ricaricamenti continui
+
+- L'utente segnala schermate lente e che si ricaricano di continuo. Misurati i comandi delle
+  schermate su una copia del catalogo di casa: il calcolo delle immagini simili costava 7,7 s,
+  ripetuto a ogni apertura del Catalogo e mai interrotto (sul PC aziendale, decine di minuti
+  stimati); lo stato dei lavori arrivava 4 volte al secondo e rifaceva tutto il Catalogo; la
+  mappa di C: e Data si rileggeva a ogni aggiornamento del journal. Ora il raggruppamento usa
+  un indice a blocchi (67 ms, stessi gruppi), i gruppi restano in memoria, l'interfaccia
+  cambia solo ciò che cambia, la mappa si rilegge al più ogni 5 minuti, e i comandi lenti
+  finiscono nel log (REVIEW L34).
 
 ### 2026-11-13 — 2.2.2: l'ottavo pacchetto conferma la correzione e mostra quattro sprechi
 

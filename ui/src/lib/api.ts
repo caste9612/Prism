@@ -77,6 +77,8 @@ export interface Backend {
   copyStart(reportId: number, dest: SideInput, renameOnConflict: boolean): Promise<number>;
   copyResult(jobId: number): Promise<CopyResultView | null>;
   similarImages(maxDistance: number, volumeId: number | null): Promise<SimilarView>;
+  /** How many groups of similar images there are on every disk (the catalog screen). */
+  similarImageGroups(maxDistance: number): Promise<number>;
   /** A URL for the thumbnail of a connected image, or null. */
   imageThumbnail(volumeId: number, entryId: number): Promise<string | null>;
   similarVideos(maxDistance: number, volumeId: number | null): Promise<SimilarView>;
@@ -160,6 +162,7 @@ const tauriBackend: Backend = {
   copyStart: (reportId, dest, renameOnConflict) => invoke('copy_start', { reportId, dest, renameOnConflict }),
   copyResult: (jobId) => invoke('copy_result', { jobId }),
   similarImages: (maxDistance, volumeId) => invoke('similar_images', { maxDistance, volumeId }),
+  similarImageGroups: (maxDistance) => invoke('similar_image_groups', { maxDistance }),
   imageThumbnail: (volumeId, entryId) => thumbnail('image_thumbnail', volumeId, entryId),
   similarVideos: (maxDistance, volumeId) => invoke('similar_videos', { maxDistance, volumeId }),
   videoThumbnail: (volumeId, entryId) => thumbnail('video_thumbnail', volumeId, entryId),

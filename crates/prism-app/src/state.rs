@@ -66,6 +66,7 @@ pub struct AppState {
     pub backup: crate::backup_state::BackupState,
     /// Thumbnails of similar images (F11-AC3).
     pub thumbnails: crate::similar_views::Thumbnails,
+    pub similar: crate::similar_state::SimilarCache,
     /// Connected volumes whose identity the user must choose (F02-AC3).
     pub identities: crate::identity::Identities,
     /// Last health reading of each physical disk (F17).
@@ -508,6 +509,8 @@ impl AppState {
         permanent: bool,
         verify_hash: bool,
     ) -> Result<fileops::DeleteReport, ApiError> {
+        // The groups of similar images may list the files deleted.
+        self.similar.invalidate();
         let disposal = self.disposal(volume, permanent)?;
         let detected = self.detected(volume)?;
         let root = access_path(&detected)
@@ -820,6 +823,7 @@ impl AppState {
             let _ = self.engine.wait(job.id);
         }
         let removed = self.store.write(store::reset_catalog)?;
+        self.similar.invalidate();
         self.online().clear();
         self.hashing.clear();
         self.backup.clear();

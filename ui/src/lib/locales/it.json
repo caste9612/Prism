@@ -629,6 +629,7 @@
     "open": "Mostra in Esplora risorse",
     "more": "Mostra altri gruppi",
     "capped": "Sono mostrati i {count} gruppi più grandi.",
+    "moreFiles": "E altri {count}, non mostrati: il gruppo è troppo grande per mostrarlo tutto.",
     "tabImages": "Immagini",
     "tabVideos": "Video",
     "pendingVideos": "L'analisi del contenuto deve ancora leggere {count} video: potrebbero comparire altri gruppi.",
