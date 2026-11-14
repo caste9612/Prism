@@ -29,6 +29,7 @@ import type { SearchResultView } from './bindings/SearchResultView';
 import type { SharePathView } from './bindings/SharePathView';
 import type { ShellRequest } from './bindings/ShellRequest';
 import type { SideInput } from './bindings/SideInput';
+import type { SimilarDeletion } from './bindings/SimilarDeletion';
 import type { SimilarView } from './bindings/SimilarView';
 import type { Settings } from './bindings/Settings';
 import type { SpaceFolderView } from './bindings/SpaceFolderView';
@@ -79,6 +80,8 @@ export interface Backend {
   similarImages(maxDistance: number, volumeId: number | null): Promise<SimilarView>;
   /** How many groups of similar images there are on every disk (the catalog screen). */
   similarImageGroups(maxDistance: number): Promise<number>;
+  /** Deletes files of groups of similar images or videos; one file of each group stays (REVIEW D67). */
+  deleteSimilar(groups: SimilarDeletion[], permanent: boolean): Promise<CleanupResultView>;
   /** A URL for the thumbnail of a connected image, or null. */
   imageThumbnail(volumeId: number, entryId: number): Promise<string | null>;
   similarVideos(maxDistance: number, volumeId: number | null): Promise<SimilarView>;
@@ -163,6 +166,7 @@ const tauriBackend: Backend = {
   copyResult: (jobId) => invoke('copy_result', { jobId }),
   similarImages: (maxDistance, volumeId) => invoke('similar_images', { maxDistance, volumeId }),
   similarImageGroups: (maxDistance) => invoke('similar_image_groups', { maxDistance }),
+  deleteSimilar: (groups, permanent) => invoke('delete_similar', { groups, permanent }),
   imageThumbnail: (volumeId, entryId) => thumbnail('image_thumbnail', volumeId, entryId),
   similarVideos: (maxDistance, volumeId) => invoke('similar_videos', { maxDistance, volumeId }),
   videoThumbnail: (volumeId, entryId) => thumbnail('video_thumbnail', volumeId, entryId),

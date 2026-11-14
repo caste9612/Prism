@@ -22,7 +22,7 @@ use crate::nas_state::{NasHealthView, NasServerView};
 use crate::search_views::SearchResultView;
 use crate::shares::SharePathView;
 use crate::shell_requests::LocatedView;
-use crate::similar_views::SimilarView;
+use crate::similar_views::{SimilarDeletion, SimilarView};
 use crate::space_views::{LargeFileView, SpaceFolderView, TypeStatsView};
 use crate::state::{AppState, IndexKind, access_path, job_view};
 use crate::updates::{UpdateState, UpdateView};
@@ -416,6 +416,24 @@ pub async fn similar_images(
         s.similar_images(max_distance, volume_id.map(VolumeId))
     })
     .await
+}
+
+/// Deletes files of groups of similar images or videos; at least one file of each group stays
+/// (F16, REVIEW D67).
+#[tauri::command]
+pub async fn delete_similar(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    groups: Vec<SimilarDeletion>,
+    permanent: bool,
+) -> R<CleanupResultView> {
+    let s = Arc::clone(&state);
+    let result = blocking("delete_similar", move || {
+        s.delete_similar(&groups, permanent)
+    })
+    .await;
+    emit_volumes(&app);
+    result
 }
 
 /// How many groups of similar images there are on every disk (the catalog screen, F11).

@@ -300,6 +300,107 @@ fn background_hashing_runs_pauses_and_counts() {
     assert_eq!(waiting(&app).as_deref(), Some("next"));
 }
 
+// REVIEW D67, F16 in the app: files of a group of similar images are deleted only if one of
+// the group stays, to the Recycle Bin or, on a disk without one, only with the permanent
+// deletion confirmed; the catalog and the actions log follow (a removable test volume in the
+// temporary folder, inside the development sandbox).
+#[test]
+fn similar_files_are_deleted_keeping_one_of_each_group() {
+    use crate::similar_views::SimilarDeletion;
+    use prism_core::model::VolumeKind;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let disk = tmp.path().join("disk");
+    std::fs::create_dir_all(&disk).unwrap();
+    write_old(&disk.join("photo.jpg"), &[1u8; 2000]);
+    write_old(&disk.join("photo small.jpg"), &[2u8; 500]);
+    let store = Store::open(&tmp.path().join("catalog.db")).unwrap();
+    let mut info = VolumeInfo::dev_folder(&disk.to_string_lossy());
+    info.kind = VolumeKind::Removable;
+    let detected = DetectedVolume {
+        info: info.clone(),
+        mounts: vec![disk.to_string_lossy().into_owned()],
+        disks: Vec::new(),
+    };
+    let volume: VolumeId = store
+        .write(move |w| store::insert_volume(w, &info, VolumeStatus::New))
+        .unwrap();
+    indexer::index(
+        &store,
+        &WalkEnumerator::default(),
+        &IndexRequest {
+            volume,
+            path: &disk,
+            relative: &[],
+            target: ReconcileTarget::VolumeRoot,
+            policy: &ExclusionPolicy::with_defaults(),
+        },
+        &CancelToken::new(),
+        &IndexProgress::default(),
+    )
+    .unwrap();
+    let app = state(store, true, tmp.path());
+    app.online().insert(volume, detected);
+    let id = |name: &str| {
+        app.store
+            .read(|c| store::resolve_relative_path(c, volume, name))
+            .unwrap()
+            .unwrap()
+            .id
+            .0
+    };
+    let (big, small) = (id("photo.jpg"), id("photo small.jpg"));
+    let group = |delete: Vec<i64>, keep: Vec<i64>| vec![SimilarDeletion { delete, keep }];
+
+    // Every file of the group, or a file both deleted and kept: refused, nothing touched.
+    assert_eq!(
+        app.delete_similar(&group(vec![big, small], vec![]), true)
+            .unwrap_err()
+            .code,
+        "keep_one"
+    );
+    assert_eq!(
+        app.delete_similar(&group(vec![small], vec![small]), true)
+            .unwrap_err()
+            .code,
+        "keep_one"
+    );
+    // No Recycle Bin on a removable disk: only with the permanent deletion confirmed.
+    assert_eq!(
+        app.delete_similar(&group(vec![small], vec![big]), false)
+            .unwrap_err()
+            .code,
+        "needs_permanent"
+    );
+    assert!(disk.join("photo small.jpg").exists());
+
+    let done = app
+        .delete_similar(&group(vec![small], vec![big]), true)
+        .unwrap();
+    assert_eq!(
+        (done.done, done.skipped, done.failed, done.freed),
+        (1, 0, 0, 500)
+    );
+    assert!(!disk.join("photo small.jpg").exists());
+    assert!(disk.join("photo.jpg").exists());
+    assert!(
+        app.store
+            .read(|c| store::resolve_relative_path(c, volume, "photo small.jpg"))
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(app.recent_actions(10).unwrap().len(), 1);
+
+    // A file changed since it was catalogued is skipped, not deleted.
+    std::fs::write(disk.join("photo.jpg"), [9u8; 10]).unwrap();
+    write_old(&disk.join("other.jpg"), &[3u8; 100]);
+    let done = app
+        .delete_similar(&group(vec![big], vec![small]), true)
+        .unwrap();
+    assert_eq!((done.done, done.skipped), (0, 1));
+    assert!(disk.join("photo.jpg").exists());
+}
+
 // F10/F16 in the app: groups with the copies the rules propose, the last-copy rule, the
 // deletion of a copy (permanent: a removable test volume in the temporary folder, inside the
 // development sandbox) and the catalog updated after it.

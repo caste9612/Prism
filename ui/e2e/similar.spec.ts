@@ -25,10 +25,33 @@ test('F11-AC1/AC3: groups with previews side by side, resolution, size and disk'
   await expect(photo.getByRole('img', { name: 'mare-2041.jpg' })).toBeVisible();
   await expect(photo).toContainText('Disk not connected: no preview');
   await expect(page.getByText('The content analysis still has 3,210 images to read')).toBeVisible();
-  // Nothing is deleted from this screen.
-  await expect(page.getByText('Nothing is deleted from here')).toBeVisible();
-  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  // Files can be chosen for deletion only on connected disks (REVIEW D67).
+  await expect(page.getByText('Select the files to delete')).toBeVisible();
+  await expect(photo.getByRole('checkbox')).toHaveCount(2);
   await page.screenshot({ path: 'test-results/similar.png', fullPage: true });
+});
+
+test('D67, F16: similar files are deleted after a confirmation, one of each group stays', async ({ page }) => {
+  await openSimilar(page);
+  const logo = page.getByRole('article', { name: 'logo.png' });
+  const small = logo.getByRole('checkbox', { name: 'Select logo piccolo.png to delete' });
+  const big = logo.getByRole('checkbox', { name: 'Select logo.png to delete' });
+  await small.check();
+  // The last file of the group cannot be chosen.
+  await expect(big).toBeDisabled();
+  const bar = page.getByRole('region', { name: /Selected: 1/ });
+  await expect(bar).toContainText('They go to the Recycle Bin');
+  await logo.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await page.screenshot({ path: 'test-results/similar-delete.png' });
+  await bar.getByRole('button', { name: /Delete selected/ }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Similar files are not identical copies');
+  await expect(dialog).toContainText('At least one file of each group stays.');
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Deleted: 1.' })).toBeVisible();
+  // The group has one file left: it is no longer a group.
+  await expect(page.getByText('1 group of similar images')).toBeVisible();
+  await expect(page.getByRole('article', { name: 'logo.png' })).toHaveCount(0);
 });
 
 test('F11-AC1: the similarity threshold and the disk filter', async ({ page }) => {

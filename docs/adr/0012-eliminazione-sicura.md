@@ -31,3 +31,10 @@ pulizia:
 - Più controlli prima di eliminare, quindi eliminazioni più lente, ma l'utente non perde mai
   l'unica copia di un file.
 - Lo spazio non si libera subito: il Cestino va svuotato (la pulizia guidata lo segnala).
+
+## Aggiornamento 2026-11-14 (REVIEW D67)
+
+L'eliminazione dai Simili, prevista dalla decisione ma esclusa all'inizio (D38), arriva su
+richiesta dell'utente. I file simili non hanno un hash comune, quindi il punto 3 diventa: in
+ogni gruppo almeno un file resta, e nessun file eliminato è lo stesso file sul disco di uno
+tenuto. Il controllo del punto 2 è su dimensione e data.

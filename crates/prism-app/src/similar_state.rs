@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use prism_core::media::{self, bktree, video};
-use prism_core::model::{EntryId, VolumeId};
+use prism_core::model::{EntryId, VolumeId, VolumeKind};
 use prism_core::names;
 use prism_core::store::{self, StoreError};
 
@@ -158,6 +158,9 @@ impl AppState {
                         size: it.size,
                         duration_ms: it.duration_ms,
                         online: mounts.contains_key(&it.volume),
+                        permanent: by_id
+                            .get(&it.volume)
+                            .is_none_or(|v| v.info.kind != VolumeKind::Fixed),
                         distance: if i == first { 0 } else { distance(first, i) },
                     });
                 }

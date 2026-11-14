@@ -268,7 +268,8 @@
     "nas_login_failed": "Utente o password errati.",
     "nas_unreachable": "Il NAS non risponde.",
     "nas_unsupported": "Questo NAS non risponde come ZimaOS.",
-    "nas_credentials": "Windows non è riuscito a salvare o togliere il login."
+    "nas_credentials": "Windows non è riuscito a salvare o togliere il login.",
+    "keep_one": "Almeno un file di ogni gruppo di simili deve restare. Non è stato toccato nessun file."
   },
   "tray": {
     "open": "Apri Prism",
@@ -637,10 +638,27 @@
     "videos": "{count} video",
     "thresholdLabel": "Somiglianza",
     "thresholdHint": "ridimensionate, ricompresse, piccoli ritocchi",
-    "noDelete": "Da qui non si elimina nulla: le immagini simili non sono copie identiche.",
+    "deleteHint": "Seleziona i file da eliminare: i file simili non sono copie identiche, guarda bene le anteprime.",
     "groupDiff": "differiscono fino a {value} su 64",
     "summary_one": "1 gruppo di immagini simili",
-    "summaryVideos_one": "1 gruppo di video simili"
+    "summaryVideos_one": "1 gruppo di video simili",
+    "pick": "Seleziona {name} da eliminare",
+    "keepOneHint": "Un file del gruppo resta sempre.",
+    "selected": "Selezionati: {count} · {size}",
+    "barRecycle": "Vanno nel Cestino. Prima ogni file viene ricontrollato sul disco.",
+    "barPermanent": "Alcuni sono su dischi senza Cestino: lì l'eliminazione è definitiva.",
+    "clearSelection": "Deseleziona tutto",
+    "deleteSelected": "Elimina i selezionati ({size})",
+    "confirmTitle": "Eliminare i file selezionati ({size})?",
+    "confirmSimilar": "I file simili non sono copie identiche: guarda le anteprime prima di eliminare.",
+    "confirmKeep": "Almeno un file di ogni gruppo resta.",
+    "confirmCheck": "Subito prima Prism controlla che ogni file sul disco sia ancora quello del catalogo (dimensione e data): se è cambiato, resta dov'è.",
+    "confirmRecycle": "Sui dischi interni i file vanno nel Cestino.",
+    "confirmPermanent": "Alcuni file sono su dischi senza Cestino: verranno eliminati definitivamente.",
+    "deleteNow": "Elimina",
+    "result": "Eliminati: {count}. Liberati: {size}.",
+    "resultSkipped": "Lasciati perché cambiati: {count}.",
+    "resultFailed": "Non rimossi (in uso?): {count}."
   },
   "identify": {
     "title": "Quale disco è {name}?",

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 
 use prism_core::model::{EntryId, Volume};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// Groups sent at most (most images first); the total counts all of them.
@@ -42,8 +42,22 @@ pub struct SimilarFileView {
     #[ts(type = "number | null")]
     pub duration_ms: Option<u64>,
     pub online: bool,
+    /// No Recycle Bin on the disk: deleting is permanent (F16-AC2).
+    pub permanent: bool,
     /// Bits different from the first of the group (per frame, on average, for videos).
     pub distance: u32,
+}
+
+/// The files of one group of similar images or videos to delete, and the files of the group
+/// that stay (REVIEW D67).
+#[derive(Clone, Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SimilarDeletion {
+    #[ts(type = "number[]")]
+    pub delete: Vec<i64>,
+    #[ts(type = "number[]")]
+    pub keep: Vec<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]

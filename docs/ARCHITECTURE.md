@@ -425,7 +425,10 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   con la distanza dalla prima), al più 60 file per gruppo con il numero totale;
   `similar_image_groups` solo il numero dei gruppi (il Catalogo); `image_thumbnail` una
   miniatura JPEG di 192 px dei file collegati, come byte grezzi (`tauri::ipc::Response`), con
-  una cache in memoria di 600 miniature.
+  una cache in memoria di 600 miniature. `delete_similar` elimina file dei gruppi di immagini e
+  video simili (REVIEW D67): per ogni gruppo i file da eliminare e quelli che restano (almeno
+  uno, altrimenti `keep_one`), nessuno lo stesso file di uno che resta (`same_file`), poi
+  `fileops::delete_entries` disco per disco; nell'interfaccia la selezione è in `lib/similar.ts`.
 - **Video simili** (`prism-core::media::video`, `prism-win::video`, T8, F12, ADR-0013): Media
   Foundation decodifica il primo flusso video (NV12, o RGB32 se il decoder non lo offre); al 10,
   30, 50, 70 e 90 % della durata si salta e si decodifica fino al fotogramma del tempo esatto (al

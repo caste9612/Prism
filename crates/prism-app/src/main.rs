@@ -307,6 +307,7 @@ fn main() {
             commands::copy_result,
             commands::similar_images,
             commands::similar_image_groups,
+            commands::delete_similar,
             commands::image_thumbnail,
             commands::similar_videos,
             commands::open_logs,

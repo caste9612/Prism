@@ -228,6 +228,9 @@ salute SMART se disponibile, avanzamento degli hash.
 - **F11-AC4** Formati: JPEG, PNG, GIF, WebP, BMP, TIFF e **RAW delle fotocamere** (CR2, CR3,
   NEF, ARW, DNG, ORF, RW2...) tramite l'anteprima JPEG incorporata nel file. HEIC/HEIF e AVIF
   non sono supportati.
+- **F11-AC5** Dai gruppi di immagini e video simili si possono eliminare i file dei dischi
+  collegati, scegliendoli dalle anteprime; almeno un file di ogni gruppo resta (F16, REVIEW
+  D67).
 
 ### F12 — Video simili
 
@@ -279,7 +282,8 @@ Vale per ogni eliminazione avviata da Prism (duplicati, pulizia, simili).
   catalogo (dimensione, data e, per i duplicati, hash del contenuto); se non corrisponde, il
   file viene saltato e segnalato.
 - **F16-AC4** Il backend rifiuta di eliminare l'ultima copia di un gruppo di duplicati; se le
-  altre copie sono solo su volumi offline serve una conferma esplicita aggiuntiva.
+  altre copie sono solo su volumi offline serve una conferma esplicita aggiuntiva. Per i gruppi
+  di simili rifiuta di eliminare tutti i file del gruppo.
 - **F16-AC5** L'interfaccia indica i file per identificativo del catalogo, mai per percorso
   libero; è il backend a risolvere il percorso (ADR-0003).
 - **F16-AC6** Ogni eliminazione viene registrata in un registro delle azioni consultabile

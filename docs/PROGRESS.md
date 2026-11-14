@@ -18,12 +18,12 @@
   impronte dei video, L32: confermata dall'ottavo pacchetto, 20 ore senza cadute) e le
   correzioni dell'ottavo pacchetto (L33). La 2.1.5, la 2.2.0 e la 2.2.1 non sono state
   pubblicate; la 2.2.2 è stata pubblicata senza una prova sul PC aziendale, su scelta
-  dell'utente. Su `develop` la **2.2.3**, non ancora pubblicata, da provare sul PC aziendale
-  con un installer locale: interfaccia più leggera (REVIEW L34). Il lavoro continua
-  direttamente su `develop`.
-- **Prossimo passo**: l'utente prova la 2.2.3 sul PC aziendale (schermate Catalogo, Simili,
-  mappa dello spazio di C:) e manda un pacchetto diagnostico: righe `slow command` e `similar
-  images grouped`; poi la release col suo via libera. Dallo stesso pacchetto, per la 2.2.2: i
+  dell'utente. Su `develop` la **2.2.4**, non ancora pubblicata, da provare con un installer
+  locale: comprende la 2.2.3 (interfaccia più leggera, REVIEW L34, mai pubblicata) e
+  l'eliminazione dai Simili (D67). Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: l'utente prova la 2.2.4 sul PC aziendale (schermate Catalogo, Simili con
+  l'eliminazione, mappa dello spazio di C:) e manda un pacchetto diagnostico: righe `slow
+  command` e `similar images grouped`; poi la release col suo via libera. Dallo stesso pacchetto, per la 2.2.2: i
   giri del disco 1 senza 38 GB (`mb=` nella riga `hashing finished volume=1`), l'avanzamento
   ricontato meno spesso, le righe `files not decoded`. Restano aperti REVIEW L29 (2) e i punti
   aperti di L32, L33 e L34. Prima di avviare l'app di
@@ -37,6 +37,13 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-14 — 2.2.4: eliminazione dai Simili
+
+- Su richiesta dell'utente, dai gruppi di immagini e video simili si eliminano i file scelti
+  dalle anteprime, come dai duplicati: Cestino o definitiva confermata, ricontrollo subito
+  prima, registro delle azioni. Al posto della regola dell'ultima copia, in ogni gruppo almeno
+  un file resta (REVIEW D67, che supera la parte di D38 sull'eliminazione).
 
 ### 2026-11-14 — 2.2.3: interfaccia lenta e ricaricamenti continui
 

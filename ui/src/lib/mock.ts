@@ -14,7 +14,7 @@ import { cardJob } from './catalog';
 import { mockCleanupScan, mockDeleteEntries } from './mock-cleanup';
 import { mockDeleteDuplicates, mockDuplicates } from './mock-duplicates';
 import { FAILING_COPY, mockBackup } from './mock-backup';
-import { mockSimilar, mockSimilarVideos, mockThumbnail } from './mock-similar';
+import { mockDeleteSimilar, mockSimilar, mockSimilarVideos, mockThumbnail } from './mock-similar';
 import type { CopyResultView } from './bindings/CopyResultView';
 import { mockSearch } from './mock-search';
 import { mockHasEntry, mockLargestFiles, mockSpaceFolder, mockTypeStats } from './mock-space';
@@ -92,6 +92,7 @@ export function mockBackend(): Backend {
     hashingExcluded: [],
   };
   const deletedCopies = new Set<number>();
+  const deletedSimilar = new Set<number>();
   // The actions log (F16-AC6): yesterday 14 duplicates went to the Recycle Bin from Data, and
   // two days ago the cleanup emptied a folder of temporary files on Windows.
   const MB = 1_000_000;
@@ -316,10 +317,16 @@ export function mockBackend(): Backend {
       return job.id;
     },
     copyResult: async (jobId) => copyResults.get(jobId) ?? null,
-    similarImages: async (maxDistance, volumeId) => mockSimilar(volumes, maxDistance, volumeId),
-    similarImageGroups: async (maxDistance) => mockSimilar(volumes, maxDistance, null).totalGroups,
+    similarImages: async (maxDistance, volumeId) => mockSimilar(volumes, maxDistance, volumeId, deletedSimilar),
+    similarImageGroups: async (maxDistance) => mockSimilar(volumes, maxDistance, null, deletedSimilar).totalGroups,
+    deleteSimilar: async (groups, permanent) => {
+      const result = mockDeleteSimilar(volumes, groups, permanent, deletedSimilar);
+      logActions(null, permanent, result);
+      emitVolumes();
+      return result;
+    },
     imageThumbnail: async (volumeId, entryId) => (find(volumeId).online ? mockThumbnail(entryId) : null),
-    similarVideos: async (maxDistance, volumeId) => mockSimilarVideos(volumes, maxDistance, volumeId),
+    similarVideos: async (maxDistance, volumeId) => mockSimilarVideos(volumes, maxDistance, volumeId, deletedSimilar),
     videoThumbnail: async (volumeId, entryId) => (find(volumeId).online ? mockThumbnail(entryId) : null),
     openLogs: async () => {},
     diagnosticsPreview: async () => ({

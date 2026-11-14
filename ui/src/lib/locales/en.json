@@ -268,7 +268,8 @@
     "nas_login_failed": "Wrong user or password.",
     "nas_unreachable": "The NAS does not answer.",
     "nas_unsupported": "This NAS does not answer like ZimaOS.",
-    "nas_credentials": "Windows could not save or remove the login."
+    "nas_credentials": "Windows could not save or remove the login.",
+    "keep_one": "At least one file of each group of similar files must stay. No file was touched."
   },
   "tray": {
     "open": "Open Prism",
@@ -637,10 +638,27 @@
     "videos": "{count} videos",
     "thresholdLabel": "Similarity",
     "thresholdHint": "resized, recompressed, small edits",
-    "noDelete": "Nothing is deleted from here: similar images are not identical copies.",
+    "deleteHint": "Select the files to delete: similar files are not identical copies, look at the previews.",
     "groupDiff": "differ by up to {value} of 64",
     "summary_one": "1 group of similar images",
-    "summaryVideos_one": "1 group of similar videos"
+    "summaryVideos_one": "1 group of similar videos",
+    "pick": "Select {name} to delete",
+    "keepOneHint": "One file of the group always stays.",
+    "selected": "Selected: {count} · {size}",
+    "barRecycle": "They go to the Recycle Bin. Each file is checked on the disk first.",
+    "barPermanent": "Some are on disks without a Recycle Bin: there the deletion is permanent.",
+    "clearSelection": "Clear selection",
+    "deleteSelected": "Delete selected ({size})",
+    "confirmTitle": "Delete the selected files ({size})?",
+    "confirmSimilar": "Similar files are not identical copies: look at the previews before deleting.",
+    "confirmKeep": "At least one file of each group stays.",
+    "confirmCheck": "Right before, Prism checks that each file on the disk is still the one in the catalog (size and date): a file that changed is left where it is.",
+    "confirmRecycle": "On internal disks the files go to the Recycle Bin.",
+    "confirmPermanent": "Some files are on disks without a Recycle Bin: they will be deleted permanently.",
+    "deleteNow": "Delete",
+    "result": "Deleted: {count}. Freed: {size}.",
+    "resultSkipped": "Left alone because they changed: {count}.",
+    "resultFailed": "Not removed (in use?): {count}."
   },
   "identify": {
     "title": "Which disk is {name}?",

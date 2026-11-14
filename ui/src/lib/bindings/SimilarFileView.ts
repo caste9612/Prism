@@ -10,6 +10,10 @@ path: string, fullPath: string, width: number | null, height: number | null, siz
  */
 durationMs: number | null, online: boolean, 
 /**
+ * No Recycle Bin on the disk: deleting is permanent (F16-AC2).
+ */
+permanent: boolean, 
+/**
  * Bits different from the first of the group (per frame, on average, for videos).
  */
 distance: number, };

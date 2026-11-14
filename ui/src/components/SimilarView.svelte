@@ -1,7 +1,8 @@
 <script lang="ts">
   // Similar images (F11) and videos (F12): groups of visually similar files on every disk, with
   // thumbnails side by side (connected disks), resolution, size, length of the videos and where
-  // each copy is (F11-AC3); the similarity threshold is adjustable (F11-AC1).
+  // each copy is (F11-AC3); the similarity threshold is adjustable (F11-AC1). Files on connected
+  // disks can be deleted, one of each group always stays (REVIEW D67, F16).
   import type { SimilarFileView } from '../lib/bindings/SimilarFileView';
   import type { SimilarView } from '../lib/bindings/SimilarView';
   import type { VolumeView } from '../lib/bindings/VolumeView';
@@ -10,6 +11,8 @@
   import { stickerColor, volumeName } from '../lib/catalog';
   import { formatBytes, formatCount } from '../lib/format';
   import { language, t } from '../lib/i18n.svelte';
+  import { canPick, pickTotals, togglePick, type SimilarSelection } from '../lib/similar';
+  import Dialog from './Dialog.svelte';
   import Icon from './Icon.svelte';
 
   let {
@@ -33,10 +36,19 @@
   let shown = $state(PAGE);
   let thumbs = $state<Record<number, string | null>>({});
 
+  // Deletion (REVIEW D67).
+  const NONE = new Set<number>();
+  let selection = $state<SimilarSelection>(new Map());
+  let confirming = $state(false);
+  let busy = $state(false);
+  let result = $state<string | null>(null);
+  const chosen = $derived(pickTotals(view?.groups ?? [], selection));
+
   async function load() {
     loading = true;
     try {
       view = kind === 'images' ? await backend.similarImages(distance, volumeId) : await backend.similarVideos(distance, volumeId);
+      selection = new Map();
       shown = PAGE;
     } catch (e) {
       onerror(errorMessage(e));
@@ -62,6 +74,22 @@
     });
     io.observe(node);
     return { destroy: () => io.disconnect() };
+  }
+
+  async function remove() {
+    confirming = false;
+    busy = true;
+    try {
+      const r = await backend.deleteSimilar(chosen.deletions, chosen.permanent);
+      result = t('similar.result', { count: formatCount(r.done, lang), size: formatBytes(r.freed, lang) });
+      if (r.skipped > 0) result += ' ' + t('similar.resultSkipped', { count: formatCount(r.skipped, lang) });
+      if (r.failed > 0) result += ' ' + t('similar.resultFailed', { count: formatCount(r.failed, lang) });
+      await load();
+    } catch (e) {
+      onerror(errorMessage(e));
+    } finally {
+      busy = false;
+    }
   }
 
   async function reveal(f: SimilarFileView) {
@@ -143,11 +171,18 @@
   </div>
 
   <p class="list-head">
-    <span>{t('similar.noDelete')}</span>
+    <span>{t('similar.deleteHint')}</span>
     {#if view && view.groups.length > 0}
       <span class="mono muted">{t(kind === 'images' ? 'similar.summary' : 'similar.summaryVideos', { count: formatCount(view.totalGroups, lang) })}</span>
     {/if}
   </p>
+
+  {#if result}
+    <div class="note-line" role="status">
+      <span>{result}</span>
+      <button class="ghost icon" aria-label={t('actions.close')} onclick={() => (result = null)}><Icon name="close" size={14} /></button>
+    </div>
+  {/if}
 
   {#if view && view.pending > 0}
     <p class="pending" role="status">{t(kind === 'images' ? 'similar.pending' : 'similar.pendingVideos', { count: formatCount(view.pending, lang) })}</p>
@@ -160,6 +195,7 @@
   {:else}
     {#each view.groups.slice(0, shown) as g (g.key)}
       {@const maxDiff = Math.max(...g.files.map((f) => f.distance))}
+      {@const picked = selection.get(g.key) ?? NONE}
       <article class="group card" aria-label={name(g.files[0]!)}>
         <header>
           <h2>{t(kind === 'images' ? 'similar.images' : 'similar.videos', { count: formatCount(g.count, lang) })}</h2>
@@ -168,7 +204,9 @@
         <ul class="tiles">
           {#each g.files as f (f.entryId)}
             {@const vol = volumes.find((v) => v.id === f.volumeId)}
-            <li class="tile" class:offline={!f.online}>
+            {@const checked = picked.has(f.entryId)}
+            {@const allowed = canPick(g, f, picked)}
+            <li class="tile" class:offline={!f.online} class:picked={checked}>
               <div class="thumb" use:lazyThumb={f}>
                 {#if thumbs[f.entryId]}
                   <img src={thumbs[f.entryId]} alt={name(f)} />
@@ -178,6 +216,15 @@
                   <span class="placeholder" aria-hidden="true"></span>
                 {/if}
                 {#if f.online}
+                  <label class="pick" title={checked || allowed ? t('similar.pick', { name: name(f) }) : t('similar.keepOneHint')}>
+                    <input
+                      type="checkbox"
+                      {checked}
+                      disabled={busy || (!checked && !allowed)}
+                      aria-label={t('similar.pick', { name: name(f) })}
+                      onchange={() => (selection = togglePick(selection, g, f))}
+                    />
+                  </label>
                   <button class="reveal icon" title={t('similar.open')} aria-label={t('similar.open')} onclick={() => reveal(f)}>
                     <Icon name="open" size={14} />
                   </button>
@@ -208,7 +255,35 @@
       <p class="muted">{t('similar.capped', { count: formatCount(view.groups.length, lang) })}</p>
     {/if}
   {/if}
+
+  {#if chosen.count > 0}
+    <div class="actionbar" role="region" aria-label={t('similar.selected', { count: formatCount(chosen.count, lang), size: formatBytes(chosen.bytes, lang) })}>
+      <span class="total">{t('similar.selected', { count: formatCount(chosen.count, lang), size: formatBytes(chosen.bytes, lang) })}</span>
+      <span class="note">{chosen.permanent ? t('similar.barPermanent') : t('similar.barRecycle')}</span>
+      <button class="push" onclick={() => (selection = new Map())}>{t('similar.clearSelection')}</button>
+      <button class="signal" disabled={busy} onclick={() => (confirming = true)}>
+        {t('similar.deleteSelected', { size: formatBytes(chosen.bytes, lang) })}
+      </button>
+    </div>
+  {/if}
 </section>
+
+<Dialog open={confirming} title={t('similar.confirmTitle', { size: formatBytes(chosen.bytes, lang) })} onclose={() => (confirming = false)}>
+  <ul class="confirm">
+    <li>{t('similar.confirmSimilar')}</li>
+    <li>{t('similar.confirmKeep')}</li>
+    <li>{t('similar.confirmCheck')}</li>
+    {#if chosen.permanent}
+      <li class="warn"><strong>{t('similar.confirmPermanent')}</strong></li>
+    {:else}
+      <li>{t('similar.confirmRecycle')}</li>
+    {/if}
+  </ul>
+  {#snippet actions()}
+    <button onclick={() => (confirming = false)}>{t('actions.cancel')}</button>
+    <button class={chosen.permanent ? 'primary danger' : 'signal'} onclick={remove}>{t('similar.deleteNow')}</button>
+  {/snippet}
+</Dialog>
 
 <style>
   .similar {
@@ -320,6 +395,53 @@
     text-align: center;
     font-size: 12px;
     color: var(--text-3);
+  }
+  .note-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 10px 16px;
+    background: var(--ok-soft);
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+  }
+  .note-line span {
+    flex: 1;
+  }
+  .pick {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    margin: 0;
+    padding: 5px;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: var(--surface);
+    opacity: 0.9;
+    cursor: pointer;
+  }
+  .pick input {
+    margin: 0;
+  }
+  .picked .thumb {
+    outline: 2.5px solid var(--danger);
+    outline-offset: -2.5px;
+  }
+  .picked .thumb img {
+    opacity: 0.55;
+  }
+  .confirm {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    line-height: 1.4;
+  }
+  .confirm .warn {
+    color: var(--signal-strong);
   }
   .reveal {
     position: absolute;

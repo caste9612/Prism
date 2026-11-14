@@ -1,5 +1,7 @@
 // Simulated similar images (browser development, tests), with the shapes of the backend: groups
 // within a distance, the largest image first, thumbnails drawn as coloured placeholders.
+import type { CleanupResultView } from './bindings/CleanupResultView';
+import type { SimilarDeletion } from './bindings/SimilarDeletion';
 import type { SimilarFileView } from './bindings/SimilarFileView';
 import type { SimilarView } from './bindings/SimilarView';
 import type { VolumeView } from './bindings/VolumeView';
@@ -33,18 +35,64 @@ const VIDEO_GROUPS: Sample[][] = [
 ];
 const DURATIONS: Record<number, number> = { 901: 754_000, 902: 755_200 };
 
-export function mockSimilarVideos(volumes: VolumeView[], maxDistance: number, volumeId: number | null): SimilarView {
-  const view = build(VIDEO_GROUPS, volumes, maxDistance, volumeId);
+export function mockSimilarVideos(
+  volumes: VolumeView[],
+  maxDistance: number,
+  volumeId: number | null,
+  deleted: Set<number> = new Set(),
+): SimilarView {
+  const view = build(VIDEO_GROUPS, volumes, maxDistance, volumeId, deleted);
   view.groups.forEach((g) => g.files.forEach((f) => (f.durationMs = DURATIONS[f.entryId] ?? null)));
   return { ...view, pending: 42 };
 }
 
-export function mockSimilar(volumes: VolumeView[], maxDistance: number, volumeId: number | null): SimilarView {
-  return build(GROUPS, volumes, maxDistance, volumeId);
+export function mockSimilar(
+  volumes: VolumeView[],
+  maxDistance: number,
+  volumeId: number | null,
+  deleted: Set<number> = new Set(),
+): SimilarView {
+  return build(GROUPS, volumes, maxDistance, volumeId, deleted);
 }
 
-function build(source: Sample[][], volumes: VolumeView[], maxDistance: number, volumeId: number | null): SimilarView {
+/** Deletes files of groups of similar files as the backend does (REVIEW D67). */
+export function mockDeleteSimilar(
+  volumes: VolumeView[],
+  groups: SimilarDeletion[],
+  permanent: boolean,
+  deleted: Set<number>,
+): CleanupResultView {
+  const samples = new Map([...GROUPS, ...VIDEO_GROUPS].flat().map((s) => [s[0], s]));
+  let freed = 0;
+  let done = 0;
+  for (const g of groups) {
+    if (g.delete.length === 0) continue;
+    if (g.keep.length === 0 || g.delete.some((d) => g.keep.includes(d))) {
+      throw { code: 'keep_one', message: String(g.delete[0]) };
+    }
+    for (const id of g.delete) {
+      const s = samples.get(id);
+      if (!s) throw { code: 'not_found', message: String(id) };
+      const vol = volumes.find((v) => v.id === s[1]);
+      if (!vol?.online) throw { code: 'volume_offline', message: String(s[1]) };
+      if (vol.kind !== 'internal' && !permanent) throw { code: 'needs_permanent', message: String(s[1]) };
+      freed += s[5];
+      done += 1;
+    }
+  }
+  groups.forEach((g) => g.delete.forEach((id) => deleted.add(id)));
+  return { done, skipped: 0, failed: 0, freed };
+}
+
+function build(
+  all: Sample[][],
+  volumes: VolumeView[],
+  maxDistance: number,
+  volumeId: number | null,
+  deleted: Set<number>,
+): SimilarView {
   const byId = new Map(volumes.map((v) => [v.id, v]));
+  const source = all.map((g) => g.filter(([id]) => !deleted.has(id)));
   const groups = source.filter((g) => g.filter(([, , , , , , d]) => d <= maxDistance).length > 1)
     .filter((g) => volumeId === null || g.some(([, v]) => v === volumeId))
     .map((g) => {
@@ -65,6 +113,7 @@ function build(source: Sample[][], volumes: VolumeView[], maxDistance: number, v
             size,
             durationMs: null,
             online: v?.online ?? false,
+            permanent: v?.kind !== 'internal',
             distance,
           };
         });

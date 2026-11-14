@@ -627,13 +627,72 @@ impl AppState {
         Ok(total)
     }
 
+    /// Deletes files of groups of similar images or videos (F16, REVIEW D67), on several disks.
+    /// Similar files are not identical copies, so nothing protects them but the choice of the
+    /// user: in each group at least one file stays, none of those deleted may be the same file
+    /// on the disk as one that stays (`same_file`), and each file is checked against the catalog
+    /// right before (size and date: a changed file is skipped).
+    pub fn delete_similar(
+        &self,
+        groups: &[crate::similar_views::SimilarDeletion],
+        permanent: bool,
+    ) -> Result<CleanupResultView, ApiError> {
+        for g in groups {
+            if g.delete.is_empty() {
+                continue;
+            }
+            if g.keep.is_empty() || g.delete.iter().any(|d| g.keep.contains(d)) {
+                return Err(ApiError::new("keep_one", g.delete[0]));
+            }
+        }
+        let (by_volume, kept) = self.store.read(|c| {
+            let mut by_volume: std::collections::BTreeMap<VolumeId, Vec<EntryId>> =
+                std::collections::BTreeMap::new();
+            let mut kept: Vec<duplicates::KeptCopies> = Vec::new();
+            for g in groups.iter().filter(|g| !g.delete.is_empty()) {
+                let mut stay = Vec::with_capacity(g.keep.len());
+                for &k in &g.keep {
+                    if let Some(r) = store::entry(c, EntryId(k))? {
+                        stay.push((r.id, r.volume));
+                    }
+                }
+                for &d in &g.delete {
+                    let r = store::entry(c, EntryId(d))?
+                        .ok_or_else(|| StoreError::NotFound(format!("entry {d}")))?;
+                    by_volume.entry(r.volume).or_default().push(r.id);
+                    kept.push((r.id, stay.clone()));
+                }
+            }
+            Ok((by_volume, kept))
+        })?;
+        self.refuse_same_files(kept)?;
+        // Everything is checked before the first file goes: disconnected disks, permanent
+        // deletion where there is no Recycle Bin.
+        for &volume in by_volume.keys() {
+            self.disposal(volume, permanent)?;
+        }
+        let mut total = CleanupResultView::default();
+        for (volume, ids) in by_volume {
+            let report = self.delete_on(volume, &ids, FolderCheck::Exists, permanent, false)?;
+            total.add(&(&report).into());
+            crate::hash_jobs::refresh(self, volume);
+        }
+        Ok(total)
+    }
+
     /// Refuses to delete a copy that is, on the disk, the same file as a copy that stays: a hard
     /// link, or one file a NAS shows under two shares (REVIEW D62). The catalog sees two copies;
     /// deleting "one" would delete the only one. Checked on the connected copies, before
     /// anything is touched.
     fn check_same_files(&self, entries: &[EntryId]) -> Result<(), ApiError> {
-        use prism_win::files::{identity, same_file};
         let kept = self.store.read(|c| duplicates::kept_copies(c, entries))?;
+        self.refuse_same_files(kept)
+    }
+
+    /// Refuses when a file to delete is, on the disk, the same file as one of those that stay
+    /// with it (see [`Self::check_same_files`]).
+    fn refuse_same_files(&self, kept: Vec<duplicates::KeptCopies>) -> Result<(), ApiError> {
+        use prism_win::files::{identity, same_file};
         // A copy of the map: `entry_path` takes the lock itself.
         let online = self.online().clone();
         let server = |v: VolumeId| {
