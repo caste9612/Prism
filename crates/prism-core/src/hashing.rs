@@ -719,12 +719,19 @@ pub fn hash_volume_with(
     let mut full_work: Vec<(bool, u64, EntryId)> = Vec::new();
     let mut total = 0u64;
     store.read(|c| {
-        let shared_quick = store::shared_quick(c)?;
+        let mut found: Vec<(EntryId, u64, Option<store::Digest>)> = Vec::new();
         store::full_work(c, volume, |entry, size, quick| {
-            let candidate = quick.is_some_and(|q| shared_quick.contains(&(size, q)));
+            found.push((entry, size, quick))
+        })?;
+        for (entry, size, quick) in found {
+            let candidate = match quick {
+                Some(q) => store::quick_shared(c, size, &q)?,
+                None => false,
+            };
             total = total.saturating_add(size);
             full_work.push(full_order(candidate, size, entry));
-        })
+        }
+        Ok(())
     })?;
     full_work.sort_unstable();
     progress.set_phase("hashFull");

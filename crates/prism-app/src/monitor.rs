@@ -63,6 +63,15 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
         .name("prism-hashing".into())
         .spawn(move || {
             std::thread::sleep(HASH_START);
+            // The index of the files by size, before the first round (REVIEW L36).
+            let started = Instant::now();
+            match s.store.write(store::ensure_size_index) {
+                Ok(true) => {
+                    tracing::info!(ms = started.elapsed().as_millis(), "catalog index built")
+                }
+                Ok(false) => {}
+                Err(e) => tracing::warn!(error = %e, "catalog index not built"),
+            }
             // Memory and the catalog's log, at the start and every hour (REVIEW L35).
             let mut resources_at: Option<Instant> = None;
             loop {

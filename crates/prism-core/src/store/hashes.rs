@@ -177,27 +177,46 @@ pub fn full_work(
     Ok(())
 }
 
-/// (size, quick hash) pairs held by more than one file with a valid quick hash: only those
-/// need a full hash to find duplicates.
+/// Whether more than one file has a valid quick hash `quick` for `size`: the candidate
+/// duplicates the full pass reads first. Asked file by file through the index of the quick
+/// hashes (6 microseconds a file on a real catalog): grouping every quick hash of the catalog
+/// took 10 to 18 seconds there, at every round of every volume, even with nothing to read
+/// (REVIEW L36).
 ///
 /// # Errors
 /// SQLite errors.
-pub fn shared_quick(
-    conn: &Connection,
-) -> Result<std::collections::HashSet<(u64, Digest)>, StoreError> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT h.size, h.quick FROM content_hashes h JOIN entries e ON e.id = h.entry_id \
-         WHERE h.quick IS NOT NULL AND e.size = h.size AND e.modified_at IS h.modified_at \
-         GROUP BY h.size, h.quick HAVING count(*) > 1",
+pub fn quick_shared(conn: &Connection, size: u64, quick: &Digest) -> Result<bool, StoreError> {
+    let n: i64 = conn
+        .prepare_cached(
+            "SELECT count(*) FROM (SELECT 1 FROM content_hashes h \
+             JOIN entries e ON e.id = h.entry_id \
+             WHERE h.size = ?1 AND h.quick = ?2 AND e.size = h.size \
+               AND e.modified_at IS h.modified_at LIMIT 2)",
+        )?
+        .query_row(params![to_db(size), &quick[..]], |r| r.get(0))?;
+    Ok(n > 1)
+}
+
+/// Creates, if missing, the index of the files by size that the quick pass uses to find the
+/// sizes held by more than one file ([`quick_work`]). Without it that took a scan of every
+/// entry of the catalog at every round of every volume (REVIEW L36). Built after the start,
+/// not by a migration: on a catalog of 9 million entries it takes seconds, and the window must
+/// not wait for it; the queries work, more slowly, without it. Returns whether it was built now.
+///
+/// # Errors
+/// SQLite errors.
+pub fn ensure_size_index(wtx: &mut WriteTx<'_>) -> Result<bool, StoreError> {
+    let exists: bool = wtx.conn().query_row(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'entries_size')",
+        [],
+        |r| r.get(0),
     )?;
-    let rows = stmt.query_map([], |r| Ok((from_db(r.get(0)?), digest(r.get(1)?))))?;
-    let mut out = std::collections::HashSet::new();
-    for row in rows {
-        if let (size, Some(q)) = row? {
-            out.insert((size, q));
-        }
+    if !exists {
+        wtx.conn().execute_batch(
+            "CREATE INDEX entries_size ON entries (size) WHERE is_dir = 0 AND size > 0",
+        )?;
     }
-    Ok(out)
+    Ok(!exists)
 }
 
 /// Files of a volume and how many have a valid full hash (F06-AC5).

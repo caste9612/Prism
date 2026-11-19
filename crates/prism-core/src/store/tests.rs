@@ -524,6 +524,69 @@ fn disk_media_roundtrip() {
     );
 }
 
+// REVIEW L36: a quick hash is shared when another file has it, valid, for the same size; the
+// index of the sizes, built after the start, leaves the quick pass as it was.
+#[test]
+fn shared_quick_hashes_are_found_file_by_file() {
+    let (_dir, store) = temp_store();
+    let v = add_volume(&store, r"C:\shared");
+    let first = store.allocate_entry_ids(5);
+    let id = |i: i64| EntryId(first.0 + i);
+    let mut ops = vec![WriteOp::Insert {
+        id: id(0),
+        volume: v,
+        parent: None,
+        name: String::new(),
+        is_dir: true,
+        meta: EntryMeta::default(),
+    }];
+    for i in 1..=4 {
+        ops.push(WriteOp::Insert {
+            id: id(i),
+            volume: v,
+            parent: Some(id(0)),
+            name: format!("f{i}.bin"),
+            is_dir: false,
+            meta: EntryMeta {
+                size: if i == 4 { 10 } else { 4096 },
+                modified: Some(crate::model::FileTime(100)),
+                ..EntryMeta::default()
+            },
+        });
+    }
+    let session = store.session();
+    session.submit(v, ops).unwrap();
+    session.flush().unwrap();
+    let quick = [7u8; 32];
+    let record = |i: i64, size: u64, modified: i64| HashRecord {
+        entry: id(i),
+        size,
+        modified: Some(crate::model::FileTime(modified)),
+        quick: Some(quick),
+        full: None,
+    };
+    // f1 alone with a valid quick hash; f2 has one for an older state of the file.
+    let records = vec![record(1, 4096, 100), record(2, 4096, 50)];
+    store.write(move |w| set_hashes(w, &records, 1)).unwrap();
+    assert!(!store.read(move |c| quick_shared(c, 4096, &quick)).unwrap());
+    let records = vec![record(3, 4096, 100), record(4, 10, 100)];
+    store.write(move |w| set_hashes(w, &records, 1)).unwrap();
+    assert!(store.read(move |c| quick_shared(c, 4096, &quick)).unwrap());
+    assert!(!store.read(move |c| quick_shared(c, 10, &quick)).unwrap());
+    assert!(
+        !store
+            .read(move |c| quick_shared(c, 4096, &[8u8; 32]))
+            .unwrap()
+    );
+
+    // The index of the sizes: built once, the quick pass unchanged.
+    let before = store.read(move |c| quick_work(c, v)).unwrap();
+    assert_eq!(before, [id(2)]);
+    assert!(store.write(ensure_size_index).unwrap());
+    assert!(!store.write(ensure_size_index).unwrap());
+    assert_eq!(store.read(move |c| quick_work(c, v)).unwrap(), before);
+}
+
 // Cloud placeholders (OneDrive "online-only" files) and offline files are never analysed:
 // reading them would download them, or fail. They are not counted as work left either.
 #[test]

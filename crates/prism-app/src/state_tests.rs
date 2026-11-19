@@ -1512,4 +1512,43 @@ fn ui_commands_on_a_real_catalog() {
             format!("{} items", app.space_folder(id, None).unwrap().items.len())
         });
     }
+    // The work lists of an analysis round (REVIEW L36).
+    time("size index", &|| {
+        format!(
+            "built: {}",
+            app.store.write(store::ensure_size_index).unwrap()
+        )
+    });
+    for v in volumes.iter().filter(|v| v.last_indexed_at.is_some()) {
+        let id = v.id;
+        time(&format!("quick_work(#{})", id.0), &|| {
+            format!(
+                "{} files",
+                app.store.read(|c| store::quick_work(c, id)).unwrap().len()
+            )
+        });
+        time(&format!("full_work + shared (#{})", id.0), &|| {
+            let (n, shared) = app
+                .store
+                .read(|c| {
+                    let mut found = Vec::new();
+                    store::full_work(c, id, |_, size, quick| found.push((size, quick)))?;
+                    let mut shared = 0usize;
+                    for (size, quick) in &found {
+                        if let Some(q) = quick
+                            && store::quick_shared(c, *size, q)?
+                        {
+                            shared += 1;
+                        }
+                    }
+                    Ok((found.len(), shared))
+                })
+                .unwrap();
+            format!("{n} files, {shared} candidates")
+        });
+        time(&format!("progress count(#{})", id.0), &|| {
+            let (t, h) = app.store.read(|c| store::hash_progress(c, id)).unwrap();
+            format!("{h}/{t}")
+        });
+    }
 }

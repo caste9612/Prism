@@ -18,9 +18,12 @@ use crate::similar_views::{
 };
 use crate::state::{AppState, access_path};
 
-/// Groups found at one distance are kept this long, unless the prints change before: the files
-/// the catalog updates meanwhile (moved, changed, deleted outside Prism) show in them until then.
-const KEEP_GROUPS: Duration = Duration::from_secs(10 * 60);
+/// Groups found at one distance are kept this long, unless files are deleted from Prism before:
+/// new prints, and the files the catalog updates meanwhile (moved, changed, deleted outside
+/// Prism), show in them after. Not dropped at every new print: on the company PC the analysis
+/// of the system disk prints new images at every round, and grouping 2.7 million prints there
+/// took minutes (REVIEW L36).
+const KEEP_GROUPS: Duration = Duration::from_secs(30 * 60);
 
 /// The print of an image without detail: at 9×8 pixels no pixel is darker than the one on its
 /// right, as in an image all of one colour (a blank or transparent picture). On a real catalog
@@ -49,7 +52,7 @@ pub struct SimilarCache {
 }
 
 impl SimilarCache {
-    /// The groups kept are out of date (new prints, files deleted, disks removed).
+    /// The groups kept are out of date (files deleted, disks removed).
     pub fn invalidate(&self) {
         self.generation.fetch_add(1, Ordering::Relaxed);
     }
@@ -214,6 +217,7 @@ impl AppState {
             .into_iter()
             .filter(|p| p.dhash != BLANK_PRINT)
             .collect();
+        let read_ms = started.elapsed().as_millis();
         let hashes: Vec<u64> = prints.iter().map(|p| p.dhash).collect();
         let found = bktree::groups(&hashes, max);
         // Only the images in a group are kept.
@@ -242,6 +246,7 @@ impl AppState {
             prints = prints.len(),
             groups = groups.len(),
             largest = groups.iter().map(Vec::len).max().unwrap_or(0),
+            read_ms,
             ms = started.elapsed().as_millis(),
             "similar images grouped"
         );

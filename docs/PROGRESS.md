@@ -20,13 +20,15 @@
   pubblicate; la 2.2.2 è stata pubblicata senza una prova sul PC aziendale, su scelta
   dell'utente. Su `develop` la **2.2.5**, non ancora pubblicata, da provare con un installer
   locale: comprende la 2.2.3 (interfaccia più leggera, REVIEW L34), la 2.2.4 (eliminazione dai
-  Simili, D67), mai pubblicate, e i conteggi ridotti e la diagnostica della memoria (L35). Il
-  PC di casa ha la 2.2.4 di prova dal 2026-11-14; quello aziendale ha la 2.2.2. Il lavoro
-  continua direttamente su `develop`.
+  Simili, D67), mai pubblicate, i conteggi ridotti e la diagnostica della memoria (L35) e i
+  giri dell'analisi senza query sull'intero catalogo (L36). Il PC di casa ha la 2.2.4 di prova
+  dal 2026-11-14; quello aziendale dal 2026-11-19. Il lavoro continua direttamente su
+  `develop`.
 - **Prossimo passo**: l'utente installa la 2.2.5 sul PC aziendale (a mano: le versioni di prova
   non arrivano con l'aggiornamento automatico), la usa qualche giorno e manda un pacchetto
   diagnostico: righe `resources` (memoria e RAM libera nelle ore lente), `slow command`,
-  `similar images grouped`, durata dei conteggi; poi la release col suo via libera. Dallo stesso pacchetto, per la 2.2.2: i
+  `similar images grouped` (`read_ms` contro `ms`), `catalog index built`, durata dei giri e
+  dei conteggi; poi la release col suo via libera. Dallo stesso pacchetto, per la 2.2.2: i
   giri del disco 1 senza 38 GB (`mb=` nella riga `hashing finished volume=1`), l'avanzamento
   ricontato meno spesso, le righe `files not decoded`. Restano aperti REVIEW L29 (2) e i punti
   aperti di L32, L33 e L34. Prima di avviare l'app di
@@ -50,6 +52,10 @@
   WAL; resta quella della memoria del PC, che il pacchetto non diceva. Ora il pacchetto e il
   log la dicono, e i dischi fermi si ricontano una volta l'ora invece che ogni 5 minuti
   (l'archivio costava un'ora al giorno di letture inutili). REVIEW L35.
+- Decimo pacchetto, dieci minuti dopo, con la 2.2.4 appena installata in ufficio: un giro del
+  disco 1 senza nulla da leggere dura 5,4 minuti, il numero dei simili non arriva in 8. Ogni
+  giro raggruppava l'intero catalogo due volte (10–18 s anche a casa): ora le liste del lavoro
+  usano gli indici (REVIEW L36).
 
 ### 2026-11-14 — 2.2.4: eliminazione dai Simili
 

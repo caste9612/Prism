@@ -94,6 +94,9 @@ UNIQUE INDEX entries_parent_name (parent_id, name)    -- nome esatto (ADR-0015)
 INDEX        entries_volume      (volume_id)          -- v3; nessun indice su file_ref:
                                                       -- ricerche per riferimento con una
                                                       -- mappa in memoria (FileRefMap)
+INDEX        entries_size        (size) WHERE is_dir = 0 AND size > 0
+                                                      -- creato dopo l'avvio, non da una
+                                                      -- migrazione (REVIEW L36)
 
 dir_stats (entry_id PRIMARY KEY REFERENCES entries ON DELETE CASCADE,
            total_size, total_alloc, file_count, dir_count) STRICT   -- solo file contati
@@ -318,7 +321,10 @@ batteria) o annullamento; il chiamante la esegue in modalità background di Wind
 minima di CPU e disco, F06-AC2).
 
 In memoria restano solo gli id dei file ancora da fare, già ordinati (`store::quick_work`
-ordina in SQL; la seconda passata tiene id, dimensione e "possibile duplicato"): ogni file si
+ordina in SQL e trova le dimensioni condivise con l'indice `entries_size`; la seconda passata
+tiene id, dimensione e "possibile duplicato", chiesto file per file all'indice degli hash
+rapidi con `store::quick_shared`: nessuna query di un giro scorre tutto il catalogo, REVIEW
+L36): ogni file si
 rilegge dal catalogo quando tocca a lui (`store::hash_state`), così un file cancellato o già
 analizzato nel frattempo si salta, e la cache dei percorsi delle cartelle si svuota oltre 4096
 voci. Su un volume di 629.000 file l'analisi occupa ~12 MiB invece di ~190 (REVIEW D48, NF3).
