@@ -37,8 +37,11 @@ impl HashStatus {
 }
 
 /// The progress of a volume is counted again at most this often, or this often while a hash job
-/// runs on it.
-const RECHECK: Duration = Duration::from_secs(300);
+/// runs on it. What changes the progress counts it anyway (an update of the volume, the end of a
+/// round, a deletion): the hourly count is a safety net. Seen in a diagnostic package: a share
+/// of 3.3 million files, analysed to the end and not changing, was counted 140 to 263 times a
+/// day, 20 to 30 seconds each, every 5 minutes (REVIEW L35).
+const RECHECK: Duration = Duration::from_secs(3600);
 const RECHECK_RUNNING: Duration = Duration::from_secs(60);
 /// And hashed again at most this often (a journal update every 15 s must not restart it)…
 const RERUN: Duration = Duration::from_secs(120);
@@ -77,6 +80,16 @@ const QUICK_COUNT: Duration = Duration::from_millis(100);
 /// because it was updated.
 fn may_count_again(since: Duration, cost: Duration) -> bool {
     cost < QUICK_COUNT || since >= cost.saturating_mul(COUNT_SHARE)
+}
+
+/// Whether the progress of a volume is counted now: never counted yet; updated since its last
+/// count; or counted `every` ago (an hour, a minute while a round runs on it). Either way not
+/// before its counts take at most one part in [`COUNT_SHARE`] of the time.
+fn count_due(last: Option<(Duration, Duration)>, updated: bool, every: Duration) -> bool {
+    match last {
+        None => true,
+        Some((since, cost)) => (updated || since >= every) && may_count_again(since, cost),
+    }
 }
 
 /// How many files the analysis of a volume reads at the same time.
@@ -352,14 +365,19 @@ pub fn tick(state: &Arc<AppState>) -> bool {
         let before = state.hashing.status().get(&v.id).copied();
         // Indexed or updated since it was counted: count now, so the new files are analysed
         // at the next round instead of minutes later; a little later when counting is slow.
-        let cost = state.hashing.count_cost().get(&v.id).copied();
+        let cost = state
+            .hashing
+            .count_cost()
+            .get(&v.id)
+            .copied()
+            .unwrap_or_default();
         let indexed_since = before.is_some_and(|(_, at)| {
             let counted =
                 unix_millis_now() - i64::try_from(at.elapsed().as_millis()).unwrap_or(i64::MAX);
             v.last_indexed_at.is_some_and(|t| t > counted)
-                && may_count_again(at.elapsed(), cost.unwrap_or_default())
         });
-        if indexed_since || before.is_none_or(|(_, at)| at.elapsed() >= every) {
+        let last = before.map(|(_, at)| (at.elapsed(), cost));
+        if count_due(last, indexed_since, every) {
             refresh(state, v.id);
             changed |= state.hashing.progress(v.id) != before.map(|(s, _)| s);
         }
@@ -602,6 +620,27 @@ mod tests {
         assert!(may_count_again(ms(30_000), ms(600)));
         assert!(!may_count_again(ms(30_000), ms(2_500)));
         assert!(may_count_again(ms(125_000), ms(2_500)));
+    }
+
+    // REVIEW L35: a volume nothing changed is counted once an hour, and a slow count is spaced
+    // out also while a round runs on the volume.
+    #[test]
+    fn idle_volumes_are_counted_hourly_and_slow_counts_spaced_out() {
+        let s = Duration::from_secs;
+        assert!(count_due(None, false, RECHECK));
+        assert!(!count_due(Some((s(600), s(1))), false, RECHECK));
+        assert!(count_due(Some((s(3600), s(1))), false, RECHECK));
+        assert!(count_due(Some((s(60), s(1))), true, RECHECK));
+        // 24 s to count: every 20 minutes at most, round or not.
+        assert!(!count_due(Some((s(120), s(24))), false, RECHECK_RUNNING));
+        assert!(!count_due(Some((s(600), s(24))), true, RECHECK));
+        assert!(count_due(Some((s(1200), s(24))), false, RECHECK_RUNNING));
+        // A quick count is not put off.
+        assert!(count_due(
+            Some((s(60), Duration::from_millis(50))),
+            false,
+            RECHECK_RUNNING
+        ));
     }
 
     // Files that stay unreadable (open, changing) do not make a round every 2 minutes; new files

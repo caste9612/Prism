@@ -325,8 +325,9 @@ voci. Su un volume di 629.000 file l'analisi occupa ~12 MiB invece di ~190 (REVI
 
 Nell'app (`prism-app/src/hash_jobs.rs`) un thread, 20 s dopo l'avvio e poi ogni 30 s:
 
-- conta per ogni volume indicizzato file e file con hash valido (ogni 5 minuti, ogni minuto
-  mentre l'analisi gira: il conteggio costa centinaia di ms su un catalogo grande) e lo mette
+- conta per ogni volume indicizzato file e file con hash valido (ogni ora, ogni minuto mentre
+  l'analisi gira, subito dopo un aggiornamento del volume o la fine di un giro; mai per più di
+  un cinquantesimo del tempo: un conteggio di 24 s al più ogni 20 minuti, REVIEW L33, L35) e lo mette
   sulle schede (`VolumeView.hashes`, F06-AC5); immagini e video si contano riga per riga
   (`store::count_prints`) senza caricare in memoria tutti i file del volume, e un conteggio che
   dura più di un secondo va nel log (`analysis progress counted`, REVIEW L31);
@@ -664,7 +665,8 @@ riprendere (§4.3).
 | Journal dei dischi NTFS collegati | ogni 15 s | solo i record nuovi |
 | Cartelle sorvegliate (FAT, exFAT, ReFS, NAS) | dopo ogni gruppo di cambi (fino a 5 s) | solo l'elenco delle cartelle cambiate, e per intero le sottocartelle nuove (REVIEW L27); ogni ora una riga del log riassume aggiornamenti, percorsi e tempo speso (L28); quando Windows perde notifiche o i percorsi in attesa sono più di 10.000, tutto il volume, ma non prima di 30 minuti dalla rilettura completa precedente né di 10 volte quanto è durata (al massimo 6 ore; REVIEW L25) |
 | Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'inizio dell'ultimo giro se si era interrotto, 10 se era completo (REVIEW L28; 30 minuti se restano solo file in uso, illeggibili, cambiati rispetto al catalogo o modificati negli ultimi 10 minuti, e stampe di file cambiati; REVIEW L26, L27) | solo i file senza hash valido, mai quelli solo nel cloud (OneDrive) o offline, né quelli modificati da meno di 10 minuti; le analisi lasciano sempre libero un thread del motore, e cedono il disco entro mezzo secondo a un lavoro più urgente, il thread quando sono tutti occupati e quel lavoro aspetta da 30 s |
-| Avanzamento dell'analisi sulle schede | ogni 5 minuti (1 mentre gira), subito dopo un'indicizzazione | conteggio nel catalogo |
+| Avanzamento dell'analisi sulle schede | ogni ora (ogni minuto mentre gira), subito dopo un aggiornamento o la fine di un giro; mai per più di 1/50 del tempo (REVIEW L35) | conteggio nel catalogo |
+| Memoria e WAL del catalogo nel log | all'avvio e ogni ora (`resources`, REVIEW L35) | nessuna lettura del catalogo |
 | Indici di ricerca | dopo un cambio del catalogo, al massimo ogni 30 s per volume | ricostruzione in memoria del volume (L11) |
 | Salute dei dischi del PC | 10 s dopo l'avvio, poi ogni ora e appena si collega un disco | lettura SMART |
 | NAS ZimaOS | 10 s dopo l'avvio, poi ogni ora (ogni 5 minuti se l'ultima lettura è fallita) | due chiamate al NAS |
@@ -917,9 +919,10 @@ già, e crea la release `v<versione>` sul commit compilato, con le note di
   thread `prism-nas`; i problemi (RAID non ok, disco non in salute, guasto o mancante) sono
   chiavi stabili, e quelle nuove rispetto alla lettura precedente danno una notifica.
 - Pacchetto diagnostico (`prism-core::diagnostics`, `prism-app/src/diagnostics_state.rs`):
-  `system.txt` (versione, Windows, diritti, contatori del catalogo, impostazioni, dischi con le
-  loro voci e l'avanzamento dell'analisi, job in corso col loro disco, avanzamento e durata,
-  REVIEW L30) e i log, in uno ZIP senza compressione scritto da Prism stesso (nessuna libreria in
+  `system.txt` (versione, Windows, diritti, memoria di Prism, RAM libera del PC e dimensione
+  del WAL del catalogo, REVIEW L35, contatori del catalogo, impostazioni, dischi con le loro
+  voci e l'avanzamento dell'analisi, job in corso col loro disco, avanzamento e durata, REVIEW
+  L30) e i log, in uno ZIP senza compressione scritto da Prism stesso (nessuna libreria in
   più). L'interfaccia mostra prima l'elenco dei file e il testo di `system.txt`; il file va
   nella cartella Download (in sviluppo nella cartella dati) senza mai sostituirne uno esistente.
 - Reset del catalogo (F21-AC4): `store::reset_catalog` toglie ogni volume come la rimozione di

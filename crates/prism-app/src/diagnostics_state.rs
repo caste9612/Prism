@@ -54,6 +54,31 @@ impl AppState {
     }
 
     /// The system report of the package: versions, rights, catalog counters, settings, disks.
+    /// Memory of Prism and of the computer and size of the catalog's write-ahead log, as one
+    /// line (the diagnostic package, and every hour in the log). REVIEW L35: on the company PC
+    /// every reading of the catalog grew five to ten times slower over hours, and the package
+    /// could not tell whether the computer was short of memory for its file cache.
+    pub fn resources_text(&self) -> String {
+        let mb = |b: u64| b / 1_000_000;
+        let prism = prism_win::process::memory_usage().map_or_else(
+            || "Prism ?".to_owned(),
+            |m| {
+                format!(
+                    "Prism {} MB (private {} MB, peak {} MB)",
+                    mb(m.working_set),
+                    mb(m.private_bytes),
+                    mb(m.peak_working_set)
+                )
+            },
+        );
+        let system = prism_win::process::system_memory().map_or_else(
+            || "RAM ?".to_owned(),
+            |s| format!("RAM {} MB free of {} MB", mb(s.available), mb(s.total)),
+        );
+        let wal = std::fs::metadata(self.data_dir.join("catalog.db-wal")).map_or(0, |m| m.len());
+        format!("{prism}, {system}, catalog log {} MB", mb(wal))
+    }
+
     fn system_report(&self) -> Result<String, ApiError> {
         let (volumes, db_size) = self
             .store
@@ -83,6 +108,7 @@ impl AppState {
             if self.elevated { "yes" } else { "no" }
         );
         let _ = writeln!(r, "Data folder: {}", self.data_dir.display());
+        let _ = writeln!(r, "Memory: {}", self.resources_text());
         let _ = writeln!(
             r,
             "Catalog: {} disks, {entries} entries, {} MB",

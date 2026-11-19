@@ -217,6 +217,16 @@ fn background_hashing_runs_pauses_and_counts() {
         system.contains("entries, analysed 0/4 files, 0/0 images, 0/0 videos"),
         "{system}"
     );
+    // And the memory of Prism and of the computer, and the catalog's log (REVIEW L35).
+    let memory = system
+        .lines()
+        .find(|l| l.starts_with("Memory: Prism "))
+        .unwrap();
+    assert!(
+        memory.contains(" MB free of ") && memory.contains("catalog log"),
+        "{memory}"
+    );
+    println!("{memory}");
     let waiting = |app: &AppState| {
         app.volume_views().unwrap()[0]
             .hashes

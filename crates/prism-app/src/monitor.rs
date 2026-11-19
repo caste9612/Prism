@@ -36,6 +36,7 @@ const DETECT_EVERY: Duration = Duration::from_secs(2);
 const JOURNAL_EVERY: Duration = Duration::from_secs(15);
 const HASH_START: Duration = Duration::from_secs(20);
 const HASH_EVERY: Duration = Duration::from_secs(30);
+const RESOURCES_EVERY: Duration = Duration::from_secs(3600);
 const HEALTH_START: Duration = Duration::from_secs(10);
 const HEALTH_EVERY: Duration = Duration::from_secs(3600);
 /// How often the health thread looks for a disk plugged in or removed.
@@ -62,7 +63,13 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
         .name("prism-hashing".into())
         .spawn(move || {
             std::thread::sleep(HASH_START);
+            // Memory and the catalog's log, at the start and every hour (REVIEW L35).
+            let mut resources_at: Option<Instant> = None;
             loop {
+                if resources_at.is_none_or(|t| t.elapsed() >= RESOURCES_EVERY) {
+                    tracing::info!(resources = %s.resources_text(), "resources");
+                    resources_at = Some(Instant::now());
+                }
                 if crate::hash_jobs::tick(&s) {
                     let _ = a.emit("volumes-changed", ());
                 }

@@ -18,12 +18,15 @@
   impronte dei video, L32: confermata dall'ottavo pacchetto, 20 ore senza cadute) e le
   correzioni dell'ottavo pacchetto (L33). La 2.1.5, la 2.2.0 e la 2.2.1 non sono state
   pubblicate; la 2.2.2 è stata pubblicata senza una prova sul PC aziendale, su scelta
-  dell'utente. Su `develop` la **2.2.4**, non ancora pubblicata, da provare con un installer
-  locale: comprende la 2.2.3 (interfaccia più leggera, REVIEW L34, mai pubblicata) e
-  l'eliminazione dai Simili (D67). Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: l'utente prova la 2.2.4 sul PC aziendale (schermate Catalogo, Simili con
-  l'eliminazione, mappa dello spazio di C:) e manda un pacchetto diagnostico: righe `slow
-  command` e `similar images grouped`; poi la release col suo via libera. Dallo stesso pacchetto, per la 2.2.2: i
+  dell'utente. Su `develop` la **2.2.5**, non ancora pubblicata, da provare con un installer
+  locale: comprende la 2.2.3 (interfaccia più leggera, REVIEW L34), la 2.2.4 (eliminazione dai
+  Simili, D67), mai pubblicate, e i conteggi ridotti e la diagnostica della memoria (L35). Il
+  PC di casa ha la 2.2.4 di prova dal 2026-11-14; quello aziendale ha la 2.2.2. Il lavoro
+  continua direttamente su `develop`.
+- **Prossimo passo**: l'utente installa la 2.2.5 sul PC aziendale (a mano: le versioni di prova
+  non arrivano con l'aggiornamento automatico), la usa qualche giorno e manda un pacchetto
+  diagnostico: righe `resources` (memoria e RAM libera nelle ore lente), `slow command`,
+  `similar images grouped`, durata dei conteggi; poi la release col suo via libera. Dallo stesso pacchetto, per la 2.2.2: i
   giri del disco 1 senza 38 GB (`mb=` nella riga `hashing finished volume=1`), l'avanzamento
   ricontato meno spesso, le righe `files not decoded`. Restano aperti REVIEW L29 (2) e i punti
   aperti di L32, L33 e L34. Prima di avviare l'app di
@@ -37,6 +40,16 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-19 — 2.2.5: nono pacchetto, letture del catalogo lente col passare delle ore
+
+- Il PC aziendale aveva ancora la 2.2.2 (aggiornata da sola il 16), non la 2.2.4 di prova. Il
+  disco 1 non legge più 38 GB ogni mezz'ora (3,7 TB in tre giorni con la 2.2.1). Ma ogni
+  lettura larga del catalogo rallenta di ore in ore (conteggio di `Organ` da 5 a 25 s in media,
+  punte di 150 s), e torna veloce dopo un riavvio. Smentita con un esperimento l'ipotesi del
+  WAL; resta quella della memoria del PC, che il pacchetto non diceva. Ora il pacchetto e il
+  log la dicono, e i dischi fermi si ricontano una volta l'ora invece che ogni 5 minuti
+  (l'archivio costava un'ora al giorno di letture inutili). REVIEW L35.
 
 ### 2026-11-14 — 2.2.4: eliminazione dai Simili
 

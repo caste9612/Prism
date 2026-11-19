@@ -34,6 +34,31 @@ pub fn memory_usage() -> Option<MemoryUsage> {
     })
 }
 
+/// Physical memory of the computer, in bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SystemMemory {
+    pub total: u64,
+    /// Free for programs and for the file cache that keeps the catalog read fast.
+    pub available: u64,
+}
+
+/// The physical memory of the computer, or `None` if Windows does not report it.
+#[must_use]
+pub fn system_memory() -> Option<SystemMemory> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status = MEMORYSTATUSEX {
+        dwLength: u32::try_from(size_of::<MEMORYSTATUSEX>()).ok()?,
+        ..MEMORYSTATUSEX::default()
+    };
+    // SAFETY: `status` is a properly sized, writable MEMORYSTATUSEX whose `dwLength` holds its
+    // size, as the API requires.
+    let ok = unsafe { GlobalMemoryStatusEx(&raw mut status) };
+    (ok != 0).then_some(SystemMemory {
+        total: status.ullTotalPhys,
+        available: status.ullAvailPhys,
+    })
+}
+
 /// Whether the current process runs with an elevated (administrator) token.
 #[must_use]
 pub fn is_elevated() -> bool {
