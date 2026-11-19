@@ -58,7 +58,7 @@ fn state(store: Store, dev: bool, data_dir: &Path) -> AppState {
         hashing: crate::hash_jobs::HashingState::default(),
         backup: crate::backup_state::BackupState::default(),
         thumbnails: crate::similar_views::Thumbnails::default(),
-        similar: crate::similar_state::SimilarCache::default(),
+        kept: crate::similar_state::KeptResults::default(),
         identities: crate::identity::Identities::default(),
         health: crate::health_state::HealthState::default(),
         nas: crate::nas_state::NasState::new(
@@ -471,6 +471,9 @@ fn duplicates_are_grouped_selected_and_deleted_safely() {
     assert_eq!(view.total_groups, 1);
     assert_eq!(view.total_recoverable, 300 * 1024);
     assert_eq!(view.pending_files, 0);
+    // REVIEW L37: the figure of the catalog screen, kept until files are deleted.
+    assert_eq!(app.duplicate_space(1).unwrap(), 300 * 1024);
+    assert_eq!(app.duplicate_space(1_000_000).unwrap(), 0);
     let group = &view.groups[0];
     assert_eq!(group.kind, "images");
     assert_eq!(group.files.len(), 2);
@@ -528,6 +531,7 @@ fn duplicates_are_grouped_selected_and_deleted_safely() {
     assert!(disk.join("photo.jpg").exists(), "the copy kept stays");
     let after = app.duplicates(&DupFilterInput::default(), &[]).unwrap();
     assert_eq!(after.total_groups, 0);
+    assert_eq!(app.duplicate_space(1).unwrap(), 0);
     let log = app.store.read(|c| store::actions_log(c, 10)).unwrap();
     assert_eq!(log.len(), 1);
     // The same record for the "last actions" panel of the catalog.
@@ -1483,6 +1487,9 @@ fn ui_commands_on_a_real_catalog() {
             folder: None,
         };
         format!("{} groups", app.duplicates(&f, &[]).unwrap().groups.len())
+    });
+    time("duplicate_space(>=1MB, kept)", &|| {
+        format!("{} bytes", app.duplicate_space(1_000_000).unwrap())
     });
     time("similar_image_groups(6)", &|| {
         format!("{} groups", app.similar_image_groups(6).unwrap())

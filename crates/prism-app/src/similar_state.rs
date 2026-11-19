@@ -25,6 +25,10 @@ use crate::state::{AppState, access_path};
 /// took minutes (REVIEW L36).
 const KEEP_GROUPS: Duration = Duration::from_secs(30 * 60);
 
+/// The space the copies of duplicates take is kept this long, unless files are deleted from
+/// Prism before: the analysis finds new copies meanwhile (REVIEW L37).
+const KEEP_TOTAL: Duration = Duration::from_secs(10 * 60);
+
 /// The print of an image without detail: at 9×8 pixels no pixel is darker than the one on its
 /// right, as in an image all of one colour (a blank or transparent picture). On a real catalog
 /// 10,022 images had it; they are not similar photos, and they joined everything else.
@@ -41,20 +45,46 @@ struct ImageGroups {
     groups: Vec<Vec<usize>>,
 }
 
-/// The last groups of similar images (REVIEW L34). Grouping every image of a large catalog takes
-/// seconds: the screens that ask at the same time wait for one grouping, and ask again only when
-/// the prints changed or the groups are [`KEEP_GROUPS`] old.
+/// Figures of the whole catalog kept between screens: the last groups of similar images
+/// (REVIEW L34) and the space the copies of duplicates take (REVIEW L37). Each takes seconds on
+/// a large catalog: the screens that ask at the same time wait for one count, and ask again
+/// only when Prism deleted files or forgot disks, or the figure is [`KEEP_GROUPS`] (the groups)
+/// or [`KEEP_TOTAL`] (the space) old.
 #[derive(Default)]
-pub struct SimilarCache {
-    /// Changed when prints are added or images deleted.
+pub struct KeptResults {
+    /// Changed when files are deleted or disks removed.
     generation: AtomicU64,
     images: Mutex<Option<Arc<ImageGroups>>>,
+    /// Generation, time, smallest size of a copy and the space.
+    duplicate_space: Mutex<Option<(u64, Instant, u64, u64)>>,
 }
 
-impl SimilarCache {
-    /// The groups kept are out of date (files deleted, disks removed).
+impl KeptResults {
+    /// The figures kept are out of date (files deleted, disks removed).
     pub fn invalidate(&self) {
         self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// The space the copies of duplicates of at least `min_size` take, kept or `count`ed
+    /// again; one count at a time, the others wait for it.
+    pub fn duplicate_space(
+        &self,
+        min_size: u64,
+        count: impl FnOnce() -> Result<u64, ApiError>,
+    ) -> Result<u64, ApiError> {
+        let mut kept = self
+            .duplicate_space
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let generation = self.generation.load(Ordering::Relaxed);
+        if let Some((_, _, _, space)) = kept.filter(|&(g, at, size, _)| {
+            g == generation && size == min_size && at.elapsed() < KEEP_TOTAL
+        }) {
+            return Ok(space);
+        }
+        let space = count()?;
+        *kept = Some((generation, Instant::now(), min_size, space));
+        Ok(space)
     }
 }
 
@@ -83,13 +113,15 @@ impl AppState {
     }
 
     /// The view of groups of items (positions in `items`); `distance` says how far an item is
-    /// from another, for the first of each group.
+    /// from another. With `centred`, the first of each group is its centre and the distances
+    /// are from it (images, REVIEW L37); otherwise from the largest of the group.
     fn similar_view(
         &self,
         items: &[Item],
         mut found: Vec<Vec<usize>>,
         volume: Option<VolumeId>,
         distance: &dyn Fn(usize, usize) -> u32,
+        centred: bool,
         pending: u64,
     ) -> Result<SimilarView, ApiError> {
         if let Some(v) = volume {
@@ -117,7 +149,7 @@ impl AppState {
                         it.entry,
                     )
                 });
-                let first = members[0];
+                let first = if centred { g[0] } else { members[0] };
                 let count = members.len() as u64;
                 members.truncate(MAX_FILES);
                 let mut files = Vec::with_capacity(members.len());
@@ -199,11 +231,11 @@ impl AppState {
     /// the groups kept are too old; one grouping at a time, the others wait for it.
     fn image_groups(&self, max: u32) -> Result<Arc<ImageGroups>, ApiError> {
         let mut kept = self
-            .similar
+            .kept
             .images
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let generation = self.similar.generation.load(Ordering::Relaxed);
+        let generation = self.kept.generation.load(Ordering::Relaxed);
         if let Some(g) = kept
             .as_ref()
             .filter(|g| g.generation == generation && g.max == max && g.at.elapsed() < KEEP_GROUPS)
@@ -225,8 +257,10 @@ impl AppState {
         let mut kept_hashes = Vec::new();
         let mut groups = Vec::with_capacity(found.len());
         for g in found {
-            let mut positions = Vec::with_capacity(g.len());
-            for i in g {
+            let mut positions = Vec::with_capacity(g.items.len());
+            // The centre first.
+            let others = g.items.iter().copied().filter(|&i| i != g.centre);
+            for i in std::iter::once(g.centre).chain(others) {
                 let p = &prints[i];
                 positions.push(items.len());
                 items.push(Item {
@@ -246,6 +280,7 @@ impl AppState {
             prints = prints.len(),
             groups = groups.len(),
             largest = groups.iter().map(Vec::len).max().unwrap_or(0),
+            in_groups = groups.iter().map(Vec::len).sum::<usize>(),
             read_ms,
             ms = started.elapsed().as_millis(),
             "similar images grouped"
@@ -271,8 +306,9 @@ impl AppState {
             .len() as u64)
     }
 
-    /// Groups of images within `max_distance` bits of each other, optionally only those with a
-    /// copy on `volume` (F11-AC1/AC2/AC3). Images without detail are left out.
+    /// Groups of images within `max_distance` bits of the centre of their group, optionally
+    /// only those with a copy on `volume` (F11-AC1/AC2/AC3). Images without detail are left
+    /// out.
     pub fn similar_images(
         &self,
         max_distance: u32,
@@ -284,6 +320,7 @@ impl AppState {
             made.groups.clone(),
             volume,
             &|a, b| bktree::distance(made.hashes[a], made.hashes[b]),
+            true,
             self.hashing.pending_images(volume),
         )
     }
@@ -320,6 +357,7 @@ impl AppState {
                 video::mean_distance(&prints[a].frames, &prints[b].frames)
                     .map_or(64, |d| d.round() as u32)
             },
+            false,
             self.hashing.pending_videos(volume),
         )
     }

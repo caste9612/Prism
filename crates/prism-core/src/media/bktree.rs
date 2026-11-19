@@ -1,12 +1,15 @@
 //! Near prints with the Hamming distance (F11-AC2).
 //!
-//! [`groups`] joins the prints within a distance of each other with an index of their four
-//! 16-bit blocks (multi-index hashing): two prints within `t` bits have at least one block within
-//! `t / 4` bits, so each print is compared only with the prints found under its own blocks and
-//! the blocks a few bits away. Identical prints are one node: on a real catalog 10,022 blank
-//! images shared the print 0, and comparing them with each other took 100 million steps (REVIEW
-//! L34). The [`BkTree`] answers single searches; over a whole catalog it compared nearly every
-//! pair (the time grew fourfold each time the prints doubled).
+//! [`groups`] puts the prints in groups around a centre: the most repeated print not in a group
+//! yet takes every print within the distance not in a group yet, and so on. Joining every pair
+//! within the distance, transitively, made chains: on the company PC one group held 1,258,853
+//! images of 2.7 million (REVIEW L37). Each print is found through an index of four 16-bit
+//! blocks (multi-index hashing): two prints within `t` bits have at least one block within
+//! `t / 4` bits. The index is kept twice, by rows of the image (two rows a block) and by columns
+//! (two columns a block), and each search uses the one with fewer prints to look at: images with
+//! uniform rows (a sky, a white margin) share a block by rows, not by columns. The prints taken
+//! leave the index as they are met. The [`BkTree`] answers single searches; over a whole catalog
+//! it compared nearly every pair.
 
 /// Hamming distance between two prints.
 #[must_use]
@@ -91,102 +94,341 @@ impl BkTree {
     }
 }
 
-fn find(parent: &mut [usize], mut x: usize) -> usize {
-    while parent[x] != x {
-        parent[x] = parent[parent[x]];
-        x = parent[x];
-    }
-    x
-}
-
 /// The blocks of a print in the index of [`groups`].
 const BLOCKS: u32 = 4;
 const BLOCK_BITS: u32 = 64 / BLOCKS;
+const VALUES: usize = 1 << BLOCK_BITS;
 
-fn block(print: u64, k: u32) -> usize {
-    ((print >> (k * BLOCK_BITS)) & 0xFFFF) as usize
+/// Block `k` of a print by rows (bits `16k..16k+16`: two rows of the image) or by columns
+/// (bits `k, k+4, ..., k+60`: two columns).
+fn block(print: u64, by_columns: bool, k: u32) -> usize {
+    if !by_columns {
+        return ((print >> (k * BLOCK_BITS)) & 0xFFFF) as usize;
+    }
+    let mut x = (print >> k) & 0x1111_1111_1111_1111;
+    x = (x | (x >> 3)) & 0x0303_0303_0303_0303;
+    x = (x | (x >> 6)) & 0x000F_000F_000F_000F;
+    x = (x | (x >> 12)) & 0x0000_00FF_0000_00FF;
+    x = (x | (x >> 24)) & 0xFFFF;
+    x as usize
 }
 
 /// Every 16-bit mask with at most `bits` bits set.
 fn masks(bits: u32) -> Vec<usize> {
-    (0..1usize << BLOCK_BITS)
-        .filter(|m| m.count_ones() <= bits)
-        .collect()
+    (0..VALUES).filter(|m| m.count_ones() <= bits).collect()
 }
 
-/// For each of `codes` (distinct prints), the first of the codes it is joined with, directly or
-/// through others, within `max` bits.
-fn join_near(codes: &[u64], max: u32) -> Vec<usize> {
-    let mut parent: Vec<usize> = (0..codes.len()).collect();
-    if max == 0 || codes.len() < 2 {
-        return parent;
-    }
-    let keys = masks(max / BLOCKS);
-    let buckets = 1usize << BLOCK_BITS;
-    for k in 0..BLOCKS {
-        // The codes by the value of block `k`, in their order (the bucket of a value lists its
-        // codes from the lowest position).
-        let mut start = vec![0usize; buckets + 1];
+/// The prints under each value of one block, each with its rank (its place in the order the
+/// centres are chosen in), by rank in each bucket, the print kept next to its rank so that a
+/// search reads a bucket in one go. A bucket drops, as it is looked at, the prints ranked before
+/// the one looking (all in a group already) and the prints found near.
+struct Table {
+    by_columns: bool,
+    k: u32,
+    from: Vec<u32>,
+    to: Vec<u32>,
+    codes: Vec<u64>,
+    ranks: Vec<u32>,
+}
+
+impl Table {
+    /// `codes`: the distinct prints by rank.
+    fn new(codes: &[u64], by_columns: bool, k: u32) -> Self {
+        let mut start = vec![0u32; VALUES + 1];
         for &c in codes {
-            start[block(c, k) + 1] += 1;
+            start[block(c, by_columns, k) + 1] += 1;
         }
-        for b in 0..buckets {
+        for b in 0..VALUES {
             start[b + 1] += start[b];
         }
         let mut next = start.clone();
-        let mut by_block = vec![0usize; codes.len()];
-        for (i, &c) in codes.iter().enumerate() {
-            let b = block(c, k);
-            by_block[next[b]] = i;
+        let mut in_buckets = vec![0u64; codes.len()];
+        let mut ranks = vec![0u32; codes.len()];
+        for (rank, &c) in codes.iter().enumerate() {
+            let b = block(c, by_columns, k);
+            let at = next[b] as usize;
+            in_buckets[at] = c;
+            ranks[at] = rank as u32;
             next[b] += 1;
         }
-        for (i, &c) in codes.iter().enumerate() {
-            let own = block(c, k);
-            for &m in &keys {
-                let bucket = &by_block[start[own ^ m]..start[(own ^ m) + 1]];
-                // Each pair once: the codes after this one.
-                let after = bucket.partition_point(|&j| j <= i);
-                for &j in &bucket[after..] {
-                    if distance(c, codes[j]) <= max {
-                        let (a, b) = (find(&mut parent, i), find(&mut parent, j));
-                        if a != b {
-                            parent[a.max(b)] = a.min(b);
-                        }
-                    }
-                }
-            }
+        let to = start[1..].to_vec();
+        start.truncate(VALUES);
+        Self {
+            by_columns,
+            k,
+            from: start,
+            to,
+            codes: in_buckets,
+            ranks,
         }
     }
-    parent
+
+    /// How many prints the bucket of `code` holds, roughly what a search under it costs.
+    fn load(&self, code: u64) -> u64 {
+        let b = block(code, self.by_columns, self.k);
+        u64::from(self.to[b] - self.from[b])
+    }
+
+    /// Puts in the group of the print ranked `rank` (`code`) the prints ranked after it within
+    /// `max`, not in a group yet, under the buckets around its block.
+    fn take_near(&mut self, rank: u32, code: u64, keys: &[usize], max: u32, centre_of: &mut [u32]) {
+        let own = block(code, self.by_columns, self.k);
+        for &m in keys {
+            let b = own ^ m;
+            let end = self.to[b] as usize;
+            let mut at = self.from[b] as usize;
+            // The prints ranked before are in a group already, for good.
+            while at < end && self.ranks[at] <= rank {
+                at += 1;
+            }
+            self.from[b] = at as u32;
+            let mut kept = at;
+            for i in at..end {
+                let c = self.codes[i];
+                if distance(code, c) <= max {
+                    let r = self.ranks[i] as usize;
+                    if centre_of[r] == NONE {
+                        centre_of[r] = rank;
+                    }
+                    continue;
+                }
+                if kept != i {
+                    self.codes[kept] = c;
+                    self.ranks[kept] = self.ranks[i];
+                }
+                kept += 1;
+            }
+            self.to[b] = kept as u32;
+        }
+    }
 }
 
-/// Groups of prints within `max` of each other, joined transitively (F11-AC1); each group lists
-/// positions in `prints`, groups of one are left out.
+const NONE: u32 = u32::MAX;
+
+/// The prints under each value of one block, read only: [`linked`] asks it from several
+/// threads whether a print has another near it.
+struct Lookup {
+    by_columns: bool,
+    k: u32,
+    start: Vec<u32>,
+    codes: Vec<u64>,
+}
+
+impl Lookup {
+    fn new(codes: &[u64], by_columns: bool, k: u32) -> Self {
+        let mut start = vec![0u32; VALUES + 1];
+        for &c in codes {
+            start[block(c, by_columns, k) + 1] += 1;
+        }
+        for b in 0..VALUES {
+            start[b + 1] += start[b];
+        }
+        let mut next = start.clone();
+        let mut in_buckets = vec![0u64; codes.len()];
+        for &c in codes {
+            let b = block(c, by_columns, k);
+            in_buckets[next[b] as usize] = c;
+            next[b] += 1;
+        }
+        Self {
+            by_columns,
+            k,
+            start,
+            codes: in_buckets,
+        }
+    }
+
+    fn load(&self, code: u64) -> u64 {
+        let b = block(code, self.by_columns, self.k);
+        u64::from(self.start[b + 1] - self.start[b])
+    }
+
+    /// Whether another print is within `max` of `code` under the buckets around its block.
+    fn any_near(&self, code: u64, keys: &[usize], max: u32) -> bool {
+        let own = block(code, self.by_columns, self.k);
+        keys.iter().any(|&m| {
+            let b = own ^ m;
+            self.codes[self.start[b] as usize..self.start[b + 1] as usize]
+                .iter()
+                .any(|&c| c != code && distance(code, c) <= max)
+        })
+    }
+}
+
+/// Prints looked at by a thread at a time.
+const CHUNK: usize = 4096;
+
+/// Whether each of `codes` (distinct prints) has another within `max`. Most prints of a catalog
+/// have none, and finding it out takes dozens of reads scattered in memory for each: the
+/// threads share it. The others alone go on to the groups.
+fn linked(codes: &[u64], keys: &[usize], max: u32) -> Vec<bool> {
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |n| n.get() / 2)
+        .clamp(1, 8);
+    let tables: Vec<Lookup> = std::thread::scope(|s| {
+        let built: Vec<_> = [false, true]
+            .into_iter()
+            .flat_map(|by_columns| (0..BLOCKS).map(move |k| (by_columns, k)))
+            .map(|(by_columns, k)| s.spawn(move || Lookup::new(codes, by_columns, k)))
+            .collect();
+        built
+            .into_iter()
+            .map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    });
+    let half = BLOCKS as usize;
+    let mut out = vec![false; codes.len()];
+    let work = std::sync::Mutex::new(out.chunks_mut(CHUNK).enumerate());
+    std::thread::scope(|s| {
+        for _ in 0..threads {
+            s.spawn(|| {
+                loop {
+                    let next = work
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .next();
+                    let Some((chunk, found)) = next else { break };
+                    for (i, f) in found.iter_mut().enumerate() {
+                        let code = codes[chunk * CHUNK + i];
+                        let load = |ts: &[Lookup]| ts.iter().map(|t| t.load(code)).sum::<u64>();
+                        let chosen = if load(&tables[half..]) < load(&tables[..half]) {
+                            &tables[half..]
+                        } else {
+                            &tables[..half]
+                        };
+                        *f = chosen.iter().any(|t| t.any_near(code, keys, max));
+                    }
+                }
+            });
+        }
+    });
+    out
+}
+
+/// For each of `codes` (distinct prints, in the order the centres are chosen in, each with
+/// another within `max`), the rank of the centre of its group: each print not in a group yet
+/// takes those after it within `max`.
+fn leaders(codes: &[u64], keys: &[usize], max: u32) -> Vec<u32> {
+    let mut tables: Vec<Table> = [false, true]
+        .into_iter()
+        .flat_map(|by_columns| (0..BLOCKS).map(move |k| (by_columns, k)))
+        .map(|(by_columns, k)| Table::new(codes, by_columns, k))
+        .collect();
+    let half = BLOCKS as usize;
+    let mut centre_of = vec![NONE; codes.len()];
+    for (rank, &code) in codes.iter().enumerate() {
+        if centre_of[rank] != NONE {
+            continue;
+        }
+        let rank = rank as u32;
+        centre_of[rank as usize] = rank;
+        // The index (by rows or by columns) with fewer prints under the blocks of this one.
+        let load = |ts: &[Table]| ts.iter().map(|t| t.load(code)).sum::<u64>();
+        let chosen = if load(&tables[half..]) < load(&tables[..half]) {
+            &mut tables[half..]
+        } else {
+            &mut tables[..half]
+        };
+        for t in chosen {
+            t.take_near(rank, code, keys, max, &mut centre_of);
+        }
+    }
+    centre_of
+}
+
+/// For each of `codes` (distinct prints, in the order the centres are chosen in), the rank of
+/// the centre of its group. The prints without another within `max` are their own centre and
+/// stay out of the search for the groups, which goes the same without them.
+fn centres(codes: &[u64], max: u32) -> Vec<u32> {
+    let mut centre_of: Vec<u32> = (0..codes.len() as u32).collect();
+    if max == 0 {
+        return centre_of;
+    }
+    let keys = masks(max / BLOCKS);
+    let near = linked(codes, &keys, max);
+    let ranks: Vec<u32> = (0..codes.len() as u32)
+        .filter(|&r| near[r as usize])
+        .collect();
+    drop(near);
+    let some: Vec<u64> = ranks.iter().map(|&r| codes[r as usize]).collect();
+    for (i, c) in leaders(&some, &keys, max).into_iter().enumerate() {
+        centre_of[ranks[i] as usize] = ranks[c as usize];
+    }
+    centre_of
+}
+
+/// A group of near prints: positions in the prints given to [`groups`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Group {
+    /// An item with the print at the centre of the group: every other item is within the
+    /// distance of it.
+    pub centre: usize,
+    /// Every item of the group, the centre among them, in order.
+    pub items: Vec<usize>,
+}
+
+/// Groups of prints within `max` of a centre (F11-AC1, REVIEW L37): the most repeated print
+/// not in a group yet (the lowest print among equals) takes every print within `max` not in a
+/// group yet. Groups of one are left out; the groups come in the order of their first item.
 #[must_use]
-pub fn groups(prints: &[u64], max: u32) -> Vec<Vec<usize>> {
+pub fn groups(prints: &[u64], max: u32) -> Vec<Group> {
     // Identical prints are one node.
-    let mut node_of: std::collections::HashMap<u64, usize> =
+    let mut node_of: std::collections::HashMap<u64, u32> =
         std::collections::HashMap::with_capacity(prints.len());
     let mut codes: Vec<u64> = Vec::new();
-    let nodes: Vec<usize> = prints
+    let mut count: Vec<u32> = Vec::new();
+    let mut nodes: Vec<u32> = prints
         .iter()
         .map(|&p| {
-            *node_of.entry(p).or_insert_with(|| {
+            let n = *node_of.entry(p).or_insert_with(|| {
                 codes.push(p);
-                codes.len() - 1
-            })
+                count.push(0);
+                (codes.len() - 1) as u32
+            });
+            count[n as usize] += 1;
+            n
         })
         .collect();
     drop(node_of);
-    let mut parent = join_near(&codes, max);
-    let mut by_root: std::collections::HashMap<usize, Vec<usize>> =
-        std::collections::HashMap::new();
-    for (i, &n) in nodes.iter().enumerate() {
-        let r = find(&mut parent, n);
-        by_root.entry(r).or_default().push(i);
+    // The nodes by rank: the most repeated first.
+    let mut order: Vec<u32> = (0..codes.len() as u32).collect();
+    order.sort_unstable_by_key(|&n| (std::cmp::Reverse(count[n as usize]), codes[n as usize]));
+    drop(count);
+    let mut rank = vec![0u32; codes.len()];
+    for (r, &n) in order.iter().enumerate() {
+        rank[n as usize] = r as u32;
     }
-    let mut out: Vec<Vec<usize>> = by_root.into_values().filter(|g| g.len() > 1).collect();
-    out.sort_by_key(|g| g[0]);
+    let ranked: Vec<u64> = order.iter().map(|&n| codes[n as usize]).collect();
+    drop((order, codes));
+    for n in &mut nodes {
+        *n = rank[*n as usize];
+    }
+    drop(rank);
+    let centre_of = centres(&ranked, max);
+    let mut size = vec![0u32; ranked.len()];
+    for &r in &nodes {
+        size[centre_of[r as usize] as usize] += 1;
+    }
+    let mut slot = vec![NONE; ranked.len()];
+    let mut out: Vec<Group> = Vec::new();
+    for (i, &r) in nodes.iter().enumerate() {
+        let c = centre_of[r as usize] as usize;
+        if size[c] < 2 {
+            continue;
+        }
+        if slot[c] == NONE {
+            slot[c] = out.len() as u32;
+            out.push(Group {
+                centre: usize::MAX,
+                items: Vec::with_capacity(size[c] as usize),
+            });
+        }
+        let g = &mut out[slot[c] as usize];
+        if r as usize == c && g.centre == usize::MAX {
+            g.centre = i;
+        }
+        g.items.push(i);
+    }
     out
 }
 
@@ -232,33 +474,66 @@ mod tests {
         }
     }
 
-    /// The groups a comparison of every pair gives.
-    fn groups_by_every_pair(prints: &[u64], max: u32) -> Vec<Vec<usize>> {
-        let mut parent: Vec<usize> = (0..prints.len()).collect();
-        for i in 0..prints.len() {
-            for j in i + 1..prints.len() {
-                if distance(prints[i], prints[j]) <= max {
-                    let (a, b) = (find(&mut parent, i), find(&mut parent, j));
-                    if a != b {
-                        parent[a.max(b)] = a.min(b);
-                    }
+    #[test]
+    fn blocks_by_columns_take_every_fourth_bit() {
+        let p = 0x8000_0000_0000_0001u64;
+        assert_eq!(block(p, true, 0), 1);
+        assert_eq!(block(p, true, 3), 1 << 15);
+        assert_eq!(block(p, false, 0), 1);
+        assert_eq!(block(p, false, 3), 1 << 15);
+        // Every bit lands in exactly one block, once.
+        for b in 0..64 {
+            let p = 1u64 << b;
+            let set: u32 = (0..BLOCKS).map(|k| block(p, true, k).count_ones()).sum();
+            assert_eq!(set, 1, "bit {b}");
+            assert_eq!(block(p, true, b % 4), 1 << (b / 4), "bit {b}");
+        }
+    }
+
+    /// The groups a comparison of every pair gives, with the same centres in the same order.
+    fn groups_by_every_pair(prints: &[u64], max: u32) -> Vec<Group> {
+        let mut codes: Vec<u64> = Vec::new();
+        for &p in prints {
+            if !codes.contains(&p) {
+                codes.push(p);
+            }
+        }
+        let count = |c: u64| prints.iter().filter(|&&p| p == c).count();
+        let mut order: Vec<u64> = codes.clone();
+        order.sort_by_key(|&c| (std::cmp::Reverse(count(c)), c));
+        let mut centre_of: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+        for &c in &order {
+            if centre_of.contains_key(&c) {
+                continue;
+            }
+            for &o in &codes {
+                if !centre_of.contains_key(&o) && distance(c, o) <= max {
+                    centre_of.insert(o, c);
                 }
             }
         }
-        let mut by_root: std::collections::BTreeMap<usize, Vec<usize>> =
-            std::collections::BTreeMap::new();
-        for i in 0..prints.len() {
-            let r = find(&mut parent, i);
-            by_root.entry(r).or_default().push(i);
+        let mut out: Vec<Group> = Vec::new();
+        let mut seen: Vec<u64> = Vec::new();
+        for &p in prints {
+            let c = centre_of[&p];
+            if seen.contains(&c) {
+                continue;
+            }
+            seen.push(c);
+            let items: Vec<usize> = (0..prints.len())
+                .filter(|&j| centre_of[&prints[j]] == c)
+                .collect();
+            if items.len() > 1 {
+                let centre = *items.iter().find(|&&j| prints[j] == c).unwrap();
+                out.push(Group { centre, items });
+            }
         }
-        let mut out: Vec<Vec<usize>> = by_root.into_values().filter(|g| g.len() > 1).collect();
-        out.sort_by_key(|g| g[0]);
         out
     }
 
-    // REVIEW L34: the index of the blocks finds the groups a comparison of every pair finds, at
-    // every distance the screen offers and beyond, with repeated prints and near copies spread
-    // over every block.
+    // REVIEW L34, L37: the index of the blocks finds the groups a comparison of every pair
+    // finds, at every distance the screen offers and beyond, with repeated prints, near copies
+    // spread over every block and prints that share whole blocks without being near.
     #[test]
     fn groups_are_those_of_every_pair() {
         let mut data = prints(1500, 0x2545_F491_4F6C_DD1D);
@@ -275,8 +550,24 @@ mod tests {
                 .fold(base, |p, &b| p ^ (1u64 << b));
             data.push(near);
         }
-        // Repeated prints, blank images among them.
-        data.extend([0, 0, 0, data[5], data[5], 1, 1 << 63]);
+        // Uniform rows (a zero block by rows) and uniform columns (a zero block by columns).
+        for (i, &p) in prints(200, 0x1234_5678_9ABC_DEF1).iter().enumerate() {
+            data.push(p & !0xFFFF);
+            data.push(p & !(0x1111_1111_1111_1111 << (i % 4)));
+        }
+        // Repeated prints, near-blank images among them.
+        data.extend([
+            0,
+            0,
+            0,
+            data[5],
+            data[5],
+            1,
+            1 << 63,
+            3,
+            7,
+            0x8000_0000_0000_0080,
+        ]);
         for max in [0, 1, 3, 4, 6, 8, 12, 16, 20] {
             assert_eq!(
                 groups(&data, max),
@@ -286,13 +577,118 @@ mod tests {
         }
     }
 
+    // REVIEW L37: no chains. a, b, c are 2 bits apart one after the other, a and c 4: at
+    // distance 2 the most repeated takes its neighbours, the last one stays alone.
     #[test]
-    fn groups_join_near_prints_transitively() {
+    fn groups_gather_around_a_centre_without_chains() {
         let a = 0xF0F0_F0F0_F0F0_F0F0u64;
-        let data = [a, a ^ 0b11, a ^ 0b1111, !a, a, 0x1234_5678_9ABC_DEF0];
-        // a and a^0b11 differ by 2, a^0b11 and a^0b1111 by 2: one group at max 2.
-        assert_eq!(groups(&data, 2), [vec![0, 1, 2, 4]]);
-        assert_eq!(groups(&data, 0), [vec![0, 4]]);
+        let (b, c) = (a ^ 0b11, a ^ 0b1111);
+        let data = [a, b, c, !a, a, 0x1234_5678_9ABC_DEF0];
+        assert_eq!(
+            groups(&data, 2),
+            [Group {
+                centre: 0,
+                items: vec![0, 1, 4]
+            }]
+        );
+        // The most repeated print is the centre, whatever comes first.
+        let data = [b, c, c, a];
+        assert_eq!(
+            groups(&data, 2),
+            [Group {
+                centre: 1,
+                items: vec![0, 1, 2]
+            }]
+        );
+        assert_eq!(
+            groups(&[a, b, a], 0),
+            [Group {
+                centre: 0,
+                items: vec![0, 2]
+            }]
+        );
         assert!(groups(&[0, u64::MAX], 3).is_empty());
+    }
+
+    /// A print near `base`: `flips` bits changed at positions from `seed`.
+    fn near(base: u64, flips: u32, seed: &mut u64) -> u64 {
+        let mut p = base;
+        for _ in 0..flips {
+            *seed ^= *seed << 13;
+            *seed ^= *seed >> 7;
+            *seed ^= *seed << 17;
+            p ^= 1 << (*seed % 64);
+        }
+        p
+    }
+
+    // REVIEW L37: a catalog like the company one, measured. `cargo test -p prism-core --release
+    // -- --ignored grouping_a_large_catalog --nocapture`; PRISM_PRINTS_FILE=<file of u64 LE>
+    // adds real prints.
+    #[test]
+    #[ignore = "measurement"]
+    fn grouping_a_large_catalog() {
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut data = prints(1_200_000, 0x2545_F491_4F6C_DD1D);
+        // Blank slides and their noise: few centres, a few bits apart.
+        for i in 0..600_000u64 {
+            let centre = [
+                0xF0F0_F0F0_F0F0_F0F0u64,
+                0x8080_8080_8080_8080,
+                0x0F0F_0F0F_0F0F_0F0F,
+            ][(i % 3) as usize];
+            data.push(near(centre, 1 + (i % 5) as u32, &mut seed));
+        }
+        // Near-blank images: a few bits anywhere.
+        for i in 0..300_000u64 {
+            data.push(near(0, 1 + (i % 12) as u32, &mut seed));
+        }
+        // Uniform top rows, uniform side columns: whole blocks shared, the rest apart.
+        for (i, p) in prints(600_000, 0x1234_5678_9ABC_DEF1)
+            .into_iter()
+            .enumerate()
+        {
+            data.push(if i % 2 == 0 {
+                p & !0xFFFF_0000_0000_0000
+            } else {
+                p & !0x1111_1111_1111_1111
+            });
+        }
+        if let Ok(path) = std::env::var("PRISM_PRINTS_FILE") {
+            let bytes = std::fs::read(path).unwrap();
+            data.extend(
+                bytes
+                    .chunks_exact(8)
+                    .map(|c| u64::from_le_bytes(c.try_into().unwrap())),
+            );
+        }
+        for (name, part) in [
+            ("random", &data[..1_200_000]),
+            ("slides", &data[1_200_000..1_800_000]),
+            ("near blank", &data[1_800_000..2_100_000]),
+            ("uniform rows/columns", &data[2_100_000..2_700_000]),
+            ("real", &data[2_700_000..]),
+        ] {
+            let started = std::time::Instant::now();
+            let found = groups(part, 6);
+            eprintln!(
+                "{name}: {} prints, {} groups, largest {}, {} ms",
+                part.len(),
+                found.len(),
+                found.iter().map(|g| g.items.len()).max().unwrap_or(0),
+                started.elapsed().as_millis()
+            );
+        }
+        for max in [6, 10, 3, 0] {
+            let started = std::time::Instant::now();
+            let found = groups(&data, max);
+            eprintln!(
+                "max {max}: {} prints, {} groups, largest {}, {} ms",
+                data.len(),
+                found.len(),
+                found.iter().map(|g| g.items.len()).max().unwrap_or(0),
+                started.elapsed().as_millis()
+            );
+        }
     }
 }

@@ -313,6 +313,14 @@ pub async fn duplicate_groups(
     blocking("duplicate_groups", move || s.duplicates(&filter, &rules)).await
 }
 
+/// The space the copies of duplicates of at least `min_size` take on every disk, for the
+/// catalog screen (REVIEW L37).
+#[tauri::command]
+pub async fn duplicate_space(state: State<'_, Arc<AppState>>, min_size: u64) -> R<u64> {
+    let s = Arc::clone(&state);
+    blocking("duplicate_space", move || s.duplicate_space(min_size)).await
+}
+
 /// Deletes copies of duplicates on the connected disks (F16-AC3/AC4).
 #[tauri::command]
 pub async fn delete_duplicates(
@@ -648,7 +656,7 @@ pub fn remove_volume(app: AppHandle, state: State<'_, Arc<AppState>>, id: i64) -
     state
         .store
         .write(move |w| store::remove_volume(w, volume))?;
-    state.similar.invalidate();
+    state.kept.invalidate();
     state.online().remove(&volume);
     emit_volumes(&app);
     Ok(())

@@ -15,7 +15,7 @@ pub const MAX_GROUPS: usize = 200;
 /// drew them all, and the backend looked up the path of each (REVIEW L34).
 pub const MAX_FILES: usize = 60;
 /// The largest distance the interface may ask for (beyond it everything looks alike).
-pub const MAX_DISTANCE: u32 = 20;
+pub const MAX_DISTANCE: u32 = 10;
 /// Side of the thumbnails, in pixels.
 pub const THUMB_SIDE: u32 = 192;
 /// Thumbnails kept in memory.

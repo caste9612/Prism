@@ -5,7 +5,7 @@
 //! The print is a *difference hash*: the image is reduced to 9×8 grey levels (averaging areas,
 //! so resized and recompressed copies give almost the same values) and each bit says whether a
 //! pixel is brighter than its right neighbour. Camera RAW files are printed from the JPEG
-//! preview they contain (`raw`). The groups use a BK-tree (`bktree`, F11-AC2).
+//! preview they contain (`raw`). The groups use an index of the blocks of the prints (`bktree`, F11-AC2, REVIEW L37).
 
 pub mod bktree;
 pub mod raw;

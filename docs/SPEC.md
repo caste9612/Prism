@@ -221,9 +221,12 @@ salute SMART se disponibile, avanzamento degli hash.
 ### F11 — Immagini simili
 
 - **F11-AC1** Prism trova immagini visivamente simili (ridimensionate, ricompresse, con piccole
-  modifiche) tramite hash percettivo, con soglia di somiglianza regolabile.
+  modifiche) tramite hash percettivo, con soglia di somiglianza regolabile (da 0 a 10 differenze
+  su 64). Ogni gruppo ha un'immagine al centro e ogni altra è entro la soglia da essa: i gruppi
+  non si allungano a catena (REVIEW D68).
 - **F11-AC2** La ricerca dei simili non confronta tutte le coppie: usa una struttura di indice
-  adatta alla distanza di Hamming, per restare veloce su centinaia di migliaia di immagini.
+  adatta alla distanza di Hamming, per restare veloce su milioni di immagini (pochi secondi su
+  2,7 milioni, REVIEW L37).
 - **F11-AC3** I gruppi mostrano anteprime affiancate, risoluzione e dimensione.
 - **F11-AC4** Formati: JPEG, PNG, GIF, WebP, BMP, TIFF e **RAW delle fotocamere** (CR2, CR3,
   NEF, ARW, DNG, ORF, RW2...) tramite l'anteprima JPEG incorporata nel file. HEIC/HEIF e AVIF

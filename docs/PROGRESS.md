@@ -18,17 +18,18 @@
   impronte dei video, L32: confermata dall'ottavo pacchetto, 20 ore senza cadute) e le
   correzioni dell'ottavo pacchetto (L33). La 2.1.5, la 2.2.0 e la 2.2.1 non sono state
   pubblicate; la 2.2.2 è stata pubblicata senza una prova sul PC aziendale, su scelta
-  dell'utente. Su `develop` la **2.2.5**, non ancora pubblicata, da provare con un installer
+  dell'utente. Su `develop` la **2.2.6**, non ancora pubblicata, da provare con un installer
   locale: comprende la 2.2.3 (interfaccia più leggera, REVIEW L34), la 2.2.4 (eliminazione dai
-  Simili, D67), mai pubblicate, i conteggi ridotti e la diagnostica della memoria (L35) e i
-  giri dell'analisi senza query sull'intero catalogo (L36). Il PC di casa ha la 2.2.4 di prova
-  dal 2026-11-14; quello aziendale dal 2026-11-19. Il lavoro continua direttamente su
-  `develop`.
-- **Prossimo passo**: l'utente installa la 2.2.5 sul PC aziendale (a mano: le versioni di prova
-  non arrivano con l'aggiornamento automatico), la usa qualche giorno e manda un pacchetto
-  diagnostico: righe `resources` (memoria e RAM libera nelle ore lente), `slow command`,
-  `similar images grouped` (`read_ms` contro `ms`), `catalog index built`, durata dei giri e
-  dei conteggi; poi la release col suo via libera. Dallo stesso pacchetto, per la 2.2.2: i
+  Simili, D67), la 2.2.5 (conteggi ridotti e diagnostica della memoria, L35; giri dell'analisi
+  senza query sull'intero catalogo, L36), mai pubblicate, e i simili raggruppati attorno a un
+  centro in pochi secondi su milioni di immagini, col totale dei duplicati del Catalogo tenuto
+  fra le visite (L37, D68). Il PC di casa ha la 2.2.4 di prova dal 2026-11-14; quello aziendale
+  la 2.2.5 dal 2026-11-19. Il lavoro continua direttamente su `develop`.
+- **Prossimo passo**: l'utente installa la 2.2.6 sul PC aziendale (a mano: le versioni di prova
+  non arrivano con l'aggiornamento automatico), apre Catalogo e Simili, la usa una giornata e
+  manda un pacchetto diagnostico: righe `similar images grouped` (tempo e `largest`), `slow
+  command`, `resources` nelle ore lente del pomeriggio, durata dei giri e dei conteggi; poi la
+  release col suo via libera. Dallo stesso pacchetto, per la 2.2.2: i
   giri del disco 1 senza 38 GB (`mb=` nella riga `hashing finished volume=1`), l'avanzamento
   ricontato meno spesso, le righe `files not decoded`. Restano aperti REVIEW L29 (2) e i punti
   aperti di L32, L33 e L34. Prima di avviare l'app di
@@ -42,6 +43,16 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-19 — 2.2.6: undicesimo pacchetto, simili attorno a un centro
+
+- Con la 2.2.5 in ufficio i giri dell'analisi senza nulla da leggere durano secondi invece di
+  minuti, e la memoria del PC è abbondante (10,7 GB liberi su 34). Ma raggruppare i simili
+  prendeva 6,3 minuti, con un gruppo a catena di 1.258.853 immagini su 2,7 milioni. Ora i gruppi
+  si formano attorno a un centro (D68), le immagini senza vicine si separano prima con più
+  thread, e l'indice dei blocchi è tenuto per righe e per colonne: 3,9 s su un catalogo
+  sintetico come quello aziendale. La soglia va da 0 a 10. Il totale dei duplicati del Catalogo
+  (9–17 s a ogni visita) si tiene 10 minuti. REVIEW L37.
 
 ### 2026-11-19 — 2.2.5: nono pacchetto, letture del catalogo lente col passare delle ore
 

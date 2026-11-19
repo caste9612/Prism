@@ -398,7 +398,9 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
 
 - **Duplicati nell'app** (T6): il comando `duplicate_groups` (filtri e regole) restituisce i 300
   gruppi più grandi con i totali di tutti (`duplicates::find` costruisce i percorsi solo per i
-  gruppi mostrati) e la selezione proposta dalle regole; `delete_duplicates` controlla la
+  gruppi mostrati) e la selezione proposta dalle regole; `duplicate_space` solo lo spazio delle
+  copie di tutto il catalogo, per il Catalogo, tenuto 10 minuti in `KeptResults` se Prism non
+  elimina file prima (9–17 s a ogni visita sul PC aziendale, REVIEW L37); `delete_duplicates` controlla la
   regola dell'ultima copia su tutta la selezione, poi elimina disco per disco attraverso
   `fileops` con l'hash ricontrollato e la guardia di debug (REVIEW D32).
 - **Duplicati** (`prism-core::duplicates`): gruppi per (`size`, `full`) sugli hash validi, su
@@ -420,16 +422,26 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   si decodifica resta segnato finché non cambia; oltre 512 MB non si decodifica, e non conta
   tra le immagini da fare (REVIEW L27: contate, facevano ripartire l'analisi ogni 2 minuti su
   una cartella di vetrini virtuali). I gruppi
-  (`media::bktree::groups`) uniscono le immagini entro una distanza di Hamming: le impronte
-  uguali sono un solo nodo, e un indice dei quattro blocchi di 16 bit trova le vicine (due
-  impronte entro t bit hanno almeno un blocco entro t/4 bit), senza confrontare tutte le coppie
-  (F11-AC2, REVIEW L34; il BK-tree resta per le ricerche singole). Nell'app le impronte si
+  (`media::bktree::groups`) si formano attorno a un centro (REVIEW D68): le impronte uguali sono
+  un solo nodo; in ordine dal nodo più ripetuto (il più basso a parità), ogni nodo non ancora in
+  un gruppo prende i nodi entro la distanza di Hamming non ancora in un gruppo. Le vicine si
+  trovano con un indice dei quattro blocchi di 16 bit (due impronte entro t bit hanno almeno un
+  blocco entro t/4 bit), tenuto per righe dell'immagine (due righe a blocco) e per colonne (due
+  colonne a blocco): ogni ricerca usa quello con meno impronte nei propri blocchi, perché le
+  immagini con righe o colonne uniformi affollano un blocco solo di uno dei due. Prima, con più
+  thread e un indice di sola lettura, si separano le impronte senza nessuna vicina (quasi tutte),
+  che restano da sole; la ricerca dei gruppi, sequenziale, guarda solo le altre e dà lo stesso
+  risultato. Nell'indice ogni impronta sta accanto al suo rango: un secchio si legge di seguito,
+  salta le impronte di rango minore (già in un gruppo) e lascia quelle prese (F11-AC2, REVIEW
+  L34, L37: 3,9 s su 2,77 milioni di impronte sintetiche come quelle del PC aziendale; il
+  BK-tree resta per le ricerche singole). Nell'app le impronte si
   calcolano nello stesso job di background degli hash: durante la lettura per gli hash per le
   immagini lette intere, dopo di essi per le altre (`hash_jobs.rs`, REVIEW L31). I gruppi si
-  tengono in memoria (`similar_state::SimilarCache`) finché le impronte non cambiano o per 10
-  minuti, un calcolo alla volta; le immagini con impronta 0 (senza dettagli) non entrano nei
-  gruppi. `similar_images` restituisce i 200 gruppi con più immagini (la più grande per prima,
-  con la distanza dalla prima), al più 60 file per gruppo con il numero totale;
+  tengono in memoria (`similar_state::KeptResults`) per 30 minuti, se Prism non elimina file o
+  non dimentica dischi prima, un calcolo alla volta (REVIEW L36); le immagini con impronta 0
+  (senza dettagli) non entrano nei gruppi. `similar_images` restituisce i 200 gruppi con più
+  immagini (la più grande per prima, con la distanza dal centro del gruppo), al più 60 file per
+  gruppo con il numero totale; la soglia va da 0 a 10 (`MAX_DISTANCE`);
   `similar_image_groups` solo il numero dei gruppi (il Catalogo); `image_thumbnail` una
   miniatura JPEG di 192 px dei file collegati, come byte grezzi (`tauri::ipc::Response`), con
   una cache in memoria di 600 miniature. `delete_similar` elimina file dei gruppi di immagini e

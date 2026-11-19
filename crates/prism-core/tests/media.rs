@@ -218,6 +218,7 @@ fn f11_background_prints_and_groups() {
     let found = groups(&hashes, 8);
     assert_eq!(found.len(), 1);
     let names: Vec<String> = found[0]
+        .items
         .iter()
         .map(|&i| {
             cat.store

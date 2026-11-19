@@ -112,15 +112,13 @@
     categories.request(volumes);
   });
 
-  // Totals of the functions on the whole catalog, asked once when the screen opens. Only the
-  // number of groups of similar images: the backend keeps the groups (REVIEW L34).
+  // Totals of the functions on the whole catalog, asked once when the screen opens; the backend
+  // keeps them a while (REVIEW L34, L37).
   let recoverable = $state<number | null>(null);
   let similarGroups = $state<number | null>(null);
   let recent = $state<ActionView[]>([]);
   $effect(() => {
-    void backend
-      .duplicateGroups({ minSize: 1_000_000, category: null, volumeId: null, folder: null }, [])
-      .then((d) => (recoverable = d.totalRecoverable), () => (recoverable = null));
+    void backend.duplicateSpace(1_000_000).then((n) => (recoverable = n), () => (recoverable = null));
     void backend.similarImageGroups(6).then((n) => (similarGroups = n), () => (similarGroups = null));
   });
   $effect(() => {

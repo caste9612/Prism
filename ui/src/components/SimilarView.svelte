@@ -137,7 +137,7 @@
       <input
         type="range"
         min="0"
-        max="16"
+        max="10"
         step="1"
         value={distance}
         aria-valuetext={t('similar.thresholdText', { value: distance })}

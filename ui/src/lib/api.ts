@@ -70,6 +70,8 @@ export interface Backend {
   deleteEntries(volumeId: number, entryIds: number[], emptyFolders: boolean, permanent: boolean): Promise<CleanupResultView>;
   revealEntry(volumeId: number, entryId: number): Promise<void>;
   duplicateGroups(filter: DupFilterInput, rules: RuleInput[]): Promise<DuplicatesView>;
+  /** The space the copies of duplicates of at least `minSize` take on every disk (REVIEW L37). */
+  duplicateSpace(minSize: number): Promise<number>;
   deleteDuplicates(entryIds: number[], allowOfflineOnly: boolean, permanent: boolean): Promise<CleanupResultView>;
   backupVerify(source: SideInput, destinations: SideInput[]): Promise<VerifySummaryView>;
   backupCompare(a: SideInput, b: SideInput, byContent: boolean): Promise<CompareSummaryView>;
@@ -156,6 +158,7 @@ const tauriBackend: Backend = {
     invoke('delete_entries', { volumeId, entryIds, emptyFolders, permanent }),
   revealEntry: (volumeId, entryId) => invoke('reveal_entry', { volumeId, entryId }),
   duplicateGroups: (filter, rules) => invoke('duplicate_groups', { filter, rules }),
+  duplicateSpace: (minSize) => invoke('duplicate_space', { minSize }),
   deleteDuplicates: (entryIds, allowOfflineOnly, permanent) =>
     invoke('delete_duplicates', { entryIds, allowOfflineOnly, permanent }),
   backupVerify: (source, destinations) => invoke('backup_verify', { source, destinations }),
