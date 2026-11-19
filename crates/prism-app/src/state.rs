@@ -509,9 +509,6 @@ impl AppState {
         permanent: bool,
         verify_hash: bool,
     ) -> Result<fileops::DeleteReport, ApiError> {
-        // The groups of similar images and the space of the duplicates may count the files
-        // deleted.
-        self.kept.invalidate();
         let disposal = self.disposal(volume, permanent)?;
         let detected = self.detected(volume)?;
         let root = access_path(&detected)
@@ -535,6 +532,16 @@ impl AppState {
             done = report.count("done"),
             freed = report.freed(),
             "deletion finished"
+        );
+        // The files deleted leave the groups of similar images; the space of the duplicates is
+        // counted again (REVIEW L38).
+        self.kept.forget(
+            &report
+                .items
+                .iter()
+                .filter(|i| i.outcome == fileops::Outcome::Done)
+                .map(|i| i.entry)
+                .collect(),
         );
         Ok(report)
     }
@@ -579,23 +586,6 @@ impl AppState {
             &volumes,
             pending,
         ))
-    }
-
-    /// The space the copies of duplicates of at least `min_size` take on every disk: the figure
-    /// of the catalog screen. Counting it reads every full hash of the catalog (9 to 17 s on the
-    /// company PC at every visit of the screen, REVIEW L37): it is kept a while.
-    pub fn duplicate_space(&self, min_size: u64) -> Result<u64, ApiError> {
-        self.kept.duplicate_space(min_size, || {
-            let filter = DupFilterInput {
-                min_size,
-                ..DupFilterInput::default()
-            }
-            .to_filter();
-            let found = self
-                .store
-                .read(|c| duplicates::find(c, &std::collections::HashSet::new(), &filter, 0))?;
-            Ok(found.total_recoverable)
-        })
     }
 
     /// Deletes copies of duplicates, on several disks (F16): refused if a content would lose

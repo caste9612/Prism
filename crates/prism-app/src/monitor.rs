@@ -37,6 +37,10 @@ const JOURNAL_EVERY: Duration = Duration::from_secs(15);
 const HASH_START: Duration = Duration::from_secs(20);
 const HASH_EVERY: Duration = Duration::from_secs(30);
 const RESOURCES_EVERY: Duration = Duration::from_secs(3600);
+/// The figures of the catalog screen are made this long after the start, then looked at this
+/// often, or at once when one is out of date (REVIEW L38).
+const FIGURES_START: Duration = Duration::from_secs(30);
+const FIGURES_EVERY: Duration = Duration::from_secs(60);
 const HEALTH_START: Duration = Duration::from_secs(10);
 const HEALTH_EVERY: Duration = Duration::from_secs(3600);
 /// How often the health thread looks for a disk plugged in or removed.
@@ -83,6 +87,19 @@ pub fn spawn(app: &AppHandle, state: &Arc<AppState>) {
                     let _ = a.emit("volumes-changed", ());
                 }
                 std::thread::sleep(HASH_EVERY);
+            }
+        });
+    // The figures of the catalog screen (groups of similar images, space of the duplicates):
+    // ready before it asks, made again in the background while it is used (REVIEW L38).
+    let s = Arc::clone(state);
+    let _ = std::thread::Builder::new()
+        .name("prism-figures".into())
+        .spawn(move || {
+            std::thread::sleep(FIGURES_START);
+            s.keep_figures(true);
+            loop {
+                s.kept.wait(FIGURES_EVERY);
+                s.keep_figures(false);
             }
         });
     // Health of the disks (F17): read soon after the start, then every hour, and at once when a

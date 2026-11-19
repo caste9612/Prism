@@ -471,9 +471,9 @@ fn duplicates_are_grouped_selected_and_deleted_safely() {
     assert_eq!(view.total_groups, 1);
     assert_eq!(view.total_recoverable, 300 * 1024);
     assert_eq!(view.pending_files, 0);
-    // REVIEW L37: the figure of the catalog screen, kept until files are deleted.
-    assert_eq!(app.duplicate_space(1).unwrap(), 300 * 1024);
+    // REVIEW L37: the figure of the catalog screen, kept.
     assert_eq!(app.duplicate_space(1_000_000).unwrap(), 0);
+    assert_eq!(app.duplicate_space(1).unwrap(), 300 * 1024);
     let group = &view.groups[0];
     assert_eq!(group.kind, "images");
     assert_eq!(group.files.len(), 2);
@@ -531,6 +531,9 @@ fn duplicates_are_grouped_selected_and_deleted_safely() {
     assert!(disk.join("photo.jpg").exists(), "the copy kept stays");
     let after = app.duplicates(&DupFilterInput::default(), &[]).unwrap();
     assert_eq!(after.total_groups, 0);
+    // REVIEW L38: the space kept is given at once, then counted again in the background.
+    assert_eq!(app.duplicate_space(1).unwrap(), 300 * 1024);
+    app.keep_figures(false);
     assert_eq!(app.duplicate_space(1).unwrap(), 0);
     let log = app.store.read(|c| store::actions_log(c, 10)).unwrap();
     assert_eq!(log.len(), 1);
@@ -849,6 +852,11 @@ fn similar_images_after_the_background_job() {
         "volume_offline"
     );
     assert_eq!(app.similar_images(8, None).unwrap().total_groups, 1);
+    // REVIEW L38: a file deleted from Prism leaves its group at once, without grouping again.
+    app.kept
+        .forget(&std::iter::once(EntryId(files[1].entry_id)).collect());
+    assert_eq!(app.similar_images(8, None).unwrap().total_groups, 0);
+    assert_eq!(app.similar_image_groups(8).unwrap(), 0);
 }
 
 // F12 in the app: the background job prints the videos after the images; the same clip encoded

@@ -1,33 +1,49 @@
 //! Similar images (F11) and videos (F12) in the app: groups from the prints in the catalog,
 //! thumbnails of the connected files on demand.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use prism_core::duplicates;
 use prism_core::media::{self, bktree, video};
 use prism_core::model::{EntryId, VolumeId, VolumeKind};
 use prism_core::names;
 use prism_core::store::{self, StoreError};
 
 use crate::dto::ApiError;
+use crate::duplicates_views::DupFilterInput;
 use crate::similar_views::{
     self, MAX_DISTANCE, MAX_FILES, MAX_GROUPS, SimilarFileView, SimilarGroupView, SimilarView,
     THUMB_SIDE,
 };
 use crate::state::{AppState, access_path};
 
-/// Groups found at one distance are kept this long, unless files are deleted from Prism before:
-/// new prints, and the files the catalog updates meanwhile (moved, changed, deleted outside
-/// Prism), show in them after. Not dropped at every new print: on the company PC the analysis
-/// of the system disk prints new images at every round, and grouping 2.7 million prints there
-/// took minutes (REVIEW L36).
+/// Groups found at one distance are up to date this long, unless disks are removed before: new
+/// prints, and the files the catalog updates meanwhile (moved, changed, deleted outside Prism),
+/// show in them after. Not made again at every new print: on the company PC the analysis of the
+/// system disk prints new images at every round (REVIEW L36).
 const KEEP_GROUPS: Duration = Duration::from_secs(30 * 60);
 
-/// The space the copies of duplicates take is kept this long, unless files are deleted from
-/// Prism before: the analysis finds new copies meanwhile (REVIEW L37).
+/// The space the copies of duplicates take is up to date this long, unless files are deleted
+/// from Prism before: the analysis finds new copies meanwhile (REVIEW L37).
 const KEEP_TOTAL: Duration = Duration::from_secs(10 * 60);
+
+/// The figures out of date are made again in the background while a screen asked for them
+/// within this long (REVIEW L38).
+const KEEP_UP_WHILE_ASKED: Duration = Duration::from_secs(2 * 3600);
+
+/// The figures the catalog screen asks for (`CatalogView.svelte`): made right after the start.
+const CATALOG_DISTANCE: u32 = 6;
+const CATALOG_MIN_COPY: u64 = 1_000_000;
+
+/// A figure taking longer than this to make goes to the log.
+const SLOW_FIGURE: Duration = Duration::from_secs(1);
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// The print of an image without detail: at 9×8 pixels no pixel is darker than the one on its
 /// right, as in an image all of one colour (a blank or transparent picture). On a real catalog
@@ -41,54 +57,156 @@ struct ImageGroups {
     at: Instant,
     items: Vec<Item>,
     hashes: Vec<u64>,
-    /// Positions in `items`.
+    /// Positions in `items`, the centre first.
     groups: Vec<Vec<usize>>,
+}
+
+impl ImageGroups {
+    /// The same groups without the images `gone`; the groups left with one image go. A group
+    /// whose centre went is measured from its next image.
+    fn without(&self, gone: &HashSet<EntryId>) -> Self {
+        let mut items = Vec::with_capacity(self.items.len());
+        let mut hashes = Vec::with_capacity(self.items.len());
+        let mut groups = Vec::with_capacity(self.groups.len());
+        for g in &self.groups {
+            let left: Vec<usize> = g
+                .iter()
+                .copied()
+                .filter(|&i| !gone.contains(&self.items[i].entry))
+                .collect();
+            if left.len() < 2 {
+                continue;
+            }
+            let mut positions = Vec::with_capacity(left.len());
+            for i in left {
+                positions.push(items.len());
+                items.push(self.items[i].clone());
+                hashes.push(self.hashes[i]);
+            }
+            groups.push(positions);
+        }
+        Self {
+            generation: self.generation,
+            max: self.max,
+            at: self.at,
+            items,
+            hashes,
+            groups,
+        }
+    }
+}
+
+/// The space the copies of duplicates take.
+struct DuplicateSpace {
+    generation: u64,
+    at: Instant,
+    min_size: u64,
+    space: u64,
+    /// Files were deleted since.
+    outdated: bool,
 }
 
 /// Figures of the whole catalog kept between screens: the last groups of similar images
 /// (REVIEW L34) and the space the copies of duplicates take (REVIEW L37). Each takes seconds on
-/// a large catalog: the screens that ask at the same time wait for one count, and ask again
-/// only when Prism deleted files or forgot disks, or the figure is [`KEEP_GROUPS`] (the groups)
-/// or [`KEEP_TOTAL`] (the space) old.
+/// a large catalog (on the company PC 21 s and 9 s), so the screens never wait for them but the
+/// first time (REVIEW L38): a figure out of date — [`KEEP_GROUPS`] or [`KEEP_TOTAL`] old,
+/// counted before Prism deleted files or forgot disks — is given at once, and the figures
+/// thread ([`AppState::keep_figures`]) makes it again; it makes those of the catalog screen
+/// right after the start. One grouping and one count at a time: who asks meanwhile waits and
+/// takes the result. Files deleted from Prism leave the groups at once.
 #[derive(Default)]
 pub struct KeptResults {
-    /// Changed when files are deleted or disks removed.
+    /// Changed when disks are removed or the catalog emptied.
     generation: AtomicU64,
     images: Mutex<Option<Arc<ImageGroups>>>,
-    /// Generation, time, smallest size of a copy and the space.
-    duplicate_space: Mutex<Option<(u64, Instant, u64, u64)>>,
+    grouping: Mutex<()>,
+    space: Mutex<Option<DuplicateSpace>>,
+    counting: Mutex<()>,
+    /// When a screen last asked for a figure.
+    asked: Mutex<Option<Instant>>,
+    /// Set, with the thread woken, when a figure is out of date.
+    stale: Mutex<bool>,
+    wake: Condvar,
 }
 
 impl KeptResults {
-    /// The figures kept are out of date (files deleted, disks removed).
+    /// Disks removed or the catalog emptied: every figure is out of date.
     pub fn invalidate(&self) {
         self.generation.fetch_add(1, Ordering::Relaxed);
+        self.wake();
     }
 
-    /// The space the copies of duplicates of at least `min_size` take, kept or `count`ed
-    /// again; one count at a time, the others wait for it.
-    pub fn duplicate_space(
-        &self,
-        min_size: u64,
-        count: impl FnOnce() -> Result<u64, ApiError>,
-    ) -> Result<u64, ApiError> {
-        let mut kept = self
-            .duplicate_space
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let generation = self.generation.load(Ordering::Relaxed);
-        if let Some((_, _, _, space)) = kept.filter(|&(g, at, size, _)| {
-            g == generation && size == min_size && at.elapsed() < KEEP_TOTAL
-        }) {
-            return Ok(space);
+    /// Files deleted from Prism: they leave the groups of similar images at once (grouping
+    /// again would take seconds), and the space of the duplicates is counted again.
+    pub fn forget(&self, gone: &HashSet<EntryId>) {
+        if gone.is_empty() {
+            return;
         }
-        let space = count()?;
-        *kept = Some((generation, Instant::now(), min_size, space));
-        Ok(space)
+        {
+            let mut images = lock(&self.images);
+            if let Some(g) = images.as_ref() {
+                *images = Some(Arc::new(g.without(gone)));
+            }
+        }
+        if let Some(s) = lock(&self.space).as_mut() {
+            s.outdated = true;
+        }
+        self.wake();
+    }
+
+    fn wake(&self) {
+        *lock(&self.stale) = true;
+        self.wake.notify_all();
+    }
+
+    /// Waits until a figure is out of date, or `timeout`.
+    pub fn wait(&self, timeout: Duration) {
+        let stale = lock(&self.stale);
+        let (mut stale, _) = self
+            .wake
+            .wait_timeout_while(stale, timeout, |s| !*s)
+            .unwrap_or_else(PoisonError::into_inner);
+        *stale = false;
+    }
+
+    fn asked_now(&self) {
+        *lock(&self.asked) = Some(Instant::now());
+    }
+
+    fn asked_lately(&self) -> bool {
+        lock(&self.asked).is_some_and(|t| t.elapsed() < KEEP_UP_WHILE_ASKED)
+    }
+
+    /// The groups kept at distance `max`: any, or only up to date ones.
+    fn images_at(&self, max: u32, up_to_date: bool) -> Option<Arc<ImageGroups>> {
+        let generation = self.generation.load(Ordering::Relaxed);
+        lock(&self.images)
+            .as_ref()
+            .filter(|g| {
+                g.max == max
+                    && (!up_to_date || (g.generation == generation && g.at.elapsed() < KEEP_GROUPS))
+            })
+            .cloned()
+    }
+
+    /// The space kept for copies of at least `min_size`: any, or only up to date.
+    fn space_of(&self, min_size: u64, up_to_date: bool) -> Option<u64> {
+        let generation = self.generation.load(Ordering::Relaxed);
+        lock(&self.space)
+            .as_ref()
+            .filter(|s| {
+                s.min_size == min_size
+                    && (!up_to_date
+                        || (!s.outdated
+                            && s.generation == generation
+                            && s.at.elapsed() < KEEP_TOTAL))
+            })
+            .map(|s| s.space)
     }
 }
 
 /// A printed image or video, whatever its print.
+#[derive(Clone)]
 struct Item {
     entry: EntryId,
     volume: VolumeId,
@@ -227,21 +345,27 @@ impl AppState {
         })
     }
 
-    /// The groups of similar images within `max` bits, made again when the prints changed or
-    /// the groups kept are too old; one grouping at a time, the others wait for it.
+    /// The groups of similar images within `max` bits for a screen: those kept, even out of date
+    /// (the figures thread makes them again), or made now.
     fn image_groups(&self, max: u32) -> Result<Arc<ImageGroups>, ApiError> {
-        let mut kept = self
-            .kept
-            .images
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let generation = self.kept.generation.load(Ordering::Relaxed);
-        if let Some(g) = kept
-            .as_ref()
-            .filter(|g| g.generation == generation && g.max == max && g.at.elapsed() < KEEP_GROUPS)
-        {
-            return Ok(Arc::clone(g));
+        self.kept.asked_now();
+        if let Some(g) = self.kept.images_at(max, false) {
+            if self.kept.images_at(max, true).is_none() {
+                self.kept.wake();
+            }
+            return Ok(g);
         }
+        self.group_images(max, false)
+    }
+
+    /// Groups the images within `max` bits, unless groups (up to date ones with `up_to_date`)
+    /// are kept: one grouping at a time, who asks meanwhile waits and takes its groups.
+    fn group_images(&self, max: u32, up_to_date: bool) -> Result<Arc<ImageGroups>, ApiError> {
+        let _one = lock(&self.kept.grouping);
+        if let Some(g) = self.kept.images_at(max, up_to_date) {
+            return Ok(g);
+        }
+        let generation = self.kept.generation.load(Ordering::Relaxed);
         let started = Instant::now();
         let prints: Vec<store::ImagePrint> = self
             .store
@@ -251,7 +375,7 @@ impl AppState {
             .collect();
         let read_ms = started.elapsed().as_millis();
         let hashes: Vec<u64> = prints.iter().map(|p| p.dhash).collect();
-        let found = bktree::groups(&hashes, max);
+        let (found, stats) = bktree::groups_with_stats(&hashes, max);
         // Only the images in a group are kept.
         let mut items = Vec::new();
         let mut kept_hashes = Vec::new();
@@ -281,7 +405,11 @@ impl AppState {
             groups = groups.len(),
             largest = groups.iter().map(Vec::len).max().unwrap_or(0),
             in_groups = groups.iter().map(Vec::len).sum::<usize>(),
+            distinct = stats.distinct,
+            linked = stats.linked,
             read_ms,
+            linked_ms = stats.linked_ms,
+            grouping_ms = stats.grouping_ms,
             ms = started.elapsed().as_millis(),
             "similar images grouped"
         );
@@ -293,8 +421,77 @@ impl AppState {
             hashes: kept_hashes,
             groups,
         });
-        *kept = Some(Arc::clone(&made));
+        *lock(&self.kept.images) = Some(Arc::clone(&made));
         Ok(made)
+    }
+
+    /// The space the copies of duplicates of at least `min_size` take on every disk: the figure
+    /// of the catalog screen, kept (REVIEW L37, L38). Counting it reads every full hash of the
+    /// catalog: 9 to 17 s on the company PC.
+    pub fn duplicate_space(&self, min_size: u64) -> Result<u64, ApiError> {
+        self.kept.asked_now();
+        if let Some(space) = self.kept.space_of(min_size, false) {
+            if self.kept.space_of(min_size, true).is_none() {
+                self.kept.wake();
+            }
+            return Ok(space);
+        }
+        self.count_duplicate_space(min_size, false)
+    }
+
+    /// Counts the space of the duplicates, unless it is kept (up to date with `up_to_date`).
+    fn count_duplicate_space(&self, min_size: u64, up_to_date: bool) -> Result<u64, ApiError> {
+        let _one = lock(&self.kept.counting);
+        if let Some(space) = self.kept.space_of(min_size, up_to_date) {
+            return Ok(space);
+        }
+        let generation = self.kept.generation.load(Ordering::Relaxed);
+        let started = Instant::now();
+        let filter = DupFilterInput {
+            min_size,
+            ..DupFilterInput::default()
+        }
+        .to_filter();
+        let space = self
+            .store
+            .read(|c| duplicates::find(c, &HashSet::new(), &filter, 0))?
+            .total_recoverable;
+        *lock(&self.kept.space) = Some(DuplicateSpace {
+            generation,
+            at: Instant::now(),
+            min_size,
+            space,
+            outdated: false,
+        });
+        if started.elapsed() >= SLOW_FIGURE {
+            tracing::info!(
+                min_size,
+                space,
+                ms = started.elapsed().as_millis(),
+                "duplicate space counted"
+            );
+        }
+        Ok(space)
+    }
+
+    /// The figures thread (REVIEW L38): at the start, the figures of the catalog screen; then
+    /// those out of date, while a screen asked for them in the last [`KEEP_UP_WHILE_ASKED`].
+    pub fn keep_figures(&self, at_start: bool) {
+        if !at_start && !self.kept.asked_lately() {
+            return;
+        }
+        let max = lock(&self.kept.images)
+            .as_ref()
+            .map_or(CATALOG_DISTANCE, |g| g.max);
+        if let Err(e) = self.group_images(max, true) {
+            tracing::warn!(error = ?e, "similar images not grouped");
+        }
+        let min_size = lock(&self.kept.space)
+            .as_ref()
+            .map_or(CATALOG_MIN_COPY, |s| s.min_size);
+        if let Err(e) = self.count_duplicate_space(min_size, true) {
+            tracing::warn!(error = ?e, "duplicate space not counted");
+        }
     }
 
     /// How many groups of similar images there are within `max_distance` bits, on every disk:

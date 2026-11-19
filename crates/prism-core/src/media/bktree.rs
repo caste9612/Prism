@@ -336,24 +336,42 @@ fn leaders(codes: &[u64], keys: &[usize], max: u32) -> Vec<u32> {
     centre_of
 }
 
+/// How a grouping went, for the log (REVIEW L38).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GroupingStats {
+    /// Distinct prints.
+    pub distinct: usize,
+    /// Distinct prints with another within the distance.
+    pub linked: usize,
+    /// Time to find them (several threads), then to make the groups (one).
+    pub linked_ms: u128,
+    pub grouping_ms: u128,
+}
+
 /// For each of `codes` (distinct prints, in the order the centres are chosen in), the rank of
 /// the centre of its group. The prints without another within `max` are their own centre and
 /// stay out of the search for the groups, which goes the same without them.
-fn centres(codes: &[u64], max: u32) -> Vec<u32> {
+fn centres(codes: &[u64], max: u32, stats: &mut GroupingStats) -> Vec<u32> {
     let mut centre_of: Vec<u32> = (0..codes.len() as u32).collect();
+    stats.distinct = codes.len();
     if max == 0 {
         return centre_of;
     }
     let keys = masks(max / BLOCKS);
+    let started = std::time::Instant::now();
     let near = linked(codes, &keys, max);
     let ranks: Vec<u32> = (0..codes.len() as u32)
         .filter(|&r| near[r as usize])
         .collect();
     drop(near);
+    stats.linked = ranks.len();
+    stats.linked_ms = started.elapsed().as_millis();
+    let started = std::time::Instant::now();
     let some: Vec<u64> = ranks.iter().map(|&r| codes[r as usize]).collect();
     for (i, c) in leaders(&some, &keys, max).into_iter().enumerate() {
         centre_of[ranks[i] as usize] = ranks[c as usize];
     }
+    stats.grouping_ms = started.elapsed().as_millis();
     centre_of
 }
 
@@ -372,6 +390,12 @@ pub struct Group {
 /// group yet. Groups of one are left out; the groups come in the order of their first item.
 #[must_use]
 pub fn groups(prints: &[u64], max: u32) -> Vec<Group> {
+    groups_with_stats(prints, max).0
+}
+
+/// [`groups`], with how the grouping went.
+#[must_use]
+pub fn groups_with_stats(prints: &[u64], max: u32) -> (Vec<Group>, GroupingStats) {
     // Identical prints are one node.
     let mut node_of: std::collections::HashMap<u64, u32> =
         std::collections::HashMap::with_capacity(prints.len());
@@ -404,7 +428,8 @@ pub fn groups(prints: &[u64], max: u32) -> Vec<Group> {
         *n = rank[*n as usize];
     }
     drop(rank);
-    let centre_of = centres(&ranked, max);
+    let mut stats = GroupingStats::default();
+    let centre_of = centres(&ranked, max, &mut stats);
     let mut size = vec![0u32; ranked.len()];
     for &r in &nodes {
         size[centre_of[r as usize] as usize] += 1;
@@ -429,7 +454,7 @@ pub fn groups(prints: &[u64], max: u32) -> Vec<Group> {
         }
         g.items.push(i);
     }
-    out
+    (out, stats)
 }
 
 #[cfg(test)]
@@ -690,5 +715,65 @@ mod tests {
                 started.elapsed().as_millis()
             );
         }
+    }
+
+    // REVIEW L38: the company catalog has three quarters of its images in groups (series of
+    // near tiles), not a few large clusters; measured phase by phase.
+    #[test]
+    #[ignore = "measurement"]
+    fn grouping_series_of_near_pictures() {
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut data = prints(700_000, 0x2545_F491_4F6C_DD1D);
+        // 400,000 series of five near pictures, each a few bits from the one before.
+        for centre in prints(400_000, 0x1234_5678_9ABC_DEF1) {
+            let mut p = centre;
+            for _ in 0..5 {
+                data.push(p);
+                p = near(p, 2, &mut seed);
+            }
+        }
+        // One crowd: 30,000 pictures within a few bits of one print.
+        for i in 0..30_000u32 {
+            data.push(near(0xF0F0_F0F0_F0F0_F0F0, 1 + i % 4, &mut seed));
+        }
+        let started = std::time::Instant::now();
+        let found = groups(&data, 6);
+        eprintln!(
+            "series: {} prints, {} groups, largest {}, in groups {}, {} ms",
+            data.len(),
+            found.len(),
+            found.iter().map(|g| g.items.len()).max().unwrap_or(0),
+            found.iter().map(|g| g.items.len()).sum::<usize>(),
+            started.elapsed().as_millis()
+        );
+        let mut codes = data.clone();
+        codes.sort_unstable();
+        codes.dedup();
+        let keys = masks(6 / BLOCKS);
+        let started = std::time::Instant::now();
+        let near_ones = linked(&codes, &keys, 6);
+        let some: Vec<u64> = codes
+            .iter()
+            .zip(&near_ones)
+            .filter(|(_, n)| **n)
+            .map(|(c, _)| *c)
+            .collect();
+        eprintln!(
+            "linked: {} of {} distinct, {} ms",
+            some.len(),
+            codes.len(),
+            started.elapsed().as_millis()
+        );
+        let started = std::time::Instant::now();
+        let centre_of = leaders(&some, &keys, 6);
+        eprintln!(
+            "leaders: {} centres, {} ms",
+            centre_of
+                .iter()
+                .enumerate()
+                .filter(|(i, c)| **c as usize == *i)
+                .count(),
+            started.elapsed().as_millis()
+        );
     }
 }

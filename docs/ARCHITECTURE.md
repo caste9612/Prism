@@ -332,8 +332,10 @@ voci. Su un volume di 629.000 file l'analisi occupa ~12 MiB invece di ~190 (REVI
 Nell'app (`prism-app/src/hash_jobs.rs`) un thread, 20 s dopo l'avvio e poi ogni 30 s:
 
 - conta per ogni volume indicizzato file e file con hash valido (ogni ora, ogni minuto mentre
-  l'analisi gira, subito dopo un aggiornamento del volume o la fine di un giro; mai per più di
-  un cinquantesimo del tempo: un conteggio di 24 s al più ogni 20 minuti, REVIEW L33, L35) e lo mette
+  l'analisi gira, subito dopo la fine di un giro, dopo un aggiornamento del volume subito se il
+  conteggio è rapido e dopo 10 minuti se è lento, quanto aspettano comunque i file nuovi, REVIEW
+  L38; mai per più di un cinquantesimo del tempo: un conteggio di 24 s al più ogni 20 minuti,
+  REVIEW L33, L35) e lo mette
   sulle schede (`VolumeView.hashes`, F06-AC5); immagini e video si contano riga per riga
   (`store::count_prints`) senza caricare in memoria tutti i file del volume, e un conteggio che
   dura più di un secondo va nel log (`analysis progress counted`, REVIEW L31);
@@ -399,8 +401,8 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
 - **Duplicati nell'app** (T6): il comando `duplicate_groups` (filtri e regole) restituisce i 300
   gruppi più grandi con i totali di tutti (`duplicates::find` costruisce i percorsi solo per i
   gruppi mostrati) e la selezione proposta dalle regole; `duplicate_space` solo lo spazio delle
-  copie di tutto il catalogo, per il Catalogo, tenuto 10 minuti in `KeptResults` se Prism non
-  elimina file prima (9–17 s a ogni visita sul PC aziendale, REVIEW L37); `delete_duplicates` controlla la
+  copie di tutto il catalogo, per il Catalogo, tenuto in `KeptResults` (sotto, Immagini simili;
+  9–17 s a ogni visita sul PC aziendale, REVIEW L37, L38); `delete_duplicates` controlla la
   regola dell'ultima copia su tutta la selezione, poi elimina disco per disco attraverso
   `fileops` con l'hash ricontrollato e la guardia di debug (REVIEW D32).
 - **Duplicati** (`prism-core::duplicates`): gruppi per (`size`, `full`) sugli hash validi, su
@@ -437,9 +439,15 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   BK-tree resta per le ricerche singole). Nell'app le impronte si
   calcolano nello stesso job di background degli hash: durante la lettura per gli hash per le
   immagini lette intere, dopo di essi per le altre (`hash_jobs.rs`, REVIEW L31). I gruppi si
-  tengono in memoria (`similar_state::KeptResults`) per 30 minuti, se Prism non elimina file o
-  non dimentica dischi prima, un calcolo alla volta (REVIEW L36); le immagini con impronta 0
-  (senza dettagli) non entrano nei gruppi. `similar_images` restituisce i 200 gruppi con più
+  tengono in memoria (`similar_state::KeptResults`, con lo spazio dei duplicati del Catalogo),
+  aggiornati per 30 minuti (lo spazio 10) se Prism non dimentica dischi prima, un calcolo alla
+  volta (REVIEW L36). Le schermate non li aspettano (REVIEW L38): ricevono subito quelli tenuti,
+  anche scaduti, e il thread `prism-figures` li rifà in sottofondo, svegliato appena uno scade,
+  finché una schermata li ha chiesti nelle ultime due ore; 30 s dopo l'avvio fa quelli del
+  Catalogo (distanza 6, copie da 1 MB). I file eliminati da Prism escono subito dai gruppi tenuti
+  (`KeptResults::forget`: un gruppo rimasto con un'immagine sparisce), senza rifarli; lo spazio
+  dei duplicati si riconta in sottofondo. Le immagini con impronta 0 (senza dettagli) non entrano
+  nei gruppi. `similar_images` restituisce i 200 gruppi con più
   immagini (la più grande per prima, con la distanza dal centro del gruppo), al più 60 file per
   gruppo con il numero totale; la soglia va da 0 a 10 (`MAX_DISTANCE`);
   `similar_image_groups` solo il numero dei gruppi (il Catalogo); `image_thumbnail` una
@@ -683,7 +691,8 @@ riprendere (§4.3).
 | Journal dei dischi NTFS collegati | ogni 15 s | solo i record nuovi |
 | Cartelle sorvegliate (FAT, exFAT, ReFS, NAS) | dopo ogni gruppo di cambi (fino a 5 s) | solo l'elenco delle cartelle cambiate, e per intero le sottocartelle nuove (REVIEW L27); ogni ora una riga del log riassume aggiornamenti, percorsi e tempo speso (L28); quando Windows perde notifiche o i percorsi in attesa sono più di 10.000, tutto il volume, ma non prima di 30 minuti dalla rilettura completa precedente né di 10 volte quanto è durata (al massimo 6 ore; REVIEW L25) |
 | Analisi del contenuto | un giro ogni 30 s controlla; un disco riparte se ha file da fare, nessun altro lavoro sopra e almeno 2 minuti dall'inizio dell'ultimo giro se si era interrotto, 10 se era completo (REVIEW L28; 30 minuti se restano solo file in uso, illeggibili, cambiati rispetto al catalogo o modificati negli ultimi 10 minuti, e stampe di file cambiati; REVIEW L26, L27) | solo i file senza hash valido, mai quelli solo nel cloud (OneDrive) o offline, né quelli modificati da meno di 10 minuti; le analisi lasciano sempre libero un thread del motore, e cedono il disco entro mezzo secondo a un lavoro più urgente, il thread quando sono tutti occupati e quel lavoro aspetta da 30 s |
-| Avanzamento dell'analisi sulle schede | ogni ora (ogni minuto mentre gira), subito dopo un aggiornamento o la fine di un giro; mai per più di 1/50 del tempo (REVIEW L35) | conteggio nel catalogo |
+| Avanzamento dell'analisi sulle schede | ogni ora (ogni minuto mentre gira), subito dopo la fine di un giro, dopo un aggiornamento subito se il conteggio è rapido, dopo 10 minuti se è lento (REVIEW L38); mai per più di 1/50 del tempo (REVIEW L35) | conteggio nel catalogo |
+| Gruppi dei simili e spazio dei duplicati del Catalogo | 30 s dopo l'avvio; poi quando scadono (30 e 10 minuti) o dopo un'eliminazione, finché una schermata li ha chiesti nelle ultime due ore (REVIEW L38) | impronte di tutto il catalogo; hash completi |
 | Memoria e WAL del catalogo nel log | all'avvio e ogni ora (`resources`, REVIEW L35) | nessuna lettura del catalogo |
 | Indici di ricerca | dopo un cambio del catalogo, al massimo ogni 30 s per volume | ricostruzione in memoria del volume (L11) |
 | Salute dei dischi del PC | 10 s dopo l'avvio, poi ogni ora e appena si collega un disco | lettura SMART |

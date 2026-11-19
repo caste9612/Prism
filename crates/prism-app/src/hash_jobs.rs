@@ -75,6 +75,11 @@ const SLOW_COUNT: Duration = Duration::from_secs(1);
 const COUNT_SHARE: u32 = 50;
 /// A count quicker than this is never put off.
 const QUICK_COUNT: Duration = Duration::from_millis(100);
+/// A volume updated since its slow count is counted again after this at the soonest: the files
+/// the update brought wait [`SETTLING`] anyway before the analysis reads them. Seen in a
+/// diagnostic package: the system disk, updated by its journal every 15 s, counted every 95 s,
+/// 1.7 s each, all day (REVIEW L38).
+const AFTER_UPDATE: Duration = SETTLING;
 
 /// Whether a volume whose last count took `cost` and ended `since` ago may be counted again
 /// because it was updated.
@@ -83,12 +88,16 @@ fn may_count_again(since: Duration, cost: Duration) -> bool {
 }
 
 /// Whether the progress of a volume is counted now: never counted yet; updated since its last
-/// count; or counted `every` ago (an hour, a minute while a round runs on it). Either way not
-/// before its counts take at most one part in [`COUNT_SHARE`] of the time.
+/// count (if the count is slow, [`AFTER_UPDATE`] ago); or counted `every` ago (an hour, a
+/// minute while a round runs on it). Either way not before its counts take at most one part in
+/// [`COUNT_SHARE`] of the time.
 fn count_due(last: Option<(Duration, Duration)>, updated: bool, every: Duration) -> bool {
     match last {
         None => true,
-        Some((since, cost)) => (updated || since >= every) && may_count_again(since, cost),
+        Some((since, cost)) => {
+            let after_update = updated && (cost < QUICK_COUNT || since >= AFTER_UPDATE);
+            (after_update || since >= every) && may_count_again(since, cost)
+        }
     }
 }
 
@@ -364,7 +373,7 @@ pub fn tick(state: &Arc<AppState>) -> bool {
         };
         let before = state.hashing.status().get(&v.id).copied();
         // Indexed or updated since it was counted: count now, so the new files are analysed
-        // at the next round instead of minutes later; a little later when counting is slow.
+        // at the next round; when counting is slow, once the new files have settled.
         let cost = state
             .hashing
             .count_cost()
@@ -624,7 +633,14 @@ mod tests {
         assert!(count_due(None, false, RECHECK));
         assert!(!count_due(Some((s(600), s(1))), false, RECHECK));
         assert!(count_due(Some((s(3600), s(1))), false, RECHECK));
-        assert!(count_due(Some((s(60), s(1))), true, RECHECK));
+        // REVIEW L38: updated, a slow count waits the settling of the new files.
+        assert!(!count_due(Some((s(95), s(1))), true, RECHECK));
+        assert!(count_due(Some((s(600), s(1))), true, RECHECK));
+        assert!(count_due(
+            Some((s(15), Duration::from_millis(50))),
+            true,
+            RECHECK
+        ));
         // 24 s to count: every 20 minutes at most, round or not.
         assert!(!count_due(Some((s(120), s(24))), false, RECHECK_RUNNING));
         assert!(!count_due(Some((s(600), s(24))), true, RECHECK));
