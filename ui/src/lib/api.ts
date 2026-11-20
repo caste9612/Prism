@@ -79,14 +79,15 @@ export interface Backend {
   copyPreview(reportId: number, dest: SideInput): Promise<CopyPreviewView>;
   copyStart(reportId: number, dest: SideInput, renameOnConflict: boolean): Promise<number>;
   copyResult(jobId: number): Promise<CopyResultView | null>;
-  similarImages(maxDistance: number, volumeId: number | null): Promise<SimilarView>;
+  /** Groups among the images of `volumeIds` only, of every disk when empty (REVIEW D70). */
+  similarImages(maxDistance: number, volumeIds: number[]): Promise<SimilarView>;
   /** How many groups of similar images there are on every disk (the catalog screen). */
   similarImageGroups(maxDistance: number): Promise<number>;
   /** Deletes files of groups of similar images or videos; one file of each group stays (REVIEW D67). */
   deleteSimilar(groups: SimilarDeletion[], permanent: boolean): Promise<CleanupResultView>;
   /** A URL for the thumbnail of a connected image, or null. */
   imageThumbnail(volumeId: number, entryId: number): Promise<string | null>;
-  similarVideos(maxDistance: number, volumeId: number | null): Promise<SimilarView>;
+  similarVideos(maxDistance: number, volumeIds: number[]): Promise<SimilarView>;
   /** A URL for the thumbnail of a connected video (its middle frame), or null. */
   videoThumbnail(volumeId: number, entryId: number): Promise<string | null>;
   openLogs(): Promise<void>;
@@ -167,11 +168,11 @@ const tauriBackend: Backend = {
   copyPreview: (reportId, dest) => invoke('copy_preview', { reportId, dest }),
   copyStart: (reportId, dest, renameOnConflict) => invoke('copy_start', { reportId, dest, renameOnConflict }),
   copyResult: (jobId) => invoke('copy_result', { jobId }),
-  similarImages: (maxDistance, volumeId) => invoke('similar_images', { maxDistance, volumeId }),
+  similarImages: (maxDistance, volumeIds) => invoke('similar_images', { maxDistance, volumeIds }),
   similarImageGroups: (maxDistance) => invoke('similar_image_groups', { maxDistance }),
   deleteSimilar: (groups, permanent) => invoke('delete_similar', { groups, permanent }),
   imageThumbnail: (volumeId, entryId) => thumbnail('image_thumbnail', volumeId, entryId),
-  similarVideos: (maxDistance, volumeId) => invoke('similar_videos', { maxDistance, volumeId }),
+  similarVideos: (maxDistance, volumeIds) => invoke('similar_videos', { maxDistance, volumeIds }),
   videoThumbnail: (volumeId, entryId) => thumbnail('video_thumbnail', volumeId, entryId),
   openLogs: () => invoke('open_logs'),
   diagnosticsPreview: () => invoke('diagnostics_preview'),

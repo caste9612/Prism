@@ -54,14 +54,27 @@ test('D67, F16: similar files are deleted after a confirmation, one of each grou
   await expect(page.getByRole('article', { name: 'logo.png' })).toHaveCount(0);
 });
 
-test('F11-AC1: the similarity threshold and the disk filter', async ({ page }) => {
+test('F11-AC1, D70: the similarity threshold and the groups among some disks only', async ({ page }) => {
   await openSimilar(page);
   const slider = page.getByRole('slider');
   await slider.fill('10');
   await expect(page.getByText('3 groups of similar images')).toBeVisible();
   await expect(page.getByRole('article', { name: 'ricevuta.tif' })).toBeVisible();
-  await page.getByRole('combobox', { name: 'Disk' }).selectOption({ label: 'NAS Media' });
-  await expect(page.getByText('1 group of similar images')).toBeVisible();
+  const disks = page.getByRole('group', { name: 'Disks' });
+  await expect(disks.getByRole('button', { name: 'All disks' })).toHaveAttribute('aria-pressed', 'true');
+  // One disk alone: the receipt has no similar file on it.
+  await disks.getByRole('button', { name: 'NAS Media' }).click();
+  await expect(page.getByText('No similar images with this setting.')).toBeVisible();
+  // Two disks: the groups among their files, without the copy on the backup disk.
+  await disks.getByRole('button', { name: 'Data' }).click();
+  await expect(page.getByText('2 groups of similar images')).toBeVisible();
+  await expect(page.getByText('Groups among the files of the chosen disks only')).toBeVisible();
+  const photo = page.getByRole('article', { name: 'IMG_2041.CR2' });
+  await expect(photo).toContainText('2 images');
+  await expect(photo).not.toContainText('Backup Foto');
+  await page.screenshot({ path: 'test-results/similar-disks.png', fullPage: true });
+  await disks.getByRole('button', { name: 'All disks' }).click();
+  await expect(page.getByText('3 groups of similar images')).toBeVisible();
   await slider.fill('0');
   await expect(page.getByText('No similar images with this setting.')).toBeVisible();
 });

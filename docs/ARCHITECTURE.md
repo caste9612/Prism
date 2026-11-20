@@ -449,7 +449,11 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   dei duplicati si riconta in sottofondo. Le immagini con impronta 0 (senza dettagli) non entrano
   nei gruppi. `similar_images` restituisce i 200 gruppi con più
   immagini (la più grande per prima, con la distanza dal centro del gruppo), al più 60 file per
-  gruppo con il numero totale; la soglia va da 0 a 10 (`MAX_DISTANCE`);
+  gruppo con il numero totale; la soglia va da 0 a 10 (`MAX_DISTANCE`). Con dei dischi scelti
+  (`volume_ids`, anche `similar_videos`) i gruppi si fanno solo fra i loro file, leggendo solo le
+  loro impronte (`store::valid_prints_on`, REVIEW D70); si tengono fino a quattro raggruppamenti
+  (distanza e dischi), il meno chiesto di recente esce per primo, e il thread `prism-figures`
+  rifà quelli chiesti nelle ultime due ore;
   `similar_image_groups` solo il numero dei gruppi (il Catalogo); `image_thumbnail` una
   miniatura JPEG di 192 px dei file collegati, come byte grezzi (`tauri::ipc::Response`), con
   una cache in memoria di 600 miniature. `delete_similar` elimina file dei gruppi di immagini e

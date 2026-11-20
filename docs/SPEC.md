@@ -234,6 +234,8 @@ salute SMART se disponibile, avanzamento degli hash.
 - **F11-AC5** Dai gruppi di immagini e video simili si possono eliminare i file dei dischi
   collegati, scegliendoli dalle anteprime; almeno un file di ogni gruppo resta (F16, REVIEW
   D67).
+- **F11-AC6** Si possono scegliere uno o più dischi: i gruppi di immagini e di video si formano
+  solo fra i file di quei dischi, e gli altri dischi non contano (REVIEW D70).
 
 ### F12 — Video simili
 

@@ -169,6 +169,31 @@ pub fn valid_prints(conn: &Connection) -> Result<Vec<ImagePrint>, StoreError> {
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
+/// The valid prints of the files of `volume`, through the index of the entries by volume
+/// (REVIEW D70: the similar images of some disks only).
+///
+/// # Errors
+/// SQLite errors.
+pub fn valid_prints_on(conn: &Connection, volume: VolumeId) -> Result<Vec<ImagePrint>, StoreError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT p.entry_id, e.volume_id, p.dhash, p.width, p.height, e.size \
+         FROM entries e JOIN image_prints p ON p.entry_id = e.id \
+         WHERE e.volume_id = ?1 AND p.dhash IS NOT NULL AND p.size = e.size \
+           AND p.modified_at IS e.modified_at",
+    )?;
+    let rows = stmt.query_map([volume.0], |r| {
+        Ok(ImagePrint {
+            entry: EntryId(r.get(0)?),
+            volume: VolumeId(r.get(1)?),
+            dhash: r.get::<_, i64>(2)?.cast_unsigned(),
+            width: r.get(3)?,
+            height: r.get(4)?,
+            size: from_db(r.get(5)?),
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
 /// The print of a video, as computed for one state of the file (F12).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VideoPrintRecord {

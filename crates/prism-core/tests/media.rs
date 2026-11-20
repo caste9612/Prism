@@ -214,6 +214,19 @@ fn f11_background_prints_and_groups() {
 
     let prints = cat.store.read(store::valid_prints).unwrap();
     assert_eq!(prints.len(), 3, "the broken file has no print");
+    // REVIEW D70: the same prints asked for the volume, none for another.
+    assert_eq!(
+        cat.store
+            .read(|c| store::valid_prints_on(c, volume))
+            .unwrap(),
+        prints
+    );
+    assert!(
+        cat.store
+            .read(|c| store::valid_prints_on(c, prism_core::model::VolumeId(volume.0 + 1)))
+            .unwrap()
+            .is_empty()
+    );
     let hashes: Vec<u64> = prints.iter().map(|p| p.dhash).collect();
     let found = groups(&hashes, 8);
     assert_eq!(found.len(), 1);

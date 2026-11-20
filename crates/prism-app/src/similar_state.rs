@@ -41,6 +41,18 @@ const CATALOG_MIN_COPY: u64 = 1_000_000;
 /// A figure taking longer than this to make goes to the log.
 const SLOW_FIGURE: Duration = Duration::from_secs(1);
 
+/// Groupings kept at the same time (distances and sets of disks), the least recently asked
+/// dropped first.
+const KEPT_GROUPINGS: usize = 4;
+
+/// The disks a grouping looks at, in order, without repeats; empty for every disk.
+fn disk_set(volumes: &[VolumeId]) -> Vec<VolumeId> {
+    let mut set = volumes.to_vec();
+    set.sort_unstable();
+    set.dedup();
+    set
+}
+
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -50,10 +62,12 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// 10,022 images had it; they are not similar photos, and they joined everything else.
 const BLANK_PRINT: u64 = 0;
 
-/// The groups of similar images at one distance, with the images in them only.
+/// The groups of similar images at one distance among the images of some disks (every disk
+/// when `disks` is empty, REVIEW D70), with the images in them only.
 struct ImageGroups {
     generation: u64,
     max: u32,
+    disks: Vec<VolumeId>,
     at: Instant,
     items: Vec<Item>,
     hashes: Vec<u64>,
@@ -88,12 +102,19 @@ impl ImageGroups {
         Self {
             generation: self.generation,
             max: self.max,
+            disks: self.disks.clone(),
             at: self.at,
             items,
             hashes,
             groups,
         }
     }
+}
+
+/// A grouping kept, with when a screen last asked for it.
+struct KeptImages {
+    groups: Arc<ImageGroups>,
+    asked: Instant,
 }
 
 /// The space the copies of duplicates take.
@@ -118,7 +139,7 @@ struct DuplicateSpace {
 pub struct KeptResults {
     /// Changed when disks are removed or the catalog emptied.
     generation: AtomicU64,
-    images: Mutex<Option<Arc<ImageGroups>>>,
+    images: Mutex<Vec<KeptImages>>,
     grouping: Mutex<()>,
     space: Mutex<Option<DuplicateSpace>>,
     counting: Mutex<()>,
@@ -142,11 +163,8 @@ impl KeptResults {
         if gone.is_empty() {
             return;
         }
-        {
-            let mut images = lock(&self.images);
-            if let Some(g) = images.as_ref() {
-                *images = Some(Arc::new(g.without(gone)));
-            }
+        for kept in lock(&self.images).iter_mut() {
+            kept.groups = Arc::new(kept.groups.without(gone));
         }
         if let Some(s) = lock(&self.space).as_mut() {
             s.outdated = true;
@@ -177,16 +195,55 @@ impl KeptResults {
         lock(&self.asked).is_some_and(|t| t.elapsed() < KEEP_UP_WHILE_ASKED)
     }
 
-    /// The groups kept at distance `max`: any, or only up to date ones.
-    fn images_at(&self, max: u32, up_to_date: bool) -> Option<Arc<ImageGroups>> {
+    /// The groups kept at distance `max` among the images of `disks`: any, or only up to date
+    /// ones; `asking`, a screen asks for them now.
+    fn images_at(
+        &self,
+        max: u32,
+        disks: &[VolumeId],
+        up_to_date: bool,
+        asking: bool,
+    ) -> Option<Arc<ImageGroups>> {
         let generation = self.generation.load(Ordering::Relaxed);
+        let mut images = lock(&self.images);
+        let kept = images.iter_mut().find(|k| {
+            let g = &k.groups;
+            g.max == max
+                && g.disks == disks
+                && (!up_to_date || (g.generation == generation && g.at.elapsed() < KEEP_GROUPS))
+        })?;
+        if asking {
+            kept.asked = Instant::now();
+        }
+        Some(Arc::clone(&kept.groups))
+    }
+
+    /// Keeps `made`, in place of the grouping of the same distance and disks (when a screen
+    /// asked for it stays the same); the least recently asked goes beyond [`KEPT_GROUPINGS`].
+    fn keep_images(&self, made: &Arc<ImageGroups>) {
+        let mut images = lock(&self.images);
+        let asked = images
+            .iter()
+            .position(|k| k.groups.max == made.max && k.groups.disks == made.disks)
+            .map_or_else(Instant::now, |i| images.remove(i).asked);
+        images.push(KeptImages {
+            groups: Arc::clone(made),
+            asked,
+        });
+        if images.len() > KEPT_GROUPINGS
+            && let Some(oldest) = (0..images.len()).min_by_key(|&i| images[i].asked)
+        {
+            images.remove(oldest);
+        }
+    }
+
+    /// The groupings asked by a screen in the last [`KEEP_UP_WHILE_ASKED`].
+    fn groupings_asked(&self) -> Vec<(u32, Vec<VolumeId>)> {
         lock(&self.images)
-            .as_ref()
-            .filter(|g| {
-                g.max == max
-                    && (!up_to_date || (g.generation == generation && g.at.elapsed() < KEEP_GROUPS))
-            })
-            .cloned()
+            .iter()
+            .filter(|k| k.asked.elapsed() < KEEP_UP_WHILE_ASKED)
+            .map(|k| (k.groups.max, k.groups.disks.clone()))
+            .collect()
     }
 
     /// The space kept for copies of at least `min_size`: any, or only up to date.
@@ -237,14 +294,10 @@ impl AppState {
         &self,
         items: &[Item],
         mut found: Vec<Vec<usize>>,
-        volume: Option<VolumeId>,
         distance: &dyn Fn(usize, usize) -> u32,
         centred: bool,
         pending: u64,
     ) -> Result<SimilarView, ApiError> {
-        if let Some(v) = volume {
-            found.retain(|g| g.iter().any(|&i| items[i].volume == v));
-        }
         let started = Instant::now();
         let bytes = |g: &Vec<usize>| g.iter().map(|&i| items[i].size).sum::<u64>();
         found.sort_by(|a, b| b.len().cmp(&a.len()).then(bytes(b).cmp(&bytes(a))));
@@ -345,31 +398,46 @@ impl AppState {
         })
     }
 
-    /// The groups of similar images within `max` bits for a screen: those kept, even out of date
-    /// (the figures thread makes them again), or made now.
-    fn image_groups(&self, max: u32) -> Result<Arc<ImageGroups>, ApiError> {
+    /// The groups of similar images within `max` bits among the images of `disks` (every disk
+    /// when empty) for a screen: those kept, even out of date (the figures thread makes them
+    /// again), or made now.
+    fn image_groups(&self, max: u32, disks: &[VolumeId]) -> Result<Arc<ImageGroups>, ApiError> {
         self.kept.asked_now();
-        if let Some(g) = self.kept.images_at(max, false) {
-            if self.kept.images_at(max, true).is_none() {
+        if let Some(g) = self.kept.images_at(max, disks, false, true) {
+            if self.kept.images_at(max, disks, true, false).is_none() {
                 self.kept.wake();
             }
             return Ok(g);
         }
-        self.group_images(max, false)
+        self.group_images(max, disks, false)
     }
 
-    /// Groups the images within `max` bits, unless groups (up to date ones with `up_to_date`)
-    /// are kept: one grouping at a time, who asks meanwhile waits and takes its groups.
-    fn group_images(&self, max: u32, up_to_date: bool) -> Result<Arc<ImageGroups>, ApiError> {
+    /// Groups the images of `disks` within `max` bits, unless groups (up to date ones with
+    /// `up_to_date`) are kept: one grouping at a time, who asks meanwhile waits and takes its
+    /// groups.
+    fn group_images(
+        &self,
+        max: u32,
+        disks: &[VolumeId],
+        up_to_date: bool,
+    ) -> Result<Arc<ImageGroups>, ApiError> {
         let _one = lock(&self.kept.grouping);
-        if let Some(g) = self.kept.images_at(max, up_to_date) {
+        if let Some(g) = self.kept.images_at(max, disks, up_to_date, false) {
             return Ok(g);
         }
         let generation = self.kept.generation.load(Ordering::Relaxed);
         let started = Instant::now();
-        let prints: Vec<store::ImagePrint> = self
-            .store
-            .read(store::valid_prints)?
+        let read = self.store.read(|c| {
+            if disks.is_empty() {
+                return store::valid_prints(c);
+            }
+            let mut all = Vec::new();
+            for &v in disks {
+                all.extend(store::valid_prints_on(c, v)?);
+            }
+            Ok(all)
+        })?;
+        let prints: Vec<store::ImagePrint> = read
             .into_iter()
             .filter(|p| p.dhash != BLANK_PRINT)
             .collect();
@@ -401,6 +469,7 @@ impl AppState {
         }
         tracing::info!(
             max,
+            disks = disks.len(),
             prints = prints.len(),
             groups = groups.len(),
             largest = groups.iter().map(Vec::len).max().unwrap_or(0),
@@ -416,12 +485,13 @@ impl AppState {
         let made = Arc::new(ImageGroups {
             generation,
             max,
+            disks: disks.to_vec(),
             at: Instant::now(),
             items,
             hashes: kept_hashes,
             groups,
         });
-        *lock(&self.kept.images) = Some(Arc::clone(&made));
+        self.kept.keep_images(&made);
         Ok(made)
     }
 
@@ -480,11 +550,15 @@ impl AppState {
         if !at_start && !self.kept.asked_lately() {
             return;
         }
-        let max = lock(&self.kept.images)
-            .as_ref()
-            .map_or(CATALOG_DISTANCE, |g| g.max);
-        if let Err(e) = self.group_images(max, true) {
-            tracing::warn!(error = ?e, "similar images not grouped");
+        let groupings = if at_start {
+            vec![(CATALOG_DISTANCE, Vec::new())]
+        } else {
+            self.kept.groupings_asked()
+        };
+        for (max, disks) in groupings {
+            if let Err(e) = self.group_images(max, &disks, true) {
+                tracing::warn!(error = ?e, "similar images not grouped");
+            }
         }
         let min_size = lock(&self.kept.space)
             .as_ref()
@@ -498,38 +572,59 @@ impl AppState {
     /// the figure of the catalog screen, without the files of the groups.
     pub fn similar_image_groups(&self, max_distance: u32) -> Result<u64, ApiError> {
         Ok(self
-            .image_groups(max_distance.min(MAX_DISTANCE))?
+            .image_groups(max_distance.min(MAX_DISTANCE), &[])?
             .groups
             .len() as u64)
     }
 
-    /// Groups of images within `max_distance` bits of the centre of their group, optionally
-    /// only those with a copy on `volume` (F11-AC1/AC2/AC3). Images without detail are left
-    /// out.
+    /// Images still without a print on `disks` (every disk when empty).
+    fn pending_on(&self, disks: &[VolumeId], videos: bool) -> u64 {
+        let pending = |v| {
+            if videos {
+                self.hashing.pending_videos(v)
+            } else {
+                self.hashing.pending_images(v)
+            }
+        };
+        if disks.is_empty() {
+            pending(None)
+        } else {
+            disks.iter().map(|&v| pending(Some(v))).sum()
+        }
+    }
+
+    /// Groups of images within `max_distance` bits of the centre of their group, among the
+    /// images of `volumes` only, or of every disk when empty (F11-AC1/AC2/AC3, REVIEW D70).
+    /// Images without detail are left out.
     pub fn similar_images(
         &self,
         max_distance: u32,
-        volume: Option<VolumeId>,
+        volumes: &[VolumeId],
     ) -> Result<SimilarView, ApiError> {
-        let made = self.image_groups(max_distance.min(MAX_DISTANCE))?;
+        let disks = disk_set(volumes);
+        let made = self.image_groups(max_distance.min(MAX_DISTANCE), &disks)?;
         self.similar_view(
             &made.items,
             made.groups.clone(),
-            volume,
             &|a, b| bktree::distance(made.hashes[a], made.hashes[b]),
             true,
-            self.hashing.pending_images(volume),
+            self.pending_on(&disks, false),
         )
     }
 
     /// Groups of videos with close durations whose frames are within `max_distance` bits on
-    /// average (F12-AC1).
+    /// average (F12-AC1), among the videos of `volumes` only, or of every disk when empty
+    /// (REVIEW D70).
     pub fn similar_videos(
         &self,
         max_distance: u32,
-        volume: Option<VolumeId>,
+        volumes: &[VolumeId],
     ) -> Result<SimilarView, ApiError> {
-        let prints = self.store.read(store::valid_video_prints)?;
+        let disks = disk_set(volumes);
+        let mut prints = self.store.read(store::valid_video_prints)?;
+        if !disks.is_empty() {
+            prints.retain(|p| disks.contains(&p.volume));
+        }
         let input: Vec<(u64, &[u64])> = prints
             .iter()
             .map(|p| (p.duration_ms, p.frames.as_slice()))
@@ -549,13 +644,12 @@ impl AppState {
         self.similar_view(
             &items,
             found,
-            volume,
             &|a, b| {
                 video::mean_distance(&prints[a].frames, &prints[b].frames)
                     .map_or(64, |d| d.round() as u32)
             },
             false,
-            self.hashing.pending_videos(volume),
+            self.pending_on(&disks, true),
         )
     }
 

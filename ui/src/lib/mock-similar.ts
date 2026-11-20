@@ -1,5 +1,6 @@
 // Simulated similar images (browser development, tests), with the shapes of the backend: groups
-// within a distance, the largest image first, thumbnails drawn as coloured placeholders.
+// within a distance, the largest image first, thumbnails drawn as coloured placeholders; with
+// disks chosen, groups among their files only (REVIEW D70).
 import type { CleanupResultView } from './bindings/CleanupResultView';
 import type { SimilarDeletion } from './bindings/SimilarDeletion';
 import type { SimilarFileView } from './bindings/SimilarFileView';
@@ -38,10 +39,10 @@ const DURATIONS: Record<number, number> = { 901: 754_000, 902: 755_200 };
 export function mockSimilarVideos(
   volumes: VolumeView[],
   maxDistance: number,
-  volumeId: number | null,
+  volumeIds: number[] = [],
   deleted: Set<number> = new Set(),
 ): SimilarView {
-  const view = build(VIDEO_GROUPS, volumes, maxDistance, volumeId, deleted);
+  const view = build(VIDEO_GROUPS, volumes, maxDistance, volumeIds, deleted);
   view.groups.forEach((g) => g.files.forEach((f) => (f.durationMs = DURATIONS[f.entryId] ?? null)));
   return { ...view, pending: 42 };
 }
@@ -49,10 +50,10 @@ export function mockSimilarVideos(
 export function mockSimilar(
   volumes: VolumeView[],
   maxDistance: number,
-  volumeId: number | null,
+  volumeIds: number[] = [],
   deleted: Set<number> = new Set(),
 ): SimilarView {
-  return build(GROUPS, volumes, maxDistance, volumeId, deleted);
+  return build(GROUPS, volumes, maxDistance, volumeIds, deleted);
 }
 
 /** Deletes files of groups of similar files as the backend does (REVIEW D67). */
@@ -88,13 +89,14 @@ function build(
   all: Sample[][],
   volumes: VolumeView[],
   maxDistance: number,
-  volumeId: number | null,
+  volumeIds: number[],
   deleted: Set<number>,
 ): SimilarView {
   const byId = new Map(volumes.map((v) => [v.id, v]));
-  const source = all.map((g) => g.filter(([id]) => !deleted.has(id)));
+  const source = all.map((g) =>
+    g.filter(([id, v]) => !deleted.has(id) && (volumeIds.length === 0 || volumeIds.includes(v))),
+  );
   const groups = source.filter((g) => g.filter(([, , , , , , d]) => d <= maxDistance).length > 1)
-    .filter((g) => volumeId === null || g.some(([, v]) => v === volumeId))
     .map((g) => {
       const files: SimilarFileView[] = g
         .filter(([, , , , , , d]) => d <= maxDistance)

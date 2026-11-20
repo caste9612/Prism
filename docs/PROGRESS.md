@@ -24,8 +24,9 @@
   senza query sull'intero catalogo, L36), la 2.2.6 (simili raggruppati attorno a un centro in
   secondi su milioni di immagini, L37, D68), mai pubblicate, e i totali del Catalogo pronti in
   sottofondo, senza attese (L38), verificati su una copia del catalogo aziendale e compilati per
-  CPU con POPCNT (L39, D69). Il PC di casa ha la 2.2.4 di prova dal 2026-11-14; quello
-  aziendale la 2.2.6 dal 2026-11-19. Il lavoro continua direttamente su `develop`.
+  CPU con POPCNT (L39, D69), e nei Simili i gruppi fra i soli dischi scelti (D70, richiesta
+  dell'utente). Il PC di casa ha la 2.2.4 di prova dal 2026-11-14; quello aziendale la 2.2.6
+  dal 2026-11-19. Il lavoro continua direttamente su `develop`.
 - **Prossimo passo**: l'utente installa la 2.2.7 sul PC aziendale (a mano: le versioni di prova
   non arrivano con l'aggiornamento automatico), la usa una giornata di lavoro intera e manda un
   pacchetto diagnostico: righe `similar images grouped` (`linked_ms`, `grouping_ms`), `slow
@@ -42,6 +43,13 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-21 — Simili fra alcuni dischi
+
+- L'utente: il filtro per disco dei Simili non va bene. Fra tre proposte ha scelto "simili solo
+  fra quei dischi": ora si scelgono più dischi e i gruppi si formano solo fra i loro file (D70).
+  Sulla copia del catalogo aziendale: C: 0,6 s, `Organ` 1 s, l'archivio di tessere 11 s la prima
+  volta. Entra nella 2.2.7, non ancora installata.
 
 ### 2026-11-20 — 2.2.7 misurata sulla copia del catalogo aziendale
 

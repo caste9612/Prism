@@ -820,7 +820,7 @@ fn similar_images_after_the_background_job() {
     let status = app.hashing.progress(volume).unwrap();
     assert_eq!((status.images, status.printed), (3, 3));
 
-    let view = app.similar_images(8, None).unwrap();
+    let view = app.similar_images(8, &[]).unwrap();
     assert_eq!(view.total_groups, 1);
     assert_eq!(view.pending, 0);
     let files = &view.groups[0].files;
@@ -830,9 +830,10 @@ fn similar_images_after_the_background_job() {
     assert_eq!(files[0].distance, 0);
     assert!(files[1].distance <= 8);
     assert!(files[1].online);
-    // Filtered on another volume: nothing.
+    // REVIEW D70: among the images of the volume, the same group; of another volume, nothing.
+    assert_eq!(app.similar_images(8, &[volume]).unwrap().total_groups, 1);
     assert_eq!(
-        app.similar_images(8, Some(VolumeId(999)))
+        app.similar_images(8, &[VolumeId(999)])
             .unwrap()
             .total_groups,
         0
@@ -851,11 +852,12 @@ fn similar_images_after_the_background_job() {
             .code,
         "volume_offline"
     );
-    assert_eq!(app.similar_images(8, None).unwrap().total_groups, 1);
+    assert_eq!(app.similar_images(8, &[]).unwrap().total_groups, 1);
     // REVIEW L38: a file deleted from Prism leaves its group at once, without grouping again.
     app.kept
         .forget(&std::iter::once(EntryId(files[1].entry_id)).collect());
-    assert_eq!(app.similar_images(8, None).unwrap().total_groups, 0);
+    assert_eq!(app.similar_images(8, &[]).unwrap().total_groups, 0);
+    assert_eq!(app.similar_images(8, &[volume]).unwrap().total_groups, 0);
     assert_eq!(app.similar_image_groups(8).unwrap(), 0);
 }
 
@@ -904,7 +906,7 @@ fn similar_videos_after_the_background_job() {
     let status = app.hashing.progress(volume).unwrap();
     assert_eq!((status.videos, status.videos_printed), (3, 3));
 
-    let view = app.similar_videos(6, None).unwrap();
+    let view = app.similar_videos(6, &[]).unwrap();
     assert_eq!(view.total_groups, 1);
     let files = &view.groups[0].files;
     assert_eq!(files.len(), 2);
@@ -1508,7 +1510,7 @@ fn ui_commands_on_a_real_catalog() {
         format!("{} groups", app.similar_image_groups(6).unwrap())
     });
     time("similar_images(6, catalog)", &|| {
-        let v = app.similar_images(6, None).unwrap();
+        let v = app.similar_images(6, &[]).unwrap();
         let files: usize = v.groups.iter().map(|g| g.files.len()).sum();
         let largest = v.groups.iter().map(|g| g.count).max().unwrap_or(0);
         format!(
@@ -1519,13 +1521,24 @@ fn ui_commands_on_a_real_catalog() {
     time("similar_images(10, catalog)", &|| {
         format!(
             "{} groups",
-            app.similar_images(10, None).unwrap().total_groups
+            app.similar_images(10, &[]).unwrap().total_groups
         )
     });
     time("type_stats(catalog)", &|| {
         format!("{}", app.type_stats(None).unwrap().categories.len())
     });
     let volumes = app.store.read(store::volumes).unwrap();
+    // REVIEW D70: the similar images among the files of one disk.
+    for v in volumes.iter().filter(|v| v.last_indexed_at.is_some()) {
+        time(&format!("similar_images(6, #{})", v.id.0), &|| {
+            let view = app.similar_images(6, &[v.id]).unwrap();
+            format!(
+                "{} groups, largest {}",
+                view.total_groups,
+                view.groups.iter().map(|g| g.count).max().unwrap_or(0)
+            )
+        });
+    }
     for v in volumes.iter().filter(|v| v.last_indexed_at.is_some()) {
         let id = v.id;
         time(&format!("space_folder(#{}, root)", id.0), &|| {

@@ -1,12 +1,13 @@
 <script lang="ts">
   // Similar images (F11) and videos (F12): groups of visually similar files on every disk, with
   // thumbnails side by side (connected disks), resolution, size, length of the videos and where
-  // each copy is (F11-AC3); the similarity threshold is adjustable (F11-AC1). Files on connected
-  // disks can be deleted, one of each group always stays (REVIEW D67, F16).
+  // each copy is (F11-AC3); the similarity threshold is adjustable (F11-AC1). With some disks
+  // chosen, the groups are made among their files only (REVIEW D70). Files on connected disks
+  // can be deleted, one of each group always stays (REVIEW D67, F16).
   import type { SimilarFileView } from '../lib/bindings/SimilarFileView';
   import type { SimilarView } from '../lib/bindings/SimilarView';
   import type { VolumeView } from '../lib/bindings/VolumeView';
-  import { onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { backend, errorMessage } from '../lib/api';
   import { stickerColor, volumeName } from '../lib/catalog';
   import { formatBytes, formatCount } from '../lib/format';
@@ -22,7 +23,7 @@
   }: {
     volumes: VolumeView[];
     onerror: (message: string) => void;
-    /** The disk of the screen (ADR-0019): groups with a copy on it; every disk when null. */
+    /** The disk of the screen (ADR-0019): groups among its files; every disk when null. */
     scope?: number | null;
   } = $props();
 
@@ -30,7 +31,8 @@
   const PAGE = 30;
   let kind = $state<'images' | 'videos'>('images');
   let distance = $state(6);
-  let volumeId = $state<number | null>(untrack(() => scope));
+  /** The disks chosen: groups among their files only; every disk when empty (REVIEW D70). */
+  let volumeIds = $state<number[]>(untrack(() => (scope === null ? [] : [scope])));
   let view = $state<SimilarView | null>(null);
   let loading = $state(false);
   let shown = $state(PAGE);
@@ -44,18 +46,40 @@
   let result = $state<string | null>(null);
   const chosen = $derived(pickTotals(view?.groups ?? [], selection));
 
+  // Only the answer to the last request counts: choosing several disks in a row asks several
+  // times, and a grouping of many disks may answer after one of fewer.
+  let request = 0;
   async function load() {
+    const mine = ++request;
     loading = true;
     try {
-      view = kind === 'images' ? await backend.similarImages(distance, volumeId) : await backend.similarVideos(distance, volumeId);
+      const v = kind === 'images' ? await backend.similarImages(distance, volumeIds) : await backend.similarVideos(distance, volumeIds);
+      if (mine !== request) return;
+      view = v;
       selection = new Map();
       shown = PAGE;
     } catch (e) {
-      onerror(errorMessage(e));
+      if (mine === request) onerror(errorMessage(e));
     } finally {
-      loading = false;
+      if (mine === request) loading = false;
     }
   }
+
+  // Disks chosen one after the other are asked together, a moment after the last click.
+  let pending: ReturnType<typeof setTimeout> | null = null;
+  function chooseDisks(ids: number[]) {
+    volumeIds = ids;
+    if (pending !== null) clearTimeout(pending);
+    pending = setTimeout(() => {
+      pending = null;
+      void load();
+    }, 350);
+  }
+  onDestroy(() => {
+    if (pending !== null) clearTimeout(pending);
+  });
+  const toggleDisk = (id: number) =>
+    chooseDisks(volumeIds.includes(id) ? volumeIds.filter((v) => v !== id) : [...volumeIds, id]);
 
   onMount(() => {
     void load();
@@ -149,25 +173,24 @@
       <span class="mono">{distance} / 64</span>
     </label>
     <span class="muted hint">{t('similar.thresholdHint')}</span>
-    {#if scope === null}
-      <label class="disk">
-        <span class="sr-only">{t('similar.disk')}</span>
-        <select
-          aria-label={t('similar.disk')}
-          value={volumeId === null ? '' : String(volumeId)}
-          onchange={(e) => {
-            volumeId = e.currentTarget.value ? Number(e.currentTarget.value) : null;
-            void load();
-          }}
-        >
-          <option value="">{t('similar.anyDisk')}</option>
-          {#each catalogued as v (v.id)}
-            <option value={String(v.id)}>{volumeName(v)}</option>
-          {/each}
-        </select>
-      </label>
-    {/if}
     <button class="icon refresh" onclick={load} disabled={loading} title={t('similar.refresh')} aria-label={t('similar.refresh')}><Icon name="refresh" size={15} /></button>
+    {#if scope === null}
+      <div class="disks" role="group" aria-label={t('similar.disks')}>
+        <span class="field-label">{t('similar.disks')}</span>
+        <div class="chips">
+          <button class="small" aria-pressed={volumeIds.length === 0} onclick={() => chooseDisks([])}>{t('similar.anyDisk')}</button>
+          {#each catalogued as v (v.id)}
+            <button class="small disk" aria-pressed={volumeIds.includes(v.id)} onclick={() => toggleDisk(v.id)}>
+              <span class="sticker" class:ring={!v.online} style:--sticker={stickerColor(v)}></span>
+              {volumeName(v)}
+            </button>
+          {/each}
+        </div>
+        {#if volumeIds.length > 0}
+          <span class="muted hint">{t('similar.disksHint')}</span>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   <p class="list-head">
@@ -316,15 +339,39 @@
   .hint {
     font-size: 12px;
   }
-  .disk {
-    margin: 0 0 0 auto;
-  }
-  .disk select {
-    width: auto;
-  }
   .refresh {
     width: 32px;
     height: 32px;
+    margin-left: auto;
+  }
+  .disks {
+    flex-basis: 100%;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .disks .field-label {
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .chips button[aria-pressed='true'] {
+    background: var(--accent);
+    color: var(--accent-text);
+  }
+  .chips .disk {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chips .sticker {
+    width: 9px;
+    height: 9px;
   }
   .list-head {
     display: flex;

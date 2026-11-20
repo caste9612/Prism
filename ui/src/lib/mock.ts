@@ -320,8 +320,8 @@ export function mockBackend(): Backend {
       return job.id;
     },
     copyResult: async (jobId) => copyResults.get(jobId) ?? null,
-    similarImages: async (maxDistance, volumeId) => mockSimilar(volumes, maxDistance, volumeId, deletedSimilar),
-    similarImageGroups: async (maxDistance) => mockSimilar(volumes, maxDistance, null, deletedSimilar).totalGroups,
+    similarImages: async (maxDistance, volumeIds) => mockSimilar(volumes, maxDistance, volumeIds, deletedSimilar),
+    similarImageGroups: async (maxDistance) => mockSimilar(volumes, maxDistance, [], deletedSimilar).totalGroups,
     deleteSimilar: async (groups, permanent) => {
       const result = mockDeleteSimilar(volumes, groups, permanent, deletedSimilar);
       logActions(null, permanent, result);
@@ -329,7 +329,7 @@ export function mockBackend(): Backend {
       return result;
     },
     imageThumbnail: async (volumeId, entryId) => (find(volumeId).online ? mockThumbnail(entryId) : null),
-    similarVideos: async (maxDistance, volumeId) => mockSimilarVideos(volumes, maxDistance, volumeId, deletedSimilar),
+    similarVideos: async (maxDistance, volumeIds) => mockSimilarVideos(volumes, maxDistance, volumeIds, deletedSimilar),
     videoThumbnail: async (volumeId, entryId) => (find(volumeId).online ? mockThumbnail(entryId) : null),
     openLogs: async () => {},
     diagnosticsPreview: async () => ({

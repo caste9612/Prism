@@ -412,16 +412,20 @@ pub fn copy_result(state: State<'_, Arc<AppState>>, job_id: u64) -> Option<CopyR
     state.copy_result(job_id)
 }
 
-/// Groups of similar images on every disk (F11), optionally with a copy on one volume.
+/// Groups of similar images (F11) among the images of `volume_ids`, or of every disk when
+/// empty (REVIEW D70).
 #[tauri::command]
 pub async fn similar_images(
     state: State<'_, Arc<AppState>>,
     max_distance: u32,
-    volume_id: Option<i64>,
+    volume_ids: Vec<i64>,
 ) -> R<SimilarView> {
     let s = Arc::clone(&state);
     blocking("similar_images", move || {
-        s.similar_images(max_distance, volume_id.map(VolumeId))
+        s.similar_images(
+            max_distance,
+            &volume_ids.into_iter().map(VolumeId).collect::<Vec<_>>(),
+        )
     })
     .await
 }
@@ -454,16 +458,20 @@ pub async fn similar_image_groups(state: State<'_, Arc<AppState>>, max_distance:
     .await
 }
 
-/// Groups of similar videos on every disk (F12), optionally with a copy on one volume.
+/// Groups of similar videos (F12) among the videos of `volume_ids`, or of every disk when
+/// empty (REVIEW D70).
 #[tauri::command]
 pub async fn similar_videos(
     state: State<'_, Arc<AppState>>,
     max_distance: u32,
-    volume_id: Option<i64>,
+    volume_ids: Vec<i64>,
 ) -> R<SimilarView> {
     let s = Arc::clone(&state);
     blocking("similar_videos", move || {
-        s.similar_videos(max_distance, volume_id.map(VolumeId))
+        s.similar_videos(
+            max_distance,
+            &volume_ids.into_iter().map(VolumeId).collect::<Vec<_>>(),
+        )
     })
     .await
 }
