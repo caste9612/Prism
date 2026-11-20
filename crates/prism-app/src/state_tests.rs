@@ -1496,6 +1496,11 @@ fn ui_commands_on_a_real_catalog() {
         };
         format!("{} groups", app.duplicates(&f, &[]).unwrap().groups.len())
     });
+    // REVIEW L38: the figures thread at the start, then the catalog screen's figures at once.
+    time("keep_figures (start)", &|| {
+        app.keep_figures(true);
+        String::new()
+    });
     time("duplicate_space(>=1MB, kept)", &|| {
         format!("{} bytes", app.duplicate_space(1_000_000).unwrap())
     });

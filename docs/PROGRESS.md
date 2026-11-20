@@ -23,7 +23,8 @@
   Simili, D67), la 2.2.5 (conteggi ridotti e diagnostica della memoria, L35; giri dell'analisi
   senza query sull'intero catalogo, L36), la 2.2.6 (simili raggruppati attorno a un centro in
   secondi su milioni di immagini, L37, D68), mai pubblicate, e i totali del Catalogo pronti in
-  sottofondo, senza attese (L38). Il PC di casa ha la 2.2.4 di prova dal 2026-11-14; quello
+  sottofondo, senza attese (L38), verificati su una copia del catalogo aziendale e compilati per
+  CPU con POPCNT (L39, D69). Il PC di casa ha la 2.2.4 di prova dal 2026-11-14; quello
   aziendale la 2.2.6 dal 2026-11-19. Il lavoro continua direttamente su `develop`.
 - **Prossimo passo**: l'utente installa la 2.2.7 sul PC aziendale (a mano: le versioni di prova
   non arrivano con l'aggiornamento automatico), la usa una giornata di lavoro intera e manda un
@@ -41,6 +42,16 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-20 — 2.2.7 misurata sulla copia del catalogo aziendale
+
+- L'utente ha chiesto perché le versioni non finiscono: i problemi si vedevano solo sul catalogo
+  aziendale, 30 volte quello di casa, uno per pacchetto. Ha mandato una copia del catalogo
+  aziendale (resta nella cartella temporanea) con una giornata di log della 2.2.6. Sulla copia:
+  i totali del Catalogo della 2.2.7 pronti in 13,5 s in sottofondo, poi subito; compilando per
+  CPU con POPCNT (Windows 11 le richiede) il raggruppamento dei simili va al doppio. Al mattino
+  in ufficio, a cache fredda e con C: riletto per intero, le letture larghe durano decine di
+  secondi: ora non le aspetta più nessuna schermata. REVIEW L39, D69.
 
 ### 2026-11-19 — 2.2.7: dodicesimo pacchetto, totali del Catalogo in sottofondo
 

@@ -736,44 +736,44 @@ mod tests {
         for i in 0..30_000u32 {
             data.push(near(0xF0F0_F0F0_F0F0_F0F0, 1 + i % 4, &mut seed));
         }
-        let started = std::time::Instant::now();
-        let found = groups(&data, 6);
-        eprintln!(
-            "series: {} prints, {} groups, largest {}, in groups {}, {} ms",
-            data.len(),
-            found.len(),
-            found.iter().map(|g| g.items.len()).max().unwrap_or(0),
-            found.iter().map(|g| g.items.len()).sum::<usize>(),
-            started.elapsed().as_millis()
-        );
-        let mut codes = data.clone();
-        codes.sort_unstable();
-        codes.dedup();
-        let keys = masks(6 / BLOCKS);
-        let started = std::time::Instant::now();
-        let near_ones = linked(&codes, &keys, 6);
-        let some: Vec<u64> = codes
-            .iter()
-            .zip(&near_ones)
-            .filter(|(_, n)| **n)
-            .map(|(c, _)| *c)
+        measure("series", &data, &[6]);
+    }
+
+    /// Groups `data` at each of `maxes` and says how it went.
+    fn measure(name: &str, data: &[u64], maxes: &[u32]) {
+        for &max in maxes {
+            let started = std::time::Instant::now();
+            let (found, stats) = groups_with_stats(data, max);
+            eprintln!(
+                "{name} max {max}: {} prints, {} distinct, {} linked, {} groups, largest {}, \
+                 in groups {}; linked {} ms, grouping {} ms, total {} ms",
+                data.len(),
+                stats.distinct,
+                stats.linked,
+                found.len(),
+                found.iter().map(|g| g.items.len()).max().unwrap_or(0),
+                found.iter().map(|g| g.items.len()).sum::<usize>(),
+                stats.linked_ms,
+                stats.grouping_ms,
+                started.elapsed().as_millis()
+            );
+        }
+    }
+
+    // REVIEW L39: real prints (PRISM_PRINTS_FILE, u64 little endian, print 0 left out), as the
+    // app groups them. `cargo test -p prism-core --release -- --ignored grouping_real_prints
+    // --nocapture`.
+    #[test]
+    #[ignore = "measurement"]
+    fn grouping_real_prints() {
+        let Ok(path) = std::env::var("PRISM_PRINTS_FILE") else {
+            return;
+        };
+        let bytes = std::fs::read(path).unwrap();
+        let data: Vec<u64> = bytes
+            .chunks_exact(8)
+            .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
             .collect();
-        eprintln!(
-            "linked: {} of {} distinct, {} ms",
-            some.len(),
-            codes.len(),
-            started.elapsed().as_millis()
-        );
-        let started = std::time::Instant::now();
-        let centre_of = leaders(&some, &keys, 6);
-        eprintln!(
-            "leaders: {} centres, {} ms",
-            centre_of
-                .iter()
-                .enumerate()
-                .filter(|(i, c)| **c as usize == *i)
-                .count(),
-            started.elapsed().as_millis()
-        );
+        measure("real", &data, &[6, 10]);
     }
 }

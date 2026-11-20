@@ -848,7 +848,9 @@ Prism gira elevato, quindi la superficie d'attacco della webview va ridotta al m
 ## 8.1 Installazione (T10, F22)
 
 `scripts\build-installer.ps1` compila `prism-shell` e poi, con la CLI di Tauri, l'app e il suo
-installer NSIS (`target\release\bundle\nsis\Prism_<versione>_x64-setup.exe`):
+installer NSIS (`target\release\bundle\nsis\Prism_<versione>_x64-setup.exe`). Tutto si compila
+per le CPU x86-64-v2 (POPCNT, SSE4.2: le richiede Windows 11), in `.cargo/config.toml` (REVIEW
+D69):
 
 - installazione per tutta la macchina (l'installer è elevato e può registrare l'attività
   pianificata con i privilegi più alti), lingue italiano e inglese, WebView2 installato con il

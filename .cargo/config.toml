@@ -1,3 +1,8 @@
 # ts-rs writes the TypeScript bindings of prism-app here (ADR-0014).
 [env]
 TS_RS_EXPORT_DIR = { value = "ui/src/lib/bindings", relative = true }
+
+# Windows 11 needs a CPU with POPCNT and SSE4.2 (x86-64-v2): with them the similar images are
+# grouped twice as fast (one instruction to count the bits two prints differ by, REVIEW D69).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=x86-64-v2"]
