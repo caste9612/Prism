@@ -7,7 +7,7 @@
 
 ## 0. In breve
 
-Prism **2.0.0** è pubblicato (release `v2.0.0` su GitHub, 2026-11-08) e installato sul PC
+Prism **2.0.0** è pubblicato (release `v2.0.0` su GitHub, 2026-11-08; l'ultima è la **2.2.7**, 2026-11-21) e installato sul PC
 dell'utente; le versioni successive escono dal workflow *Release* e arrivano alle copie
 installate con l'aggiornamento automatico. Tutte le funzioni della SPEC (F01–F22) sono
 implementate; ogni criterio ha test automatici (`scripts/check.ps1`, CI su GitHub, test elevati

@@ -6,7 +6,7 @@
 ## Stato attuale
 
 - **Stato**: pubblicate la **2.0.0**, la **2.1.0** (2026-11-08), la **2.1.1** (2026-11-09),
-  la **2.1.4** (2026-11-10) e la **2.2.2** (2026-11-14). Il PC aziendale dell'utente si è aggiornato da solo alla 2.1.1 e ha
+  la **2.1.4** (2026-11-10), la **2.2.2** (2026-11-14) e la **2.2.7** (2026-11-21). Il PC aziendale dell'utente si è aggiornato da solo alla 2.1.1 e ha
   provato la 2.1.2, la 2.1.3 e la 2.1.4 da installer locali. La 2.1.4 comprende la 2.1.2
   (journal fermato da record presi per rovinati, REVIEW L26), la 2.1.3 (aggiornamento mirato che
   rileggeva interi sottoalberi, analisi delle cartelle di rete che non avanzavano, L27) e le
@@ -18,20 +18,22 @@
   impronte dei video, L32: confermata dall'ottavo pacchetto, 20 ore senza cadute) e le
   correzioni dell'ottavo pacchetto (L33). La 2.1.5, la 2.2.0 e la 2.2.1 non sono state
   pubblicate; la 2.2.2 è stata pubblicata senza una prova sul PC aziendale, su scelta
-  dell'utente. Su `develop` la **2.2.7**, non ancora pubblicata, da provare con un installer
-  locale: comprende la 2.2.3 (interfaccia più leggera, REVIEW L34), la 2.2.4 (eliminazione dai
+  dell'utente. La **2.2.7** (release `v2.2.7`, run 44843731943, `latest.json` verificato) è
+  stata pubblicata su richiesta dell'utente senza la giornata di prova in ufficio; comprende la
+  2.2.3 (interfaccia più leggera, REVIEW L34), la 2.2.4 (eliminazione dai
   Simili, D67), la 2.2.5 (conteggi ridotti e diagnostica della memoria, L35; giri dell'analisi
   senza query sull'intero catalogo, L36), la 2.2.6 (simili raggruppati attorno a un centro in
   secondi su milioni di immagini, L37, D68), mai pubblicate, e i totali del Catalogo pronti in
   sottofondo, senza attese (L38), verificati su una copia del catalogo aziendale e compilati per
   CPU con POPCNT (L39, D69), e nei Simili i gruppi fra i soli dischi scelti (D70, richiesta
-  dell'utente). Il PC di casa ha la 2.2.4 di prova dal 2026-11-14; quello aziendale la 2.2.6
-  dal 2026-11-19. Il lavoro continua direttamente su `develop`.
-- **Prossimo passo**: l'utente installa la 2.2.7 sul PC aziendale (a mano: le versioni di prova
-  non arrivano con l'aggiornamento automatico), la usa una giornata di lavoro intera e manda un
-  pacchetto diagnostico: righe `similar images grouped` (`linked_ms`, `grouping_ms`), `slow
-  command` (Catalogo e Simili non devono più comparire), `resources` e durata dei conteggi di
-  `Organ` nelle ore di lavoro (L35); poi la release col suo via libera. Restano aperti REVIEW
+  dell'utente). Il PC di casa (2.2.4 di prova) e quello aziendale (2.2.6 di prova) si
+  aggiornano da soli alla 2.2.7: le copie di prova ricevono le versioni pubblicate. Il lavoro
+  continua direttamente su `develop`.
+- **Prossimo passo**: l'utente usa la 2.2.7 in ufficio. Nuove versioni solo per problemi che
+  nota lui, misurati prima sulla copia del catalogo aziendale (cartella temporanea di sviluppo,
+  REVIEW L39); se manda un pacchetto: righe `similar images grouped` (`linked_ms`,
+  `grouping_ms`), `slow command` (Catalogo e Simili non devono più comparire), durata dei
+  conteggi di `Organ` nelle ore di lavoro (L35). Restano aperti REVIEW
   L29 (2) e i punti aperti di L32, L33, L34 e L38. Prima di avviare l'app di
   sviluppo va chiusa quella installata (CLAUDE.md).
   Consigliata una copia della chiave fuori dal PC (REVIEW U7).
@@ -43,6 +45,12 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-21 — 2.2.7 pubblicata
+
+- Su richiesta dell'utente ("pubblichiamo la nuova versione su github così non mi serve
+  l'installer"), senza la giornata di prova in ufficio: release `v2.2.7` (run 44843731943),
+  installer, firma e `latest.json` verificati. Comprende la 2.2.3–2.2.6, mai pubblicate.
 
 ### 2026-11-21 — Simili fra alcuni dischi
 
