@@ -79,7 +79,7 @@ fn f21_ac4_reset_removes_volumes_and_their_data_only() {
     );
     assert!(
         cat.store
-            .read(|c| store::duplicate_files(c, 1))
+            .read(|c| store::duplicate_files(c, 1, &[]))
             .unwrap()
             .is_empty()
     );

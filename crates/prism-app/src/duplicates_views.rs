@@ -23,8 +23,9 @@ pub struct DupFilterInput {
     pub min_size: u64,
     /// A file category (`images`, `videos`...), or none for all.
     pub category: Option<String>,
-    #[ts(type = "number | null")]
-    pub volume_id: Option<i64>,
+    /// The disks whose files only are compared (REVIEW D71); every disk when empty.
+    #[ts(type = "number[]")]
+    pub volume_ids: Vec<i64>,
     /// Text the path of a copy must contain.
     pub folder: Option<String>,
 }
@@ -37,7 +38,7 @@ impl DupFilterInput {
                 .category
                 .as_deref()
                 .and_then(|c| FileCategory::ALL.into_iter().find(|k| k.as_str() == c)),
-            volume: self.volume_id.map(VolumeId),
+            volumes: self.volume_ids.iter().copied().map(VolumeId).collect(),
             folder: self
                 .folder
                 .as_deref()
@@ -276,12 +277,12 @@ mod tests {
         let f = DupFilterInput {
             min_size: 10,
             category: Some("videos".into()),
-            volume_id: Some(2),
+            volume_ids: vec![2, 5],
             folder: Some("  ".into()),
         }
         .to_filter();
         assert_eq!(f.category, Some(FileCategory::Videos));
-        assert_eq!(f.volume, Some(VolumeId(2)));
+        assert_eq!(f.volumes, [VolumeId(2), VolumeId(5)]);
         assert_eq!(f.folder, None);
         assert_eq!(
             DupFilterInput {

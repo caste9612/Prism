@@ -216,7 +216,9 @@ salute SMART se disponibile, avanzamento degli hash.
   corto; non selezionare mai file in una certa cartella.
 - **F10-AC4** In ogni gruppo resta sempre almeno una copia non selezionata; il backend rifiuta
   una richiesta che eliminerebbe tutte le copie (F16-AC4).
-- **F10-AC5** Filtri per dimensione minima, tipo, volume e cartella.
+- **F10-AC5** Filtri per dimensione minima, tipo, dischi e cartella. Con uno o più dischi scelti
+  i duplicati si cercano solo fra i loro file: le copie sugli altri dischi non contano (REVIEW
+  D71).
 
 ### F11 — Immagini simili
 

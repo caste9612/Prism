@@ -3,7 +3,7 @@
   import type { DupFilterInput } from '../lib/bindings/DupFilterInput';
 
   // Filters and rules survive a change of screen (not a restart).
-  let savedFilter: DupFilterInput = { minSize: 1_000_000, category: null, volumeId: null, folder: null };
+  let savedFilter: DupFilterInput = { minSize: 1_000_000, category: null, volumeIds: [], folder: null };
   let savedRules: RuleInput[] = [{ kind: 'keepOldest', volumeId: null, text: null }];
 
   /**
@@ -16,17 +16,18 @@
 </script>
 
 <script lang="ts">
-  // Exact duplicates (F10) on every disk of the catalog, connected or not: groups with their
-  // copies, where each disk is kept, the space a single copy would free; selection rules
-  // (F10-AC3) and manual changes within the limits of F10-AC4; deletion through the safe path
-  // with the last-copy rule and the content checked again (F16-AC3/AC4).
+  // Exact duplicates (F10) on every disk of the catalog, connected or not, or among the files
+  // of the disks chosen only (REVIEW D71): groups with their copies, where each disk is kept,
+  // the space a single copy would free; selection rules (F10-AC3) and manual changes within the
+  // limits of F10-AC4; deletion through the safe path with the last-copy rule and the content
+  // checked again (F16-AC3/AC4).
   import type { DupFileView } from '../lib/bindings/DupFileView';
   import type { DupGroupView } from '../lib/bindings/DupGroupView';
   import type { DuplicatesView } from '../lib/bindings/DuplicatesView';
   import type { Settings } from '../lib/bindings/Settings';
   import type { VolumeView } from '../lib/bindings/VolumeView';
   import type { ApiError } from '../lib/bindings/ApiError';
-  import { onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { backend, errorMessage } from '../lib/api';
   import { stickerColor, volumeName } from '../lib/catalog';
   import { MIN_SIZES, RULE_KINDS, canSelect, onlyOfflineLeft, proposed, ruleComplete, toggle, totals, type Selection } from '../lib/duplicates';
@@ -46,7 +47,7 @@
     settings: Settings;
     onchange: (s: Settings) => void;
     onerror: (message: string) => void;
-    /** The disk of the screen (ADR-0019): its copies only; the whole catalog when null. */
+    /** The disk of the screen (ADR-0019): chosen at first, others can be added; the whole catalog when null. */
     scope?: number | null;
   } = $props();
 
@@ -54,7 +55,7 @@
   const CATEGORIES = ['images', 'videos', 'audio', 'documents', 'archives', 'disk_images', 'code', 'programs', 'other'];
 
   let filter = $state<DupFilterInput>(
-    untrack(() => (scope !== null ? { ...savedFilter, volumeId: scope } : { ...savedFilter })),
+    untrack(() => (scope !== null ? { ...savedFilter, volumeIds: [scope] } : { ...savedFilter, volumeIds: [...savedFilter.volumeIds] })),
   );
   let rules = $state<RuleInput[]>(savedRules.map((r) => ({ ...r })));
   let view = $state<DuplicatesView | null>(null);
@@ -67,24 +68,45 @@
 
   const catalogued = $derived(volumes.filter((v) => v.lastIndexedAt !== null));
 
+  // Only the answer to the last request counts: choosing several disks in a row asks several
+  // times, and the duplicates of many disks may answer after those of fewer.
+  let request = 0;
   async function load() {
+    const mine = ++request;
     loading = true;
     // The disk of a disk tab is not a choice to remember for the whole catalog.
-    savedFilter = { ...filter, volumeId: scope === null ? filter.volumeId : savedFilter.volumeId };
+    savedFilter = { ...filter, volumeIds: scope === null ? [...filter.volumeIds] : savedFilter.volumeIds };
     savedRules = rules.map((r) => ({ ...r }));
     try {
       const v = await backend.duplicateGroups(
-        { ...filter },
+        { ...filter, volumeIds: [...filter.volumeIds] },
         rules.filter(ruleComplete).map((r) => ({ ...r })),
       );
+      if (mine !== request) return;
       selection = proposed(v.groups);
       view = v;
     } catch (e) {
-      onerror(errorMessage(e));
+      if (mine === request) onerror(errorMessage(e));
     } finally {
-      loading = false;
+      if (mine === request) loading = false;
     }
   }
+
+  // Disks chosen one after the other are asked together, a moment after the last click.
+  let pending: ReturnType<typeof setTimeout> | null = null;
+  function chooseDisks(ids: number[]) {
+    filter = { ...filter, volumeIds: ids };
+    if (pending !== null) clearTimeout(pending);
+    pending = setTimeout(() => {
+      pending = null;
+      void load();
+    }, 350);
+  }
+  onDestroy(() => {
+    if (pending !== null) clearTimeout(pending);
+  });
+  const toggleDisk = (id: number) =>
+    chooseDisks(filter.volumeIds.includes(id) ? filter.volumeIds.filter((v) => v !== id) : [...filter.volumeIds, id]);
 
   onMount(() => {
     void load();
@@ -203,20 +225,22 @@
             {/each}
           </div>
         </div>
-        {#if scope === null}
-          <label class="field">
-            <span class="field-label">{t('duplicates.disk')}</span>
-            <select
-              value={filter.volumeId === null ? '' : String(filter.volumeId)}
-              onchange={(e) => setFilter({ volumeId: e.currentTarget.value ? Number(e.currentTarget.value) : null })}
-            >
-              <option value="">{t('duplicates.anyDisk')}</option>
+        <!-- On the screen of a disk too, starting from it: other disks can be added (REVIEW D71). -->
+        <div class="field" role="group" aria-label={t('duplicates.disks')}>
+            <span class="field-label">{t('duplicates.disks')}</span>
+            <div class="chips">
+              <button class="small" aria-pressed={filter.volumeIds.length === 0} onclick={() => chooseDisks([])}>{t('duplicates.anyDisk')}</button>
               {#each catalogued as v (v.id)}
-                <option value={String(v.id)}>{volumeName(v)}</option>
+                <button class="small disk" aria-pressed={filter.volumeIds.includes(v.id)} onclick={() => toggleDisk(v.id)}>
+                  <span class="sticker" class:ring={!v.online} style:--sticker={stickerColor(v)}></span>
+                  {volumeName(v)}
+                </button>
               {/each}
-            </select>
-          </label>
-        {/if}
+            </div>
+            {#if filter.volumeIds.length > 0}
+              <span class="hint">{t('duplicates.disksHint')}</span>
+            {/if}
+        </div>
         <label class="field">
           <span class="field-label">{t('duplicates.folder')}</span>
           <input
@@ -433,6 +457,15 @@
     font-size: 11.5px;
     font-weight: 600;
     color: var(--text-2);
+  }
+  .chips .disk {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chips .sticker {
+    width: 9px;
+    height: 9px;
   }
   .chips {
     display: flex;

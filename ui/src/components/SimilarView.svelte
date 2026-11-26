@@ -23,7 +23,7 @@
   }: {
     volumes: VolumeView[];
     onerror: (message: string) => void;
-    /** The disk of the screen (ADR-0019): groups among its files; every disk when null. */
+    /** The disk of the screen (ADR-0019): chosen at first, others can be added; every disk when null. */
     scope?: number | null;
   } = $props();
 
@@ -174,8 +174,8 @@
     </label>
     <span class="muted hint">{t('similar.thresholdHint')}</span>
     <button class="icon refresh" onclick={load} disabled={loading} title={t('similar.refresh')} aria-label={t('similar.refresh')}><Icon name="refresh" size={15} /></button>
-    {#if scope === null}
-      <div class="disks" role="group" aria-label={t('similar.disks')}>
+    <!-- On the screen of a disk too, starting from it: other disks can be added (REVIEW D71). -->
+    <div class="disks" role="group" aria-label={t('similar.disks')}>
         <span class="field-label">{t('similar.disks')}</span>
         <div class="chips">
           <button class="small" aria-pressed={volumeIds.length === 0} onclick={() => chooseDisks([])}>{t('similar.anyDisk')}</button>
@@ -189,8 +189,7 @@
         {#if volumeIds.length > 0}
           <span class="muted hint">{t('similar.disksHint')}</span>
         {/if}
-      </div>
-    {/if}
+    </div>
   </div>
 
   <p class="list-head">

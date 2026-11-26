@@ -1,5 +1,6 @@
 // Simulated duplicates (browser development, tests), with the shapes and the rules of the
-// backend (prism-core::duplicates): filters, selection rules, last-copy rule on deletion.
+// backend (prism-core::duplicates): filters, duplicates among the chosen disks only (REVIEW
+// D71), selection rules, last-copy rule on deletion.
 import type { CleanupResultView } from './bindings/CleanupResultView';
 import type { DupFileView } from './bindings/DupFileView';
 import type { DupFilterInput } from './bindings/DupFilterInput';
@@ -100,7 +101,7 @@ export function mockDuplicates(
   const groups: DupGroupView[] = [];
   for (const s of SAMPLES) {
     const files: DupFileView[] = s.copies
-      .filter(([id]) => !deleted.has(id))
+      .filter(([id, v]) => !deleted.has(id) && (filter.volumeIds.length === 0 || filter.volumeIds.includes(v)))
       .map(([entryId, volumeId, path, age]) => {
         const v = byId.get(volumeId);
         const mount = (v?.mount ?? '').replace(/\\$/, '');
@@ -118,9 +119,7 @@ export function mockDuplicates(
       });
     if (files.length < 2 || s.size < filter.minSize) continue;
     if (filter.category && filter.category !== s.kind) continue;
-    const matches = files.some(
-      (f) => (filter.volumeId === null || f.volumeId === filter.volumeId) && (!folder || fold(f.path).includes(folder)),
-    );
+    const matches = files.some((f) => !folder || fold(f.path).includes(folder));
     if (!matches) continue;
     groups.push({
       key: `${s.size}-${s.copies[0]?.[0] ?? 0}`,

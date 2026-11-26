@@ -245,22 +245,35 @@ pub struct DuplicateFile {
 }
 
 /// Files with the same size and the same valid full hash as at least one other file, on any
-/// volume, online or not (F10-AC1), largest first, grouped by consecutive (size, hash).
+/// volume, online or not (F10-AC1), largest first, grouped by consecutive (size, hash). With
+/// `volumes`, only their files are compared and listed: the copies on the other volumes do not
+/// count (REVIEW D71); every volume when empty.
 ///
 /// # Errors
 /// SQLite errors.
-pub fn duplicate_files(conn: &Connection, min_size: u64) -> Result<Vec<DuplicateFile>, StoreError> {
-    let mut stmt = conn.prepare_cached(
+pub fn duplicate_files(
+    conn: &Connection,
+    min_size: u64,
+    volumes: &[VolumeId],
+) -> Result<Vec<DuplicateFile>, StoreError> {
+    // Volume ids are integers: written in the query, one statement per set of volumes.
+    let on = if volumes.is_empty() {
+        String::new()
+    } else {
+        let ids: Vec<String> = volumes.iter().map(|v| v.0.to_string()).collect();
+        format!(" AND e.volume_id IN ({})", ids.join(", "))
+    };
+    let mut stmt = conn.prepare_cached(&format!(
         "WITH v AS ( \
              SELECT h.entry_id, e.volume_id, h.size, h.full FROM content_hashes h \
              JOIN entries e ON e.id = h.entry_id \
              WHERE h.full IS NOT NULL AND h.size >= ?1 \
-               AND e.size = h.size AND e.modified_at IS h.modified_at), \
+               AND e.size = h.size AND e.modified_at IS h.modified_at{on}), \
          g AS (SELECT size, full FROM v GROUP BY size, full HAVING count(*) > 1) \
          SELECT v.entry_id, v.volume_id, v.size, v.full FROM v \
          JOIN g ON g.size = v.size AND g.full = v.full \
-         ORDER BY v.size DESC, v.full, v.entry_id",
-    )?;
+         ORDER BY v.size DESC, v.full, v.entry_id"
+    ))?;
     let rows = stmt.query_map([to_db(min_size)], |r| {
         Ok((
             EntryId(r.get(0)?),

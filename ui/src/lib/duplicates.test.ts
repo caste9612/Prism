@@ -73,7 +73,7 @@ describe('duplicate selection', () => {
 
 describe('simulated duplicates follow the backend rules', () => {
   const volumes = sampleVolumes();
-  const all = { minSize: 0, category: null, volumeId: null, folder: null };
+  const all = { minSize: 0, category: null, volumeIds: [] as number[], folder: null };
 
   it('filters, rules and offline copies', () => {
     const view = mockDuplicates(volumes, all, [{ kind: 'keepShortestPath', volumeId: null, text: null }], new Set());
@@ -86,6 +86,8 @@ describe('simulated duplicates follow the backend rules', () => {
     expect(mockDuplicates(volumes, { ...all, category: 'images' }, [], new Set()).groups).toHaveLength(1);
     expect(mockDuplicates(volumes, { ...all, folder: 'da ordinare' }, [], new Set()).groups).toHaveLength(1);
     expect(mockDuplicates(volumes, { ...all, minSize: 1_000_000_000 }, [], new Set()).groups).toHaveLength(1);
+    // REVIEW D71: among the files of Data and of the backup only: the video, the archive, the photo.
+    expect(mockDuplicates(volumes, { ...all, volumeIds: [2, 3] }, [], new Set()).groups.map((g) => g.files.length)).toEqual([2, 2, 3]);
     const never = mockDuplicates(volumes, all, [{ kind: 'neverIn', volumeId: null, text: 'archivio' }], new Set());
     expect(never.groups[0]!.selected).toEqual([]);
   });

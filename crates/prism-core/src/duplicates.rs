@@ -45,13 +45,15 @@ impl DupGroup {
     }
 }
 
-/// Which groups to show (F10-AC5); a group is shown when any of its copies matches the volume
-/// and folder filters.
+/// Which groups to show (F10-AC5); a group is shown when any of its copies matches the folder
+/// filter.
 #[derive(Clone, Debug, Default)]
 pub struct DupFilter {
     pub min_size: u64,
     pub category: Option<FileCategory>,
-    pub volume: Option<VolumeId>,
+    /// The volumes whose files only are compared: the copies on the others do not count (REVIEW
+    /// D71); every volume when empty.
+    pub volumes: Vec<VolumeId>,
     /// Case-folded text the path of a copy must contain.
     pub folder: Option<String>,
 }
@@ -104,7 +106,7 @@ pub fn find(
         paths: Option<Vec<String>>,
     }
     let mut raw: Vec<Raw> = Vec::new();
-    for f in store::duplicate_files(conn, filter.min_size.max(1))? {
+    for f in store::duplicate_files(conn, filter.min_size.max(1), &filter.volumes)? {
         let new_group = raw
             .last()
             .is_none_or(|g| g.size != f.size || g.hash != f.full);
@@ -127,11 +129,7 @@ pub fn find(
         .filter(|f| !f.is_empty());
     let mut kept = Vec::new();
     for mut g in raw {
-        if g.members.len() < 2
-            || filter
-                .volume
-                .is_some_and(|v| g.members.iter().all(|(_, mv)| *mv != v))
-        {
+        if g.members.len() < 2 {
             continue;
         }
         if let Some(c) = filter.category {
@@ -146,9 +144,7 @@ pub fn find(
                 .iter()
                 .map(|(e, _)| display_path(conn, *e))
                 .collect::<Result<Vec<_>, _>>()?;
-            let any = g.members.iter().zip(&paths).any(|((_, v), p)| {
-                filter.volume.is_none_or(|fv| *v == fv) && names::fold(p).contains(folder)
-            });
+            let any = paths.iter().any(|p| names::fold(p).contains(folder));
             if !any {
                 continue;
             }
@@ -291,7 +287,7 @@ pub fn check_last_copies(
 ) -> Result<Result<(), LastCopyError>, StoreError> {
     let doomed: HashSet<EntryId> = entries.iter().copied().collect();
     let mut groups: HashMap<(u64, Digest), Vec<(EntryId, VolumeId)>> = HashMap::new();
-    for f in store::duplicate_files(conn, 1)? {
+    for f in store::duplicate_files(conn, 1, &[])? {
         groups
             .entry((f.size, f.full))
             .or_default()
@@ -336,7 +332,7 @@ pub type KeptCopies = (EntryId, Vec<(EntryId, VolumeId)>);
 pub fn kept_copies(conn: &Connection, entries: &[EntryId]) -> Result<Vec<KeptCopies>, StoreError> {
     let doomed: HashSet<EntryId> = entries.iter().copied().collect();
     let mut groups: HashMap<(u64, Digest), Vec<(EntryId, VolumeId)>> = HashMap::new();
-    for f in store::duplicate_files(conn, 1)? {
+    for f in store::duplicate_files(conn, 1, &[])? {
         groups
             .entry((f.size, f.full))
             .or_default()

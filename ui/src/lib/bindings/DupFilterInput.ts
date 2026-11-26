@@ -7,7 +7,11 @@ export type DupFilterInput = { minSize: number,
 /**
  * A file category (`images`, `videos`...), or none for all.
  */
-category: string | null, volumeId: number | null, 
+category: string | null, 
+/**
+ * The disks whose files only are compared (REVIEW D71); every disk when empty.
+ */
+volumeIds: number[], 
 /**
  * Text the path of a copy must contain.
  */

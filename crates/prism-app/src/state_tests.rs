@@ -274,7 +274,10 @@ fn background_hashing_runs_pauses_and_counts() {
     let hashes = card[0].hashes.as_ref().unwrap();
     assert_eq!((hashes.total, hashes.hashed, hashes.running), (4, 4, false));
     assert_eq!((hashes.waiting.as_deref(), hashes.skipped), (None, 0));
-    let dups = app.store.read(|c| store::duplicate_files(c, 1)).unwrap();
+    let dups = app
+        .store
+        .read(|c| store::duplicate_files(c, 1, &[]))
+        .unwrap();
     assert_eq!(dups.len(), 2, "a.bin and sub/b.bin");
 
     // Nothing left to do: no new job.
@@ -1493,7 +1496,7 @@ fn ui_commands_on_a_real_catalog() {
         let f = DupFilterInput {
             min_size: 1_000_000,
             category: None,
-            volume_id: None,
+            volume_ids: Vec::new(),
             folder: None,
         };
         format!("{} groups", app.duplicates(&f, &[]).unwrap().groups.len())
@@ -1528,6 +1531,18 @@ fn ui_commands_on_a_real_catalog() {
         format!("{}", app.type_stats(None).unwrap().categories.len())
     });
     let volumes = app.store.read(store::volumes).unwrap();
+    // REVIEW D71: the duplicates among the files of one disk.
+    for v in volumes.iter().filter(|v| v.last_indexed_at.is_some()) {
+        time(&format!("duplicates(>=1MB, #{})", v.id.0), &|| {
+            let f = DupFilterInput {
+                min_size: 1_000_000,
+                volume_ids: vec![v.id.0],
+                ..DupFilterInput::default()
+            };
+            let view = app.duplicates(&f, &[]).unwrap();
+            format!("{} groups", view.total_groups)
+        });
+    }
     // REVIEW D70: the similar images among the files of one disk.
     for v in volumes.iter().filter(|v| v.last_indexed_at.is_some()) {
         time(&format!("similar_images(6, #{})", v.id.0), &|| {

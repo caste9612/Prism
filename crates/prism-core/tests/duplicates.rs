@@ -93,8 +93,20 @@ fn f10_groups_with_filters() {
         (none_shown.total_groups, none_shown.total_recoverable),
         (1, 400_000)
     );
+    // REVIEW D71: among the files of the volume, the same group; of another volume, nothing.
+    let on_volume = DupFilter {
+        volumes: vec![volume],
+        ..DupFilter::default()
+    };
+    assert_eq!(
+        cat.store
+            .read(|c| groups(c, &online, &on_volume))
+            .unwrap()
+            .len(),
+        1
+    );
     let by_volume = DupFilter {
-        volume: Some(VolumeId(volume.0 + 1)),
+        volumes: vec![VolumeId(volume.0 + 1)],
         ..DupFilter::default()
     };
     assert!(

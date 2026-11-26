@@ -19,7 +19,8 @@ test('the screens fit the smallest window', async ({ page }) => {
   await openDisk(page, 'Data', 'Duplicates');
   expect(await overflow()).toBe(0);
   expect(await rowHeight('header.topbar', page)).toBeLessThan(70);
-  const bar = page.getByRole('region', { name: /copies selected/ });
+  // REVIEW D71: the duplicates among the files of Data, one copy proposed.
+  const bar = page.getByRole('region', { name: /cop(y|ies) selected/ });
   await expect(bar).toBeVisible();
   expect((await bar.boundingBox())!.height).toBeLessThan(70);
   await expect(bar.getByRole('button', { name: /Delete selected copies/ })).toBeInViewport();

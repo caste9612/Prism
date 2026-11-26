@@ -283,7 +283,7 @@ export function mockBackend(): Backend {
     },
     duplicateGroups: async (filter, rules) => mockDuplicates(volumes, filter, rules, deletedCopies),
     duplicateSpace: async (minSize) =>
-      mockDuplicates(volumes, { minSize, category: null, volumeId: null, folder: null }, [], deletedCopies)
+      mockDuplicates(volumes, { minSize, category: null, volumeIds: [], folder: null }, [], deletedCopies)
         .totalRecoverable,
     deleteDuplicates: async (ids, allowOfflineOnly, permanent) => {
       const result = mockDeleteDuplicates(volumes, ids, allowOfflineOnly, permanent, deletedCopies);

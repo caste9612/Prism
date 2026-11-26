@@ -407,7 +407,9 @@ voci, primi 1000 risultati in ≤ 3 ms anche su 5,5 milioni
   `fileops` con l'hash ricontrollato e la guardia di debug (REVIEW D32).
 - **Duplicati** (`prism-core::duplicates`): gruppi per (`size`, `full`) sugli hash validi, su
   tutti i volumi anche offline, con copie collegate e non, e spazio recuperabile; filtri per
-  dimensione, tipo, volume e cartella (F10-AC5). Regole di selezione pure (F10-AC3): le regole
+  dimensione, tipo, dischi e cartella (F10-AC5). Con dei dischi scelti (`DupFilter::volumes`) i
+  gruppi si fanno solo fra i loro file, nella query di `store::duplicate_files` (REVIEW D71); la
+  regola dell'ultima copia legge sempre tutti i dischi. Regole di selezione pure (F10-AC3): le regole
   "tieni" (sul volume X, la più vecchia, la più recente, il percorso più corto) scelgono in
   ordine la copia che resta, "mai in" protegge una cartella; le copie su dischi scollegati non
   si selezionano mai e una copia resta sempre (F10-AC4). All'eliminazione `check_last_copies`

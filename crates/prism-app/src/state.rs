@@ -579,7 +579,15 @@ impl AppState {
                 (v.id, (v, mount))
             })
             .collect();
-        let pending = self.hashing.pending_files(filter.volume_id.map(VolumeId));
+        let pending = if filter.volume_ids.is_empty() {
+            self.hashing.pending_files(None)
+        } else {
+            filter
+                .volume_ids
+                .iter()
+                .map(|&v| self.hashing.pending_files(Some(VolumeId(v))))
+                .sum()
+        };
         Ok(duplicates_views::view(
             &result,
             &duplicates_views::rules(rules),

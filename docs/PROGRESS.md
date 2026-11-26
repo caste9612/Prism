@@ -27,8 +27,9 @@
   sottofondo, senza attese (L38), verificati su una copia del catalogo aziendale e compilati per
   CPU con POPCNT (L39, D69), e nei Simili i gruppi fra i soli dischi scelti (D70, richiesta
   dell'utente). Il PC di casa (2.2.4 di prova) e quello aziendale (2.2.6 di prova) si
-  aggiornano da soli alla 2.2.7: le copie di prova ricevono le versioni pubblicate. Il lavoro
-  continua direttamente su `develop`.
+  aggiornano da soli alla 2.2.7: le copie di prova ricevono le versioni pubblicate (l'ufficio dal
+  2026-11-23). Su `develop` la **2.2.8**, non ancora pubblicata: nei Duplicati la ricerca fra i
+  soli dischi scelti (D71, richiesta dell'utente). Il lavoro continua direttamente su `develop`.
 - **Prossimo passo**: l'utente usa la 2.2.7 in ufficio. Nuove versioni solo per problemi che
   nota lui, misurati prima sulla copia del catalogo aziendale (cartella temporanea di sviluppo,
   REVIEW L39); se manda un pacchetto: righe `similar images grouped` (`linked_ms`,
@@ -45,6 +46,17 @@
   runner amministratore (`PrismDevAdminTests`) resta finché l'utente non lo rimuove (U6).
 
 ## Diario
+
+### 2026-11-26 — 2.2.8: duplicati fra alcuni dischi
+
+- Pacchetto della 2.2.7 in ufficio (dal 23): nessun errore, il Catalogo non aspetta più dopo il
+  primo minuto; i Simili hanno aspettato 14 s una volta dietro il raggruppamento in sottofondo di
+  tutto il catalogo; i Duplicati costano 5–12 s a ogni filtro; l'aggiornamento automatico è
+  riuscito al secondo tentativo (Prism impegnato a rileggere C: si chiudeva lento). L'utente: la
+  pagina dei duplicati non va, vuole cercare fra alcuni dischi soltanto. Fatto come per i Simili
+  (D71): sul catalogo aziendale da 0,01 s (Home) a 1,7 s (`Organ`). L'utente non trovava la
+  scelta dei dischi nei Simili: c'era solo nella schermata di tutto il catalogo, non nella
+  scheda di un disco. Ora anche lì, partendo da quel disco, nei Simili e nei Duplicati.
 
 ### 2026-11-21 — 2.2.7 pubblicata
 

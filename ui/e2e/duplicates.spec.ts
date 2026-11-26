@@ -113,11 +113,35 @@ test('F16-AC2: copies on a disk without Recycle Bin are deleted permanently, aft
 test('the duplicates of one disk, from its screen', async ({ page }) => {
   await openCatalog(page);
   await openDisk(page, 'Windows', 'Duplicates');
-  // Only the groups with a copy on Windows, without a disk filter to choose.
-  await expect(group(page, 'setup-tools.iso')).toBeVisible();
+  // REVIEW D71: the duplicates among the files of Windows; the ISO has its other copy on Data.
+  await expect(group(page, 'Relazione finale.pdf')).toBeVisible();
+  await expect(group(page, 'setup-tools.iso')).toHaveCount(0);
   await expect(group(page, 'Vacanze 2019.mp4')).toHaveCount(0);
-  await expect(filters(page).getByRole('combobox', { name: 'Disk' })).toHaveCount(0);
+  // Other disks can be added from here: with Data, the ISO too.
+  const disks = filters(page).getByRole('group', { name: 'Disks' });
+  await expect(disks.getByRole('button', { name: 'Windows' })).toHaveAttribute('aria-pressed', 'true');
+  await disks.getByRole('button', { name: 'Data' }).click();
+  await expect(group(page, 'setup-tools.iso')).toBeVisible();
+  await expect(group(page, 'Relazione finale.pdf')).toBeVisible();
   await diskTab(page, 'Space');
+});
+
+test('D71: duplicates among the chosen disks only, the copies elsewhere do not count', async ({ page }) => {
+  await openDuplicates(page);
+  const disks = filters(page).getByRole('group', { name: 'Disks' });
+  await expect(disks.getByRole('button', { name: 'All disks' })).toHaveAttribute('aria-pressed', 'true');
+  await disks.getByRole('button', { name: 'Data' }).click();
+  await disks.getByRole('button', { name: 'Backup Foto' }).click();
+  await expect(page.getByText('3 groups · 4.5 GB recoverable')).toBeVisible();
+  await expect(filters(page)).toContainText('Duplicates among the files of the chosen disks only');
+  // The video without its copy on the NAS, the ISO without its copy on Windows.
+  const video = group(page, 'Vacanze 2019.mp4');
+  await expect(video).toContainText('× 2');
+  await expect(video).not.toContainText('NAS Media');
+  await expect(group(page, 'setup-tools.iso')).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/duplicates-disks.png', fullPage: true });
+  await disks.getByRole('button', { name: 'All disks' }).click();
+  await expect(page.getByText('5 groups · 9.4 GB recoverable')).toBeVisible();
 });
 
 test('F06-AC5: progress on the cards; pause and resume from the settings', async ({ page }) => {

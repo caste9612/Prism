@@ -110,7 +110,10 @@ fn f06_hashes_and_f10_ac1_duplicate_groups() {
     assert!(h("z.bin").is_none(), "empty files are not hashed");
 
     // F10-AC1: one group, a and b.
-    let dups = cat.store.read(|c| store::duplicate_files(c, 1)).unwrap();
+    let dups = cat
+        .store
+        .read(|c| store::duplicate_files(c, 1, &[]))
+        .unwrap();
     let ids: BTreeSet<EntryId> = dups.iter().map(|d| d.entry).collect();
     assert_eq!(
         ids,
@@ -181,7 +184,7 @@ fn f06_ac3_a_changed_file_loses_its_hash_until_hashed_again() {
     );
     assert!(
         cat.store
-            .read(|c| store::duplicate_files(c, 1))
+            .read(|c| store::duplicate_files(c, 1, &[]))
             .unwrap()
             .is_empty()
     );
@@ -189,7 +192,7 @@ fn f06_ac3_a_changed_file_loses_its_hash_until_hashed_again() {
     assert_eq!(report.full, 1);
     assert_eq!(
         cat.store
-            .read(|c| store::duplicate_files(c, 1))
+            .read(|c| store::duplicate_files(c, 1, &[]))
             .unwrap()
             .len(),
         2
